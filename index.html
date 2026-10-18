@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#f5f6f5">
+    <title>Rota · PO çalışma alanı</title>
+    <link rel="stylesheet" href="./src/styles.css">
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="brand-mark"><span></span><span></span><span></span></div>
+          <div><strong>rota</strong><small>PRODUCT WORKSPACE</small></div>
+          <button class="sidebar-toggle" data-action="toggle-sidebar" aria-label="Yan menüyü daralt" title="Yan menüyü daralt">‹</button>
+        </div>
+        <button class="workspace-switcher" title="Çalışma alanını ayarla">
+          <span class="workspace-avatar">K</span>
+          <span class="workspace-label"><strong>Kuzey Finans</strong><small>PO çalışma alanı</small></span>
+          <span class="chevron">⌄</span>
+        </button>
+        <div class="nav-label">ÇALIŞMA ALANI</div>
+        <nav class="primary-nav">
+          <button class="nav-item active" data-view="overview"><span class="nav-icon">◫</span>Genel bakış</button>
+          <button class="nav-item" data-view="backlog"><span class="nav-icon">☷</span>Backlog <span class="nav-count" id="nav-backlog-count">12</span></button>
+          <button class="nav-item" data-view="assets"><span class="nav-icon">▤</span>Ürün envanteri <span class="nav-count" id="nav-assets-count">0</span></button>
+          <button class="nav-item" data-view="teams"><span class="nav-icon">♧</span>Takım paneli <span class="nav-count" id="nav-teams-count">0</span></button>
+          <button class="nav-item" data-view="roadmap"><span class="nav-icon">⌁</span>Yol haritası</button>
+          <button class="nav-item" data-view="releases"><span class="nav-icon">↗</span>Release planı</button>
+          <button class="nav-item" data-view="focus"><span class="nav-icon">◷</span>Kişisel alan</button>
+        </nav>
+        <div class="nav-label project-label">PROJELER <button class="tiny-plus" title="Proje ekle" aria-label="Yeni proje oluştur">+</button></div>
+        <div class="project-list">
+          <button class="project-item selected"><span class="project-dot dot-blue"></span>Ödeme Platformu</button>
+          <button class="project-item"><span class="project-dot dot-violet"></span>Dijital Kanallar</button>
+          <button class="project-item"><span class="project-dot dot-amber"></span>Kredi Yaşam Döngüsü</button>
+        </div>
+        <div class="sidebar-bottom">
+          <div class="storage-card">
+            <div class="storage-icon">▣</div>
+            <div><strong>Yerel çalışma alanı</strong><small>Dosyalar bu cihazda kalır</small></div>
+            <span class="status-dot"></span>
+          </div>
+          <button class="profile" title="Çalışma alanı ve profil ayarları">
+            <span class="profile-avatar">DA</span>
+            <span><strong>Deniz Arslan</strong><small>Product Owner</small></span>
+            <span class="more">···</span>
+          </button>
+        </div>
+      </aside>
+
+      <main class="main-area">
+        <header class="topbar">
+          <div class="breadcrumb"><span>Kuzey Finans</span><span class="crumb-separator">/</span><strong id="breadcrumb-current">Genel bakış</strong></div>
+          <div class="topbar-actions">
+            <label class="global-search"><span>⌕</span><input id="global-search" type="search" placeholder="İşlerde ara…"><kbd>Ctrl K</kbd></label>
+            <button class="icon-button" title="Bildirimler">♧<i></i></button>
+            <div class="topbar-divider"></div>
+            <button class="help-button">?</button>
+          </div>
+        </header>
+        <div id="view-root"></div>
+      </main>
+    </div>
+
+    <div id="modal-root"></div>
+    <div id="toast-root" class="toast-root"></div>
+    <script defer src="./dist/renderer/app.js"></script>
+  </body>
+</html>
