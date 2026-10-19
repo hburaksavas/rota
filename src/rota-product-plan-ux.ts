@@ -101,7 +101,8 @@ const ROTA_PRODUCT_UX_CATALOG = [
   "ROTA-PLAN-197|Son açılan işlere hızlı dönüş|Kişisel hızlandırıcılar|Son görüntülenen işler, kullanıcı seçimiyle kapatılabilen kısa bir geçmiş listesinde sunulur.",
   "ROTA-PLAN-198|İş ve görev formunda otomatik odak|Kişisel hızlandırıcılar|Yeni kayıt formu başlık alanına odaklanır; modal açma sonrası ek tıklama ihtiyacı ortadan kalkar.",
   "ROTA-PLAN-199|Silme ve arşivleme sonrası geri al|Kişisel hızlandırıcılar|Desteklenen silme veya arşivleme işlemi sonrası kısa süreli geri al bildirimi gösterilir.",
-  "ROTA-PLAN-200|Dosya eklerinde sürükle bırak ilerlemesi|Kişisel hızlandırıcılar|Dosya yüklenirken dosya adı ve ilerleme görünür; başarısız ek kullanıcıya yeniden deneme sunar."
+  "ROTA-PLAN-200|Dosya eklerinde sürükle bırak ilerlemesi|Kişisel hızlandırıcılar|Dosya yüklenirken dosya adı ve ilerleme görünür; başarısız ek kullanıcıya yeniden deneme sunar.",
+  "ROTA-PLAN-201|İş ayrıntısı sekmeleri arasında tekerlekle gezinme|Görünüm ve erişilebilirlik|İş ayrıntısındaki sekme çubuğunun üzerinde fare tekerleğiyle önceki veya sonraki bölüme geçilir."
 ];
 
 export const ROTA_PRODUCT_FEATURE_ADDITIONS: RotaProductFeatureImport[] = ROTA_PRODUCT_UX_CATALOG.map((row) => {

@@ -1,4 +1,4 @@
-import { app, BrowserWindow, dialog, ipcMain, shell, type IpcMainInvokeEvent } from "electron";
+import { app, BrowserWindow, dialog, ipcMain, safeStorage, shell, type IpcMainInvokeEvent } from "electron";
 import { autoUpdater } from "electron-updater";
 import { constants } from "node:fs";
 import { access, appendFile, copyFile, mkdir, mkdtemp, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
@@ -21,6 +21,7 @@ const maxBackupBytes = 1024 * 1024 * 1024;
 const restoreStages = new Map<string, { directory: string; files: string[] }>();
 const emailAttachmentPreviews = new Map<string, { files: { name: string; content: Buffer }[]; createdAt: number }>();
 const maxOperationalLogBytes = 1024 * 1024;
+const jiraCredentialFile = "jira-pat.enc";
 const operationalLogReasons = new Set(["clean-exit", "abnormal-exit", "killed", "crashed", "oom", "launch-failed", "integrity-failure"]);
 let operationalLogQueue: Promise<void> = Promise.resolve();
 
@@ -135,6 +136,220 @@ async function cleanRestoreStages(): Promise<void> {
   await rm(directory, { recursive: true, force: true });
   await mkdir(directory, { recursive: true });
 }
+
+function validateJiraBaseUrl(value: unknown): URL {
+  if (typeof value !== "string" || value.length > 2048) throw new Error("Jira Base URL geçersiz.");
+  let url: URL;
+  try { url = new URL(value.trim()); } catch { throw new Error("Jira Base URL geçerli bir HTTPS adresi olmalı."); }
+  const localHttp = url.protocol === "http:" && ["localhost", "127.0.0.1", "::1"].includes(url.hostname);
+  if ((url.protocol !== "https:" && !localHttp) || url.username || url.password || url.search || url.hash) {
+    throw new Error("Jira adresi HTTPS olmalı. Yalnızca localhost için HTTP kullanılabilir; adres kullanıcı bilgisi veya sorgu içermemeli.");
+  }
+  url.pathname = url.pathname.replace(/\/+$/, "");
+  return url;
+}
+
+async function readJiraToken(): Promise<string> {
+  if (!safeStorage.isEncryptionAvailable()) throw new Error("İşletim sistemi güvenli parola saklama özelliği kullanılamıyor.");
+  const encrypted = await readFile(path.join(app.getPath("userData"), jiraCredentialFile)).catch(() => null);
+  if (!encrypted) throw new Error("Jira PAT kaydedilmemiş. Jira panelinden token ekleyin.");
+  try { return safeStorage.decryptString(encrypted); }
+  catch { throw new Error("Kaydedilmiş Jira PAT okunamadı. Tokenı yeniden kaydedin."); }
+}
+
+async function jiraRequest(baseValue: unknown, resource: string, init: RequestInit = {}): Promise<unknown> {
+  const base = validateJiraBaseUrl(baseValue);
+  const token = await readJiraToken();
+  const url = new URL(base.toString().replace(/\/$/, "") + resource);
+  if (url.origin !== base.origin || !url.pathname.startsWith(base.pathname.replace(/\/$/, "") + "/rest/")) throw new Error("Jira isteği adres doğrulamasından geçemedi.");
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      headers: { Accept: "application/json", Authorization: "Bearer " + token, ...(init.body ? { "Content-Type": "application/json" } : {}), ...init.headers },
+      redirect: "error",
+      signal: AbortSignal.timeout(20000)
+    });
+  } catch {
+    throw new Error("Jira’ya ulaşılamadı. Base URL, VPN/ağ erişimi ve TLS sertifikasını kontrol edin.");
+  }
+  if (response.status === 401 || response.status === 403) throw new Error("Jira PAT geçersiz olabilir veya bu hesapta gerekli izin yok.");
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    if (response.status === 400 && body) {
+      try {
+        const details = JSON.parse(body) as Record<string, unknown>;
+        const messages = Array.isArray(details.errorMessages) ? details.errorMessages.filter((entry): entry is string => typeof entry === "string") : [];
+        const fields = isRecord(details.errors) ? Object.keys(details.errors) : [];
+        const hints = [...messages, ...(fields.length ? ["Ek zorunlu/geçersiz alanlar: " + fields.join(", ")] : [])].join(" ").slice(0, 500);
+        if (hints) throw new Error("Jira issue oluşturamadı. " + hints);
+      } catch (error) { if (error instanceof Error && error.message.startsWith("Jira issue oluşturamadı.")) throw error; }
+    }
+    throw new Error("Jira isteği başarısız oldu (" + response.status + "). REST API izinlerini ve issue alanlarını kontrol edin.");
+  }
+  try { return await response.json(); } catch { throw new Error("Jira geçerli JSON yanıtı vermedi."); }
+}
+
+ipcMain.handle("jira:has-token", async (event) => {
+  assertTrustedSender(event);
+  if (!safeStorage.isEncryptionAvailable()) return false;
+  return Boolean(await readFile(path.join(app.getPath("userData"), jiraCredentialFile)).catch(() => null));
+});
+
+ipcMain.handle("jira:save-token", async (event, rawToken: unknown) => {
+  assertTrustedSender(event);
+  if (typeof rawToken !== "string" || rawToken.trim().length < 8 || rawToken.length > 2048) throw new Error("Jira PAT geçerli değil.");
+  if (!safeStorage.isEncryptionAvailable()) throw new Error("İşletim sistemi güvenli parola saklama özelliği kullanılamıyor; PAT kaydedilmedi.");
+  const directory = app.getPath("userData");
+  await mkdir(directory, { recursive: true });
+  const encrypted = safeStorage.encryptString(rawToken.trim());
+  const temporary = path.join(directory, jiraCredentialFile + "." + randomUUID() + ".tmp");
+  try { await writeFile(temporary, encrypted, { flag: "wx" }); await rename(temporary, path.join(directory, jiraCredentialFile)); }
+  catch (error) { await rm(temporary, { force: true }); throw error; }
+});
+
+ipcMain.handle("jira:remove-token", async (event) => {
+  assertTrustedSender(event);
+  await rm(path.join(app.getPath("userData"), jiraCredentialFile), { force: true });
+});
+
+ipcMain.handle("jira:open-token-page", async (event, rawBaseUrl: unknown) => {
+  assertTrustedSender(event);
+  const base = validateJiraBaseUrl(rawBaseUrl);
+  const profileUrl = new URL(base.toString().replace(/\/$/, "") + "/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin%3Ajira-user-personal-access-tokens");
+  await shell.openExternal(profileUrl.toString());
+});
+
+ipcMain.handle("jira:open-issue", async (event, rawBaseUrl: unknown, rawIssueKey: unknown) => {
+  assertTrustedSender(event);
+  if (typeof rawIssueKey !== "string" || !/^[A-Z][A-Z0-9_]{0,29}-\d{1,12}$/.test(rawIssueKey)) throw new Error("Jira issue key geçersiz.");
+  const base = validateJiraBaseUrl(rawBaseUrl);
+  await shell.openExternal(new URL(base.toString().replace(/\/$/, "") + "/browse/" + rawIssueKey).toString());
+});
+
+ipcMain.handle("jira:list-dashboards", async (event, baseUrl: unknown) => {
+  assertTrustedSender(event);
+  const result = await jiraRequest(baseUrl, "/rest/api/2/dashboard") as Record<string, unknown>;
+  const values = Array.isArray(result) ? result : Array.isArray(result.dashboards) ? result.dashboards : [];
+  return values.flatMap((entry) => isRecord(entry) && (typeof entry.id === "string" || typeof entry.id === "number") && typeof entry.name === "string"
+    ? [{ id: String(entry.id), name: entry.name, ...(typeof entry.view === "string" ? { viewUrl: entry.view } : {}) }] : []);
+});
+
+ipcMain.handle("jira:list-filters", async (event, baseUrl: unknown) => {
+  assertTrustedSender(event);
+  const results = await Promise.all(["/rest/api/2/filter/favourite", "/rest/api/2/filter/my"].map(async (resource) => {
+    try {
+      const result = await jiraRequest(baseUrl, resource);
+      return Array.isArray(result) ? result : isRecord(result) && Array.isArray(result.values) ? result.values : [];
+    } catch { return []; }
+  }));
+  const byId = new Map<string, Record<string, unknown>>();
+  for (const entry of results.flat()) if (isRecord(entry) && (typeof entry.id === "string" || typeof entry.id === "number")) byId.set(String(entry.id), entry);
+  const values = [...byId.values()];
+  return values.flatMap((entry) => isRecord(entry) && (typeof entry.id === "string" || typeof entry.id === "number") && typeof entry.name === "string"
+    ? [{ id: String(entry.id), name: entry.name, ...(typeof entry.jql === "string" ? { jql: entry.jql } : {}) }] : []);
+});
+
+ipcMain.handle("jira:fetch-filter-issues", async (event, rawBaseUrl: unknown, rawFilterId: unknown) => {
+  assertTrustedSender(event);
+  if (typeof rawFilterId !== "string" || !/^\d{1,20}$/.test(rawFilterId)) throw new Error("Jira filtresi geçersiz.");
+  const base = validateJiraBaseUrl(rawBaseUrl);
+  const result = await jiraRequest(base.href.replace(/\/$/, ""), "/rest/api/2/search", {
+    method: "POST",
+    body: JSON.stringify({ jql: "filter = " + rawFilterId + " ORDER BY updated DESC", fields: ["summary", "issuetype", "status", "priority", "assignee", "updated"], startAt: 0, maxResults: 100 })
+  });
+  if (!isRecord(result) || !Array.isArray(result.issues)) throw new Error("Jira arama sonucu beklenen biçimde değil.");
+  return result.issues.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.key !== "string" || !isRecord(entry.fields)) return [];
+    const fields = entry.fields;
+    const recordField = (key: string, fieldName: string): string => isRecord(fields[key]) && typeof fields[key][fieldName] === "string" ? String(fields[key][fieldName]) : "";
+    const assignee = isRecord(fields.assignee) ? String(fields.assignee.displayName || fields.assignee.name || "Atanmadı") : "Atanmadı";
+    const browseUrl = new URL(base.toString().replace(/\/$/, "") + "/browse/" + encodeURIComponent(entry.key));
+    return [{ id: String(entry.id || entry.key), key: entry.key, summary: String(fields.summary || ""), issueType: recordField("issuetype", "name"), status: recordField("status", "name"), priority: recordField("priority", "name"), assignee, updated: String(fields.updated || ""), browseUrl: browseUrl.toString() }];
+  });
+});
+
+function jiraNumericId(value: unknown, label: string): string {
+  if (typeof value !== "string" || !/^\d{1,20}$/.test(value)) throw new Error(label + " geçersiz.");
+  return value;
+}
+
+ipcMain.handle("jira:list-boards", async (event, baseUrl: unknown) => {
+  assertTrustedSender(event);
+  const result = await jiraRequest(baseUrl, "/rest/agile/1.0/board?startAt=0&maxResults=100");
+  const values = isRecord(result) && Array.isArray(result.values) ? result.values : [];
+  return values.flatMap((entry) => isRecord(entry) && (typeof entry.id === "string" || typeof entry.id === "number") && typeof entry.name === "string"
+    ? [{ id: String(entry.id), name: entry.name, type: String(entry.type || "") }] : []);
+});
+
+ipcMain.handle("jira:list-board-projects", async (event, baseUrl: unknown, rawBoardId: unknown) => {
+  assertTrustedSender(event);
+  const boardId = jiraNumericId(rawBoardId, "Jira board");
+  const result = await jiraRequest(baseUrl, "/rest/agile/1.0/board/" + boardId + "/project?startAt=0&maxResults=100");
+  const values = Array.isArray(result) ? result : isRecord(result) && Array.isArray(result.values) ? result.values : [];
+  return values.flatMap((entry) => isRecord(entry) && (typeof entry.id === "string" || typeof entry.id === "number") && typeof entry.key === "string" && typeof entry.name === "string"
+    ? [{ id: String(entry.id), key: entry.key, name: entry.name }] : []);
+});
+
+ipcMain.handle("jira:list-sprints", async (event, baseUrl: unknown, rawBoardId: unknown) => {
+  assertTrustedSender(event);
+  const boardId = jiraNumericId(rawBoardId, "Jira board");
+  const result = await jiraRequest(baseUrl, "/rest/agile/1.0/board/" + boardId + "/sprint?state=active,future,closed&startAt=0&maxResults=100");
+  const values = isRecord(result) && Array.isArray(result.values) ? result.values : [];
+  return values.flatMap((entry) => isRecord(entry) && (typeof entry.id === "string" || typeof entry.id === "number") && typeof entry.name === "string"
+    ? [{ id: String(entry.id), name: entry.name, state: String(entry.state || "unknown"), ...(typeof entry.startDate === "string" ? { startDate: entry.startDate } : {}), ...(typeof entry.endDate === "string" ? { endDate: entry.endDate } : {}), ...(typeof entry.goal === "string" ? { goal: entry.goal } : {}) }] : []);
+});
+
+ipcMain.handle("jira:fetch-board-issues", async (event, rawBaseUrl: unknown, rawBoardId: unknown, rawScope: unknown, rawSprintId: unknown) => {
+  assertTrustedSender(event);
+  const boardId = jiraNumericId(rawBoardId, "Jira board");
+  let resource: string;
+  if (rawScope === "backlog") resource = "/rest/agile/1.0/board/" + boardId + "/backlog";
+  else if (rawScope === "board") resource = "/rest/agile/1.0/board/" + boardId + "/issue";
+  else if (rawScope === "sprint") resource = "/rest/agile/1.0/board/" + boardId + "/sprint/" + jiraNumericId(rawSprintId, "Jira sprint") + "/issue";
+  else throw new Error("Jira kayıt kapsamı geçersiz.");
+  const result = await jiraRequest(rawBaseUrl, resource + "?startAt=0&maxResults=100&fields=summary,issuetype,status,priority,assignee,updated");
+  if (!isRecord(result) || !Array.isArray(result.issues)) throw new Error("Jira issue yanıtı beklenen biçimde değil.");
+  const base = validateJiraBaseUrl(rawBaseUrl);
+  return result.issues.flatMap((entry) => {
+    if (!isRecord(entry) || typeof entry.key !== "string" || !isRecord(entry.fields)) return [];
+    const fields = entry.fields;
+    const recordField = (key: string, fieldName: string): string => isRecord(fields[key]) && typeof fields[key][fieldName] === "string" ? String(fields[key][fieldName]) : "";
+    const assignee = isRecord(fields.assignee) ? String(fields.assignee.displayName || fields.assignee.name || "Atanmadı") : "Atanmadı";
+    return [{ id: String(entry.id || entry.key), key: entry.key, summary: String(fields.summary || ""), issueType: recordField("issuetype", "name"), status: recordField("status", "name"), priority: recordField("priority", "name"), assignee, updated: String(fields.updated || ""), browseUrl: new URL(base.toString().replace(/\/$/, "") + "/browse/" + encodeURIComponent(entry.key)).toString() }];
+  });
+});
+
+ipcMain.handle("jira:list-issue-types", async (event, rawBaseUrl: unknown, rawProjectKey: unknown) => {
+  assertTrustedSender(event);
+  if (typeof rawProjectKey !== "string" || !/^[A-Z][A-Z0-9_]{0,29}$/.test(rawProjectKey)) throw new Error("Jira proje anahtarı geçersiz.");
+  const result = await jiraRequest(rawBaseUrl, "/rest/api/2/issue/createmeta?projectKeys=" + encodeURIComponent(rawProjectKey) + "&expand=projects.issuetypes");
+  const projects = isRecord(result) && Array.isArray(result.projects) ? result.projects : [];
+  const project = projects.find((entry) => isRecord(entry) && entry.key === rawProjectKey);
+  const types = isRecord(project) && Array.isArray(project.issuetypes) ? project.issuetypes : [];
+  return types.flatMap((entry) => isRecord(entry) && (typeof entry.id === "string" || typeof entry.id === "number") && typeof entry.name === "string"
+    ? [{ id: String(entry.id), name: entry.name, subtask: entry.subtask === true }] : []);
+});
+
+ipcMain.handle("jira:create-issue", async (event, rawBaseUrl: unknown, rawBoardId: unknown, rawProjectKey: unknown, rawIssueTypeId: unknown, rawSummary: unknown, rawDescription: unknown) => {
+  assertTrustedSender(event);
+  const boardId = jiraNumericId(rawBoardId, "Jira board");
+  if (typeof rawProjectKey !== "string" || !/^[A-Z][A-Z0-9_]{0,29}$/.test(rawProjectKey)) throw new Error("Jira proje anahtarı geçersiz.");
+  const issueTypeId = jiraNumericId(rawIssueTypeId, "Jira issue türü");
+  if (typeof rawSummary !== "string" || !rawSummary.trim() || rawSummary.trim().length > 255) throw new Error("Issue başlığı 1–255 karakter olmalı.");
+  if (typeof rawDescription !== "string" || rawDescription.length > 30000) throw new Error("Issue açıklaması 30.000 karakteri aşamaz.");
+  const projects = await jiraRequest(rawBaseUrl, "/rest/agile/1.0/board/" + boardId + "/project?startAt=0&maxResults=100");
+  const values = Array.isArray(projects) ? projects : isRecord(projects) && Array.isArray(projects.values) ? projects.values : [];
+  if (!values.some((entry) => isRecord(entry) && entry.key === rawProjectKey)) throw new Error("Seçilen Jira projesi bu board’un proje kapsamı içinde görünmüyor; issue oluşturulmadı.");
+  const types = await jiraRequest(rawBaseUrl, "/rest/api/2/issue/createmeta?projectKeys=" + encodeURIComponent(rawProjectKey) + "&expand=projects.issuetypes");
+  const projectEntries = isRecord(types) && Array.isArray(types.projects) ? types.projects : [];
+  const project = projectEntries.find((entry) => isRecord(entry) && entry.key === rawProjectKey);
+  const issueTypes = isRecord(project) && Array.isArray(project.issuetypes) ? project.issuetypes : [];
+  if (!issueTypes.some((entry) => isRecord(entry) && String(entry.id) === issueTypeId && entry.subtask !== true)) throw new Error("Issue türü bu Jira projesinde oluşturulabilir değil.");
+  const result = await jiraRequest(rawBaseUrl, "/rest/api/2/issue", { method: "POST", body: JSON.stringify({ fields: { project: { key: rawProjectKey }, issuetype: { id: issueTypeId }, summary: rawSummary.trim(), description: rawDescription.trim() } }) });
+  if (!isRecord(result) || typeof result.key !== "string" || (typeof result.id !== "string" && typeof result.id !== "number")) throw new Error("Jira issue oluşturdu ancak yanıt anahtarını doğrulayamadı.");
+  return { id: String(result.id), key: result.key };
+});
 
 ipcMain.handle("backup:export", async (event, rawWorkspace: unknown, rawFormat: unknown) => {
   assertTrustedSender(event);

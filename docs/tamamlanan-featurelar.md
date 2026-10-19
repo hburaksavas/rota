@@ -10,6 +10,13 @@
 - **ROTA-PLAN-091 · Haftalık ürün özeti:** Tamamlanan işler, yeni blokajlar, hedef tarihli işler ve release'ler haftaya göre özetlenir; PO notu kaydedilip kopyalanabilir.
 - **ROTA-PLAN-099 · PO devir paketi:** Proje hedefleri, kararlar, blokajlar, riskler, sprintler, release'ler ve notlar tek belgede birleştirilir; özel devir notu kaydedilebilir, kopyalanabilir veya yazdırılabilir.
 
+### Jira Server entegrasyonu — ilk dilim
+
+- **ROTA-PLAN-034 · Jira Base URL ve PAT bağlantısı:** İlk kurulumda isteğe bağlı Jira Base URL alınır; aynı adres çalışma alanı ayarlarından düzenlenebilir. Adres yoksa Jira menüsü kapalı kalır. Kullanıcı Jira’da kendi hesabı için Personal Access Token (PAT) oluşturup Jira paneline kaydeder; token işletim sisteminin Electron `safeStorage` korumasıyla şifrelenir, localStorage’a ve çalışma alanı yedeklerine eklenmez. REST çağrıları Electron ana sürecinden Bearer kimlik doğrulamasıyla yapılır.
+- **ROTA-PLAN-035 · Jira Agile board, backlog ve sprint kayıtları:** Erişilebilen Agile board’lar listelenir. PO seçili board’un backlog’unu, tüm board işlerini veya bir sprinti görüntüler; aktif, gelecek ve tamamlanmış sprintler seçilebilir. Her sorguda ilk 100 kayıt canlı alınır.
+- **ROTA-PLAN-252 · Rota backlog işinden Jira issue oluşturma:** Jira panelinde board kapsamındaki proje ve Jira’nın oluşturulabilir issue türü seçilir. PO Rota işini seçip Jira’ya gönderilecek başlık ve açıklamayı düzenler; son onaydan sonra issue oluşturulur. Jira anahtarı Rota işine bağlanır, iş günlüğüne eklenir ve aynı işten tekrar issue açılması engellenir.
+- **ROTA-PLAN-253 · Sabit sayfa çerçevesi ve içerik içi kaydırma:** Uygulama penceresinin kendisi dikey kaymaz; üst çubuk ve sayfa başlığı yerinde kalır. Sayfa gövdeleri kendi sınırlı alanında kayar. Backlog tablosu/board, açık soru listesi, envanter kartları ve Jira issue listesi ayrıca kendi iç kaydırma alanlarını kullanır.
+
 Bu dosya, uygulamada tamamlanıp kullanılabilir hale gelen özelliklerin kaydıdır. Yeni bir ister tamamlandığında önce `bekleyen-featurelar.md` dosyasından kaldır, sonra buraya ekle.
 
 ## Ürün amacı
@@ -44,7 +51,7 @@ Rota, banka yazılımı üzerinde çalışan product owner'ın ürün backlog'un
 - Backlog işlerini oluşturma, görüntüleme, düzenleme ve onayla silme. Başlık, proje, tür, durum, öncelik, ürün alanı, açıklama ve kabul kriterleri düzenlenebilir.
 - Liste ve pano görünümü; arama ile durum, tür, etiket, takım ve sorumlu filtreleri.
 - Backlog'u Excel çalışma kitabı olarak dışa aktarma. İş alanları, atamalar, kabul kriterleri, bağımlılıklar, sprint bilgisi ve aktivite geçmişi ayrı alan/sayfalarda; iş ve aktivite eklerinin ad/boyut bilgileri ekler sayfasında tutulur. Sprintler tek takım, tarih aralığı ve iş kapsamıyla ayrı sayfada listelenir. Seçili proje kapsamındaki tüm işler alınır; eklerin ikili içeriği Excel'e gömülmez.
-- **ROTA-PLAN-044 · Backlog kolonlarını düzenleme:** Kolonlar panelinden tablo alanları eklenip gizlenebilir ve görünen kolonlar yukarı/aşağı taşınarak sıralanabilir. İş başlığı sabittir. Kolonlar, önizleme ve Excel araçları aynı sağ hizalı satırdadır; bu araç satırı Liste kipinde görünür, Board’da gizlenir. Tercih cihazda saklanır. Tür, ürün alanı, öncelik, durum, güncelleme zamanı, atama, proje, açıklama, etiket, plan, efor, ürün aşaması, release, sprint, bileşen, ek/kabul kriteri sayısı, bağımlılık, blokaj ve son aktivite kolonları kullanılabilir.
+- **ROTA-PLAN-044 · Backlog kolonlarını düzenleme:** Kolonlar panelinden tablo alanları eklenip gizlenebilir ve görünen kolonlar yukarı/aşağı taşınarak sıralanabilir. İş başlığı sabittir. Kolonlar, önizleme ve Excel araçları aynı sağ hizalı satırdadır; bu araç satırı Liste kipinde görünür, Board’da gizlenir. Tercih cihazda saklanır. Son aktivite kolonu son olayın açıklamasını, yapan kişiyi ve geçen süreyi gösterir; aktivite geçmişi yoksa teknik güncelleme etiketi yerine “Henüz aktivite yok” yazar. Son güncelleme zamanı ayrı kolonda kalır.
 - **ROTA-PLAN-045 · Kaydedilmiş backlog görünümleri:** Liste veya Board görünümündeki proje kapsamı, arama metni, durum/tür/etiket/takım/üye filtreleri, sıralama ve kolon düzeni adlandırılmış görünüm olarak saklanabilir ve tekrar uygulanabilir. Görünümler güncellenebilir, yeniden adlandırılabilir veya silinebilir. Sıralama başlık, öncelik, durum, hedef tarih veya son aktiviteye göre yapılabilir; yerel tercihler cihazda saklanır.
 - **ROTA-PLAN-046 · Satır içi hızlı düzenleme:** Liste satırından başlık, durum ve atamalar doğrudan düzenlenebilir. Başlık ve durum değişiklikleri iş geçmişine kaydedilir. Bloke duruma geçişte neden, beklenen karar/iş, sonraki adım ve takip sahibi zorunludur; kaydedince backlog görünümünde kalınır. Bir işe birden fazla takım/üye satırdan eklenip kaldırılabilir; eski ve yeni atamalar geçmişe yazılır.
 - Backlog işlerinde başlangıç ve hedef bitiş tarihi ile saat cinsinden tahmini efor tutulur; iş ayrıntısında görünür ve değişiklik geçmişine kaydedilir.
@@ -294,12 +301,13 @@ Bu grup hızlı kayıt, Outlook e-posta kaynağını izleme, backlog görünüm/
 - **ROTA-PLAN-184 · Diyagramda geri al ve yinele:** İş devir diyagramında 50 adıma kadar değişiklik geçmişi geri alınabilir ve yeniden uygulanabilir.
 - **ROTA-PLAN-188 · Diyagram oku etiketini doğrudan düzenleme:** Ok etiketine çift tıklayıp yeni değeri gir; değişiklik doğrudan kaydedilir.
 - **ROTA-PLAN-200 · Dosya eklerinde sürükle bırak ilerlemesi:** Dosya ekleri içe aktarılırken dosya adları ve aktarım durumu görünür; aktarım hatasında aynı dosyalar yeniden denenebilir.
+- **ROTA-PLAN-201 · İş ayrıntısı sekmeleri arasında tekerlekle gezinme:** Sekme çubuğunun üzerindeyken fare tekerleğiyle önceki veya sonraki sekmeye geçilir; panelin geri kalanındaki dikey kaydırma korunur.
 
 ## Mevcut sürümün sınırları
 
 - Uygulama Electron + TypeScript ile tek kullanıcılı ve yerel çalışan bir masaüstü prototipidir.
 - Takım ve üye adları atama etiketidir; üyeler ayrı kullanıcı hesabı değildir. Uygulama gerçek bir takımın kimin ne yaptığını veya değişikliği kimin gerçekleştirdiğini henüz takip etmez.
-- Outlook e-postasının gövdesinden otomatik iş/görev çıkarımı ve Jira entegrasyonu yoktur.
+- Outlook e-postasının gövdesinden otomatik iş/görev çıkarımı; Jira’ya kayıt yazma ve çift yönlü senkronizasyon henüz yoktur.
 - Yedek dosyası çalışma alanı verisini ve ekleri içerir; yedek kullanıcı tarafından seçilen konuma yazılır ve dosya ayrıca korunmalıdır.
 - Prototipe gerçek müşteri, hesap, kart veya kimlik verisi eklemeyin.
 

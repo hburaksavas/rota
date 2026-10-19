@@ -45,7 +45,7 @@ const STORAGE_KEY = "rota-po-workspace-v1";
 const ROTA_PRODUCT_PROJECT_ID = "rota-product";
 const ROTA_PRODUCT_PROJECT_NAME = "Rota · PO çalışma alanı";
 const ROTA_PRODUCT_IMPORT_KEY = "rota-product-plan-import-v1";
-const ROTA_PRODUCT_IMPORT_VERSION = "v43";
+const ROTA_PRODUCT_IMPORT_VERSION = "v48";
 const ROTA_PRODUCT_UX_REFRESH_KEY = "rota-product-plan-ux-refresh-v1";
 const ROTA_PRODUCT_UPDATES_KEY = "rota-product-plan-updates-v1";
 const BACKLOG_PREVIEW_PREFERENCE_KEY = "rota-backlog-preview-enabled";
@@ -201,6 +201,21 @@ let archiveQuery = "";
 let selectedDailyDate = new Date().toISOString().slice(0, 10);
 let selectedHandoverProjectId = "";
 let selectedWeeklyStart = "";
+let jiraBoards: JiraBoard[] = [];
+let jiraProjects: JiraProject[] = [];
+let jiraSprints: JiraSprint[] = [];
+let jiraIssueTypes: JiraIssueType[] = [];
+let jiraIssues: JiraIssue[] = [];
+let jiraSelectedBoardId = "";
+let jiraSelectedProjectKey = "";
+let jiraSelectedSprintId = "";
+let jiraSelectedIssueTypeId = "";
+let jiraIssueScope: "backlog" | "board" | "sprint" = "backlog";
+let jiraSelectedRotaItemId = "";
+let jiraHasSavedToken = false;
+let jiraLoading = false;
+let jiraError = "";
+let jiraCatalogLoadedFor = "";
 
 const defaultAcceptanceTemplates: AcceptanceTemplate[] = [
   { id: "tpl-story-bank", name: "Story · Bankacılık akışı", category: "Story", criteria: ["Başarılı ve alternatif akışlar tanımlı.", "Yetki, limit ve uygunluk kontrolleri belirtilmiş.", "İşlem sonucu ve müşteri bilgilendirmesi tanımlı.", "İşlem kaydı ve denetim izi doğrulanabilir."] },
@@ -211,6 +226,24 @@ state.acceptanceTemplates = [...defaultAcceptanceTemplates, ...(state.acceptance
 
 const root = document.getElementById("view-root") as HTMLElement;
 const modalRoot = document.getElementById("modal-root") as HTMLElement;
+const pageLayoutObserver = new MutationObserver(() => {
+  const page = root.firstElementChild;
+  if (!(page instanceof HTMLElement) || !page.classList.contains("page-content") || page.dataset.scrollLayout === "ready") return;
+  page.dataset.scrollLayout = "ready";
+  if (page.classList.contains("backlog-page")) return;
+  const heading = page.querySelector<HTMLElement>(":scope > .page-title-row, :scope > .welcome-row");
+  if (!heading) return;
+  const content = document.createElement("div");
+  content.className = "page-scroll-region";
+  let sibling = heading.nextElementSibling;
+  while (sibling) {
+    const next = sibling.nextElementSibling;
+    content.append(sibling);
+    sibling = next;
+  }
+  page.append(content);
+});
+pageLayoutObserver.observe(root, { childList: true });
 if (localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === "true") document.querySelector(".sidebar")?.classList.add("collapsed");
 document.body.style.zoom = localStorage.getItem(FONT_SCALE_KEY) || "1";
 if (localStorage.getItem(HIGH_CONTRAST_KEY) === "true") document.body.classList.add("high-contrast");
@@ -663,14 +696,23 @@ function undoLastDeletion(): void {
 }
 
 function setView(view: string): void {
+  if (view === "jira" && !state.profile.jiraBaseUrl?.trim()) { toast("Jira devre dışı. Kurulum veya çalışma alanı ayarlarına Base URL ekle."); return; }
   if (activeView === "assets" && view !== "assets") disposeAssetDiagram();
   activeView = view;
   activeProjectId = null;
   activeBacklogViewId = "";
   document.querySelectorAll<HTMLElement>(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
-  const names: Record<string, string> = { overview: "Genel bakış", backlog: "Backlog", assets: "Ürün envanteri", teams: "Takım paneli", roadmap: "Yol haritası", releases: "Release planı", focus: "Kişisel alan", questions: "Açık sorular", "daily-plan": "Günlük plan", "weekly-summary": "Haftalık özet", "archive-search": "Arşivde ara", handover: "PO devir paketi" };
+  const names: Record<string, string> = { overview: "Genel bakış", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", teams: "Takım paneli", roadmap: "Yol haritası", releases: "Release planı", focus: "Kişisel alan", questions: "Açık sorular", "daily-plan": "Günlük plan", "weekly-summary": "Haftalık özet", "archive-search": "Arşivde ara", handover: "PO devir paketi" };
   (document.getElementById("breadcrumb-current") as HTMLElement).textContent = names[view] ?? "Genel bakış";
   render();
+}
+
+function validJiraBaseUrl(value: string): boolean {
+  if (!value.trim()) return true;
+  try {
+    const url = new URL(value.trim());
+    return (url.protocol === "https:" || (url.protocol === "http:" && ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))) && !url.username && !url.password && !url.search && !url.hash;
+  } catch { return false; }
 }
 
 function setProject(id: string): void {
@@ -722,8 +764,14 @@ function render(): void {
   if (teamCount) teamCount.textContent = String(state.teams.length);
   const questionCount = document.getElementById("nav-question-count");
   if (questionCount) questionCount.textContent = String((state.openQuestions || []).filter((question) => question.status === "Açık").length);
+  const jiraNav = document.querySelector<HTMLButtonElement>('.nav-item[data-view="jira"]');
+  const jiraState = document.getElementById("jira-nav-state");
+  const jiraEnabled = Boolean(state.profile.jiraBaseUrl?.trim());
+  if (jiraNav) { jiraNav.disabled = !jiraEnabled; jiraNav.title = jiraEnabled ? "Jira Server paneli" : "Jira kapalı · Kurulum veya çalışma alanı ayarlarına Base URL ekleyin"; jiraNav.classList.toggle("nav-disabled", !jiraEnabled); }
+  if (jiraState) jiraState.textContent = jiraEnabled ? "Hazır" : "Kapalı";
   if (activeView === "overview") renderOverview();
   else if (activeView === "backlog") renderBacklog();
+  else if (activeView === "jira") renderJira();
   else if (activeView === "assets") renderAssets();
   else if (activeView === "teams") renderTeamDashboard();
   else if (activeView === "roadmap") renderRoadmap();
@@ -734,6 +782,120 @@ function render(): void {
   else if (activeView === "archive-search") renderArchiveSearch();
   else if (activeView === "handover") renderHandover();
   else renderFocus();
+}
+
+function renderJira(): void {
+  const baseUrl = state.profile.jiraBaseUrl?.trim() || "";
+  if (!baseUrl) {
+    root.innerHTML = '<div class="page-content jira-page"><div class="page-title-row"><div><div class="eyebrow">ENTEGRASYON</div><h1>Jira</h1><p>Jira Base URL tanımlanmadan entegrasyon devre dışıdır.</p></div></div><section class="panel jira-empty"><div class="jira-empty-icon">◈</div><h2>Jira bağlantısı kapalı</h2><p>Jira adresini ilk kurulumda veya çalışma alanı ayarlarında ekleyebilirsin.</p><button class="button button-primary" data-action="open-workspace-settings">Çalışma alanı ayarlarını aç</button></section></div>';
+    return;
+  }
+  if (jiraCatalogLoadedFor !== baseUrl && !jiraLoading) void loadJiraCatalog();
+  const boardOptions = '<option value="">Agile board seç</option>' + jiraBoards.map((board) => '<option value="' + esc(board.id) + '" ' + (board.id === jiraSelectedBoardId ? "selected" : "") + '>' + esc(board.name + (board.type ? " · " + board.type : "")) + '</option>').join("");
+  const projectOptions = '<option value="">Board projesi seç</option>' + jiraProjects.map((project) => '<option value="' + esc(project.key) + '" ' + (project.key === jiraSelectedProjectKey ? "selected" : "") + '>' + esc(project.key + " · " + project.name) + '</option>').join("");
+  const sprintOptions = '<option value="">Sprint seç</option>' + jiraSprints.map((sprint) => '<option value="' + esc(sprint.id) + '" ' + (sprint.id === jiraSelectedSprintId ? "selected" : "") + '>' + esc(sprint.name + " · " + sprint.state) + '</option>').join("");
+  const issueTypeOptions = '<option value="">Issue türü seç</option>' + jiraIssueTypes.filter((type) => !type.subtask).map((type) => '<option value="' + esc(type.id) + '" ' + (type.id === jiraSelectedIssueTypeId ? "selected" : "") + '>' + esc(type.name) + '</option>').join("");
+  const rotaItems = state.items.filter((item) => !item.archived).sort((a, b) => a.title.localeCompare(b.title, "tr"));
+  if (!rotaItems.some((item) => item.id === jiraSelectedRotaItemId)) jiraSelectedRotaItemId = rotaItems.find((item) => !item.jiraIssueKey)?.id || rotaItems[0]?.id || "";
+  const selectedRotaItem = rotaItems.find((item) => item.id === jiraSelectedRotaItemId);
+  const rotaItemOptions = '<option value="">Rota backlog işi seç</option>' + rotaItems.map((item) => '<option value="' + esc(item.id) + '" ' + (item.id === jiraSelectedRotaItemId ? "selected" : "") + '>' + esc(item.id + " · " + item.title + (item.jiraIssueKey ? " · " + item.jiraIssueKey : "")) + '</option>').join("");
+  const rows = jiraIssues.map((issue) => '<tr><td><button class="jira-issue-key" data-action="jira-open-issue" data-issue-key="' + esc(issue.key) + '">' + esc(issue.key) + '</button></td><td class="jira-issue-summary">' + esc(issue.summary) + '</td><td>' + esc(issue.issueType || "—") + '</td><td><span class="jira-status">' + esc(issue.status || "—") + '</span></td><td>' + esc(issue.priority || "—") + '</td><td>' + esc(issue.assignee) + '</td><td>' + esc(issue.updated ? new Date(issue.updated).toLocaleString("tr-TR") : "—") + '</td></tr>').join("");
+  root.innerHTML = '<div class="page-content jira-page"><div class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>ENTEGRASYON · JIRA SERVER / DATA CENTER</div><h1>Jira Agile board</h1><p>Board backlog’unu ve sprintlerini görüntüle; Rota backlog işini seçili board’un Jira projesinde issue olarak oluştur.</p></div><button class="button button-secondary" data-action="jira-refresh" ' + (jiraLoading ? "disabled" : "") + '>' + (jiraLoading ? "Bağlanıyor…" : "Yenile") + '</button></div>' +
+    '<section class="panel jira-connection-card"><div class="jira-connection-top"><div><div class="panel-kicker">BAĞLANTI</div><strong class="jira-url-label">' + esc(baseUrl) + '</strong><p>Kimlik doğrulama, Jira’da kendi hesabın için oluşturduğun PAT ile yapılır.</p></div><span class="jira-connection-pill ' + (jiraHasSavedToken ? "is-connected" : "") + '">' + (jiraHasSavedToken ? "PAT kayıtlı · şifreli" : "PAT gerekli") + '</span></div><div class="jira-token-actions">' + (jiraHasSavedToken
+      ? '<button class="button button-secondary" data-action="jira-open-token-page">Jira’da tokenları yönet</button><button class="button button-quiet" data-action="jira-replace-token">PAT değiştir</button><button class="button button-quiet jira-remove-token" data-action="jira-remove-token">Bağlantıyı kaldır</button>'
+      : '<button class="button button-secondary" data-action="jira-open-token-page">Jira’da PAT oluştur</button><label class="jira-pat-field"><span>Jira Personal Access Token</span><input id="jira-pat-input" class="field-input" type="password" autocomplete="off" placeholder="Jira’dan oluşturduğun PAT’i buraya yapıştır"></label><button class="button button-primary" data-action="jira-save-token">PAT’i güvenle kaydet</button>') + '</div><p class="jira-security-note">Token bu bilgisayarda işletim sistemi şifrelemesiyle saklanır; çalışma alanı yedeğine ve tarayıcı depolamasına yazılmaz.</p></section>' +
+    (jiraHasSavedToken ? '<section class="panel jira-query-card"><div class="panel-heading"><div><div class="panel-kicker">JIRA VERİSİ</div><h2>Board kayıtları</h2><p>Agile board, backlog veya sprint kayıtlarını canlı sorgula.</p></div></div><div class="jira-query-controls"><label class="field-label">Agile board<select id="jira-board-select" class="field-input" ' + (jiraLoading ? "disabled" : "") + '>' + boardOptions + '</select></label><label class="field-label">Kapsam<select id="jira-scope-select" class="field-input" ' + (jiraLoading ? "disabled" : "") + '><option value="backlog" ' + (jiraIssueScope === "backlog" ? "selected" : "") + '>Backlog</option><option value="board" ' + (jiraIssueScope === "board" ? "selected" : "") + '>Board işleri</option><option value="sprint" ' + (jiraIssueScope === "sprint" ? "selected" : "") + '>Sprint</option></select></label>' + (jiraIssueScope === "sprint" ? '<label class="field-label">Sprint<select id="jira-sprint-select" class="field-input" ' + (jiraLoading ? "disabled" : "") + '>' + sprintOptions + '</select></label>' : '') + '<button class="button button-primary" data-action="jira-fetch-issues" ' + (jiraLoading || !jiraSelectedBoardId || (jiraIssueScope === "sprint" && !jiraSelectedSprintId) ? "disabled" : "") + '>Kayıtları getir</button></div><p class="jira-hint">İlk 100 kayıt gösterilir. Sprint listesinde aktif, gelecek ve tamamlanmış sprintler bulunur.</p>' +
+      (jiraError ? '<div class="jira-error" role="alert">' + esc(jiraError) + '</div>' : "") +
+      '<div class="jira-results-heading"><strong>' + (jiraIssues.length ? jiraIssues.length + " kayıt" : "Kayıt listesi") + '</strong><span>' + (jiraIssues.length ? "Son Jira yanıtı · canlı sorgu" : "Henüz Jira kaydı getirilmedi") + '</span></div><div class="jira-table-wrap"><table class="jira-table"><thead><tr><th>ANAHTAR</th><th>BAŞLIK</th><th>TÜR</th><th>DURUM</th><th>ÖNCELİK</th><th>ATANAN</th><th>GÜNCELLENDİ</th></tr></thead><tbody>' + (rows || '<tr><td colspan="7" class="jira-table-empty">' + (jiraLoading ? "Jira’dan kayıtlar alınıyor…" : "Bir board ve kayıt kapsamı seçip getir.") + '</td></tr>') + '</tbody></table></div></section>' +
+      '<section class="panel jira-query-card jira-create-card"><div class="panel-heading"><div><div class="panel-kicker">ROTA → JIRA</div><h2>Rota işinden Jira issue oluştur</h2><p>Yeni issue seçili Agile board ile ilişkili Jira projesinde açılır. Oluşturulan issue anahtarı Rota işine bağlanır.</p></div></div>' + (jiraError ? '<div class="jira-error" role="alert">' + esc(jiraError) + '</div>' : '') + '<div class="jira-create-grid"><label class="field-label">Rota backlog işi<select id="jira-rota-item-select" class="field-input" ' + (jiraLoading ? "disabled" : "") + '>' + rotaItemOptions + '</select></label><label class="field-label">Jira projesi<select id="jira-project-select" class="field-input" ' + (jiraLoading || !jiraSelectedBoardId ? "disabled" : "") + '>' + projectOptions + '</select></label><label class="field-label">Issue türü<select id="jira-issue-type-select" class="field-input" ' + (jiraLoading || !jiraSelectedProjectKey ? "disabled" : "") + '>' + issueTypeOptions + '</select></label><label class="field-label jira-create-summary">Issue başlığı<input id="jira-create-summary" class="field-input" maxlength="255" value="' + esc(selectedRotaItem?.title || "") + '" ' + (!selectedRotaItem || Boolean(selectedRotaItem.jiraIssueKey) ? "disabled" : "") + '></label><label class="field-label jira-create-description">Açıklama<textarea id="jira-create-description" class="field-input field-textarea" rows="5" ' + (!selectedRotaItem || Boolean(selectedRotaItem.jiraIssueKey) ? "disabled" : "") + '>' + esc(selectedRotaItem ? [selectedRotaItem.description, selectedRotaItem.acceptance.length ? "Kabul kriterleri:\n" + selectedRotaItem.acceptance.map((criterion) => "• " + criterion).join("\n") : "", "Rota backlog ID: " + selectedRotaItem.id].filter(Boolean).join("\n\n") : "") + '</textarea></label></div>' + (selectedRotaItem?.jiraIssueKey ? '<div class="jira-linked-item">Bu Rota işi zaten <button class="jira-issue-key" data-action="jira-open-issue" data-issue-key="' + esc(selectedRotaItem.jiraIssueKey) + '">' + esc(selectedRotaItem.jiraIssueKey) + '</button> ile ilişkilendirilmiş.</div>' : '') + '<div class="jira-create-footer"><span class="jira-hint">' + (jiraSelectedBoardId ? (jiraProjects.length ? "Yalnızca seçili board’un proje kapsamındaki projeler listelenir." : "Bu board için Jira proje kapsamı alınamadı; issue oluşturma kapalı.") : "Önce Agile board seç.") + '</span><button class="button button-primary" data-action="jira-create-issue" ' + (jiraLoading || !jiraSelectedBoardId || !jiraSelectedProjectKey || !jiraSelectedIssueTypeId || !selectedRotaItem || Boolean(selectedRotaItem.jiraIssueKey) ? "disabled" : "") + '>Jira’da issue oluştur</button></div></section>' : '<section class="panel jira-query-card"><h2>Önce Jira PAT’ini kaydet</h2><p>Jira hesabında token oluştur, Rota’da güvenle sakla; ardından Agile board seçerek issue oluşturabilirsin.</p>' + (jiraError ? '<div class="jira-error" role="alert">' + esc(jiraError) + '</div>' : "") + '</section>') + '</div>';
+}
+
+async function loadJiraCatalog(): Promise<void> {
+  const baseUrl = state.profile.jiraBaseUrl?.trim() || "";
+  if (!baseUrl || jiraLoading) return;
+  jiraLoading = true; jiraError = ""; renderJira();
+  try {
+    jiraHasSavedToken = await desktop.jiraHasToken();
+    if (jiraHasSavedToken) {
+      jiraBoards = await desktop.jiraListBoards(baseUrl);
+      if (!jiraBoards.some((entry) => entry.id === jiraSelectedBoardId)) jiraSelectedBoardId = jiraBoards[0]?.id || "";
+      if (jiraSelectedBoardId) {
+        const [projects, sprints] = await Promise.all([desktop.jiraListBoardProjects(baseUrl, jiraSelectedBoardId), desktop.jiraListSprints(baseUrl, jiraSelectedBoardId)]);
+        jiraProjects = projects; jiraSprints = sprints;
+        if (!jiraProjects.some((entry) => entry.key === jiraSelectedProjectKey)) jiraSelectedProjectKey = jiraProjects[0]?.key || "";
+        if (!jiraSprints.some((entry) => entry.id === jiraSelectedSprintId)) jiraSelectedSprintId = jiraSprints.find((entry) => entry.state === "active")?.id || jiraSprints[0]?.id || "";
+        jiraIssueTypes = jiraSelectedProjectKey ? await desktop.jiraListIssueTypes(baseUrl, jiraSelectedProjectKey) : [];
+        if (!jiraIssueTypes.some((entry) => entry.id === jiraSelectedIssueTypeId)) jiraSelectedIssueTypeId = jiraIssueTypes.find((entry) => entry.name.toLowerCase() === "story")?.id || jiraIssueTypes[0]?.id || "";
+      }
+    }
+    jiraCatalogLoadedFor = baseUrl;
+  } catch (error) { jiraError = error instanceof Error ? error.message : "Jira bağlantısı kurulamadı."; jiraCatalogLoadedFor = baseUrl; }
+  finally { jiraLoading = false; if (activeView === "jira") renderJira(); }
+}
+
+async function refreshJiraCatalog(): Promise<void> {
+  jiraCatalogLoadedFor = ""; jiraIssues = []; jiraProjects = []; jiraSprints = []; jiraIssueTypes = []; await loadJiraCatalog();
+}
+
+async function fetchJiraIssues(): Promise<void> {
+  if (!state.profile.jiraBaseUrl || !jiraSelectedBoardId || (jiraIssueScope === "sprint" && !jiraSelectedSprintId)) return;
+  jiraLoading = true; jiraError = ""; renderJira();
+  try { jiraIssues = await desktop.jiraFetchBoardIssues(state.profile.jiraBaseUrl, jiraSelectedBoardId, jiraIssueScope, jiraSelectedSprintId || undefined); }
+  catch (error) { jiraError = error instanceof Error ? error.message : "Jira kayıtları alınamadı."; }
+  finally { jiraLoading = false; renderJira(); }
+}
+
+async function loadJiraBoardDetails(): Promise<void> {
+  if (!state.profile.jiraBaseUrl || !jiraSelectedBoardId) return;
+  jiraLoading = true; jiraError = ""; jiraIssues = []; renderJira();
+  try {
+    const [projects, sprints] = await Promise.all([desktop.jiraListBoardProjects(state.profile.jiraBaseUrl, jiraSelectedBoardId), desktop.jiraListSprints(state.profile.jiraBaseUrl, jiraSelectedBoardId)]);
+    jiraProjects = projects; jiraSprints = sprints;
+    jiraSelectedProjectKey = jiraProjects[0]?.key || "";
+    jiraSelectedSprintId = jiraSprints.find((entry) => entry.state === "active")?.id || jiraSprints[0]?.id || "";
+    jiraIssueTypes = jiraSelectedProjectKey ? await desktop.jiraListIssueTypes(state.profile.jiraBaseUrl, jiraSelectedProjectKey) : [];
+    jiraSelectedIssueTypeId = jiraIssueTypes.find((entry) => entry.name.toLowerCase() === "story")?.id || jiraIssueTypes[0]?.id || "";
+  } catch (error) { jiraError = error instanceof Error ? error.message : "Board bilgileri alınamadı."; jiraProjects = []; jiraIssueTypes = []; }
+  finally { jiraLoading = false; renderJira(); }
+}
+
+async function loadJiraProjectIssueTypes(): Promise<void> {
+  if (!state.profile.jiraBaseUrl || !jiraSelectedProjectKey) return;
+  jiraLoading = true; jiraError = ""; jiraIssueTypes = []; renderJira();
+  try { jiraIssueTypes = await desktop.jiraListIssueTypes(state.profile.jiraBaseUrl, jiraSelectedProjectKey); jiraSelectedIssueTypeId = jiraIssueTypes.find((entry) => entry.name.toLowerCase() === "story")?.id || jiraIssueTypes[0]?.id || ""; }
+  catch (error) { jiraError = error instanceof Error ? error.message : "Jira issue türleri alınamadı."; }
+  finally { jiraLoading = false; renderJira(); }
+}
+
+async function createJiraIssueFromRota(): Promise<void> {
+  const item = state.items.find((entry) => entry.id === jiraSelectedRotaItemId);
+  const summary = (document.getElementById("jira-create-summary") as HTMLInputElement | null)?.value.trim() || "";
+  const description = (document.getElementById("jira-create-description") as HTMLTextAreaElement | null)?.value || "";
+  const project = jiraProjects.find((entry) => entry.key === jiraSelectedProjectKey);
+  const issueType = jiraIssueTypes.find((entry) => entry.id === jiraSelectedIssueTypeId);
+  if (!item || item.jiraIssueKey || !project || !issueType || !summary || !jiraSelectedBoardId || !state.profile.jiraBaseUrl) return;
+  const okay = window.confirm('Jira’da "' + summary + '" başlıklı ' + issueType.name + ' oluşturulsun mu?\n\nBoard: ' + (jiraBoards.find((entry) => entry.id === jiraSelectedBoardId)?.name || "") + '\nProje: ' + project.key + ' · ' + project.name + '\nRota işi: ' + item.id);
+  if (!okay) return;
+  jiraLoading = true; jiraError = ""; renderJira();
+  try {
+    const created = await desktop.jiraCreateIssue(state.profile.jiraBaseUrl, jiraSelectedBoardId, project.key, issueType.id, summary, description);
+    item.jiraIssueKey = created.key; item.updated = "Az önce"; addWorkActivity(item, "change", "Jira issue oluşturuldu ve bağlandı: " + created.key + " · " + project.key);
+    save(); toast("Jira issue oluşturuldu: " + created.key);
+    jiraIssues = await desktop.jiraFetchBoardIssues(state.profile.jiraBaseUrl, jiraSelectedBoardId, jiraIssueScope, jiraSelectedSprintId || undefined).catch(() => jiraIssues);
+  } catch (error) { jiraError = error instanceof Error ? error.message : "Jira issue oluşturulamadı."; }
+  finally { jiraLoading = false; renderJira(); }
+}
+
+async function saveJiraPat(): Promise<void> {
+  const input = document.getElementById("jira-pat-input") as HTMLInputElement | null;
+  if (!input?.value.trim()) { toast("Önce Jira PAT’ini yapıştır."); input?.focus(); return; }
+  try { await desktop.jiraSaveToken(input.value); input.value = ""; jiraHasSavedToken = true; jiraCatalogLoadedFor = ""; jiraError = ""; await refreshJiraCatalog(); toast("Jira PAT güvenle kaydedildi."); }
+  catch (error) { jiraError = error instanceof Error ? error.message : "Jira PAT kaydedilemedi."; renderJira(); }
+}
+
+async function removeJiraPat(): Promise<void> {
+  if (!window.confirm("Jira PAT’i bu bilgisayardan kaldırmak istiyor musun?")) return;
+  await desktop.jiraRemoveToken(); jiraHasSavedToken = false; jiraBoards = []; jiraProjects = []; jiraSprints = []; jiraIssueTypes = []; jiraIssues = []; renderJira(); toast("Jira bağlantı anahtarı kaldırıldı.");
 }
 
 function renderOverview(): void {
@@ -957,7 +1119,7 @@ function updateBacklogRows(): void {
     const columns = ["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Bloke", "Tamamlandı"];
     board.innerHTML = columns.map((column) => {
       const cards = items.filter((item) => item.status === column);
-      return '<section class="board-column" data-board-status="' + esc(column) + '"><header><span><i class="board-status-dot ' + statusClass(column) + '"></i>' + esc(column) + '</span><b>' + cards.length + '</b></header><div class="board-cards">' + (cards.length ? cards.map((item) => '<button class="board-card" draggable="true" data-board-card="' + esc(item.id) + '" data-open-item="' + esc(item.id) + '" aria-label="' + esc(item.id + " · " + item.title + " · " + item.status + ". Durumu değiştirmek için başka bir sütuna sürükleyin.") + '"><span class="board-card-id">' + esc(item.id) + '<span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span></span><strong class="backlog-preview-trigger" data-preview-item="' + esc(item.id) + '" tabindex="0" aria-haspopup="dialog">' + esc(item.title) + '</strong><span class="board-card-footer"><span>' + esc(item.area) + '</span><span class="board-assignment">' + (getWorkAssignments(item).length ? esc(assignmentSummary(item)) : "") + '</span><span class="table-type ' + (item.type === "Bug" ? "bug-type" : item.type === "Task" ? "task-type" : "story-type") + '">' + itemIcon(item.type) + '</span></span></button>').join("") : '<div class="board-empty">Henüz iş yok</div>') + '</div></section>';
+      return '<section class="board-column" data-board-status="' + esc(column) + '"><header><span><i class="board-status-dot ' + statusClass(column) + '"></i>' + esc(column) + '</span><b>' + cards.length + '</b></header><div class="board-cards">' + (cards.length ? cards.map((item) => '<button class="board-card" draggable="true" data-board-card="' + esc(item.id) + '" data-open-item="' + esc(item.id) + '" aria-label="' + esc(item.id + " · " + item.title + " · " + item.status + ". Durumu değiştirmek için başka bir sütuna sürükleyin.") + '"><span class="board-card-id"><span class="board-card-key">' + esc(item.id) + '</span><span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span></span><strong class="backlog-preview-trigger" data-preview-item="' + esc(item.id) + '" tabindex="0" aria-haspopup="dialog">' + esc(item.title) + '</strong><span class="board-card-footer"><span>' + esc(item.area) + '</span><span class="board-assignment">' + (getWorkAssignments(item).length ? esc(assignmentSummary(item)) : "") + '</span><span class="table-type ' + (item.type === "Bug" ? "bug-type" : item.type === "Task" ? "task-type" : "story-type") + '">' + itemIcon(item.type) + '</span></span></button>').join("") : '<div class="board-empty">Henüz iş yok</div>') + '</div></section>';
     }).join("");
     (document.getElementById("visible-count") as HTMLElement).textContent = String(items.length);
     (document.getElementById("total-count") as HTMLElement).textContent = String(state.items.filter((item) => !project || item.project === project.name).length);
@@ -1130,7 +1292,9 @@ function renderBacklogCell(item: WorkItem, column: BacklogColumnId): string {
     acceptance: '<span>' + (item.acceptance?.length || 0) + '</span>',
     dependencies: '<span class="backlog-cell-truncate">' + esc((item.dependsOnIds || []).join(", ") || "—") + '</span>',
     blocker: '<span class="backlog-cell-truncate" title="' + esc(item.blocker?.reason || "") + '">' + esc(item.blocker?.reason || "—") + '</span>',
-    activity: '<span class="backlog-cell-truncate" title="' + esc(activity?.message || "") + '">' + esc(activity?.message || item.updated || "—") + '</span>'
+    activity: activity
+      ? '<span class="activity-cell-content" title="' + esc(activity.message + " · " + activity.actor + " · " + elapsedLabel(activity.occurredAt)) + '"><span>' + esc(activity.message) + '</span><small>' + esc(activity.actor + " · " + elapsedLabel(activity.occurredAt)) + '</small></span>'
+      : '<span class="activity-cell-empty">Henüz aktivite yok</span>'
   };
   return '<td class="backlog-cell backlog-cell-' + column + '">' + values[column] + '</td>';
 }
@@ -1978,7 +2142,7 @@ function deleteRoadmapNode(id: string): void {
 }
 
 function openWorkspaceSettings(): void {
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header class="modal-header"><div><div class="panel-kicker">ÇALIŞMA ORTAMI</div><h2 id="settings-title">Çalışma alanını ayarla</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="workspace-form" class="settings-form"><p class="settings-intro">Takip edeceğin projeleri ve çalışma alanında görünecek kullanıcı bilgilerini düzenle. Ayarlar bu cihazda saklanır.</p><div class="form-two-col"><label class="field-label">Kurum / ekip<input class="field-input" name="organization" maxlength="60" required value="' + esc(state.profile.organization) + '"></label><label class="field-label">Çalışma alanı adı<input class="field-input" name="workspace" maxlength="60" required value="' + esc(state.profile.workspace) + '"></label><label class="field-label">Adın<input class="field-input" name="userName" maxlength="60" required value="' + esc(state.profile.userName) + '"></label><label class="field-label">Rolün<input class="field-input" name="userRole" maxlength="60" required value="' + esc(state.profile.userRole) + '"></label></div><div class="settings-note">Bu bilgiler yalnızca masaüstündeki yerel görünümü kişiselleştirir. Henüz kullanıcı hesabı veya kurum bağlantısı oluşturmaz.</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Kapat</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header class="modal-header"><div><div class="panel-kicker">ÇALIŞMA ORTAMI</div><h2 id="settings-title">Çalışma alanını ayarla</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="workspace-form" class="settings-form"><p class="settings-intro">Takip edeceğin projeleri ve çalışma alanında görünecek kullanıcı bilgilerini düzenle. Ayarlar bu cihazda saklanır.</p><div class="form-two-col"><label class="field-label">Kurum / ekip<input class="field-input" name="organization" maxlength="60" required value="' + esc(state.profile.organization) + '"></label><label class="field-label">Çalışma alanı adı<input class="field-input" name="workspace" maxlength="60" required value="' + esc(state.profile.workspace) + '"></label><label class="field-label">Adın<input class="field-input" name="userName" maxlength="60" required value="' + esc(state.profile.userName) + '"></label><label class="field-label">Rolün<input class="field-input" name="userRole" maxlength="60" required value="' + esc(state.profile.userRole) + '"></label></div><section class="jira-settings-block"><h3>Jira Server / Data Center</h3><p>Base URL girilmezse Jira menüsü devre dışı kalır. PAT’i Jira panelinde kendi hesabından oluşturup ekleyebilirsin.</p><label class="field-label">Jira Base URL<input class="field-input" name="jiraBaseUrl" type="url" placeholder="https://jira.kurum.local" value="' + esc(state.profile.jiraBaseUrl || "") + '"></label></section><div class="settings-note">Bu bilgiler yalnızca masaüstündeki yerel görünümü kişiselleştirir. Henüz kullanıcı hesabı veya kurum bağlantısı oluşturmaz.</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Kapat</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
   document.querySelector(".settings-intro")?.insertAdjacentHTML("afterend", '<div class="settings-actions"><button type="button" class="button button-secondary" data-action="open-setup">Projeleri ve takımları kurulumdan düzenle</button><button type="button" class="button button-secondary" data-action="manage-teams">Takımları ve üyeleri yönet <span>(' + state.teams.length + ')</span></button></div><section class="backup-settings"><h3>Veri yedekleme</h3><p>Yedekleme dosya türünü ve kaydedileceği konumu seç. Ekler de yedeğe eklenir; dosyayı güvenli bir yerde sakla.</p><div class="backup-actions"><label class="field-label">Dosya biçimi<select id="backup-format" class="field-input"><option value="rota">Rota sıkıştırılmış yedek (.rota)</option><option value="json">JSON (.json)</option></select></label><button type="button" class="button button-secondary" data-action="backup-export">Yedek oluştur</button><button type="button" class="button button-secondary" data-action="backup-restore">Yedekten geri yükle</button></div></section>');
   document.querySelector(".backup-settings")?.insertAdjacentHTML("beforebegin", '<section class="appearance-settings"><h3>Görünüm ve erişilebilirlik</h3><div class="form-two-col"><label class="field-label">Tema<select id="workspace-theme" class="field-input"><option value="system">Sistem</option><option value="light">Açık</option><option value="dark">Koyu</option></select></label><label class="field-label">Yazı boyutu<select id="workspace-font-scale" class="field-input"><option value="0.9">Küçük</option><option value="1">Standart</option><option value="1.1">Büyük</option><option value="1.2">Çok büyük</option></select></label><label class="field-label">Yüksek kontrast<select id="workspace-high-contrast" class="field-input"><option value="false">Kapalı</option><option value="true">Açık</option></select></label><label class="field-label">Animasyonları azalt<select id="workspace-reduced-motion" class="field-input"><option value="false">Kapalı</option><option value="true">Açık</option></select></label></div><button type="button" class="button button-secondary button-small" data-action="reset-backlog-preferences">Backlog görünüm ve kolon tercihlerini sıfırla</button></section>');
   (document.getElementById("workspace-theme") as HTMLSelectElement).value = localStorage.getItem(THEME_KEY) || "system";
@@ -2166,7 +2330,11 @@ function saveWorkspaceSettings(event: SubmitEvent): void {
   event.preventDefault();
   const form = event.target as HTMLFormElement;
   const values = new FormData(form);
-  state.profile = { organization: String(values.get("organization") || "").trim(), workspace: String(values.get("workspace") || "").trim(), userName: String(values.get("userName") || "").trim(), userRole: String(values.get("userRole") || "").trim() };
+  const jiraBaseUrl = String(values.get("jiraBaseUrl") || "").trim().replace(/\/+$/, "");
+  if (!validJiraBaseUrl(jiraBaseUrl)) { toast("Jira Base URL HTTPS adresi olmalı; yalnızca localhost için HTTP kullanılabilir."); return; }
+  state.profile = { organization: String(values.get("organization") || "").trim(), workspace: String(values.get("workspace") || "").trim(), userName: String(values.get("userName") || "").trim(), userRole: String(values.get("userRole") || "").trim(), ...(jiraBaseUrl ? { jiraBaseUrl } : {}) };
+  if (!jiraBaseUrl) { jiraBoards = []; jiraProjects = []; jiraSprints = []; jiraIssueTypes = []; jiraIssues = []; jiraCatalogLoadedFor = ""; }
+  else if (jiraCatalogLoadedFor !== jiraBaseUrl) jiraCatalogLoadedFor = "";
   save(); closeModal(); render(); toast("Çalışma alanı ayarları kaydedildi.");
 }
 
@@ -2511,10 +2679,32 @@ function openItem(id: string): void {
   modalRoot.querySelectorAll<HTMLElement>(".detail-main .detail-section").forEach((section) => {
     const tab = section.classList.contains("work-activity") || section.classList.contains("activity-note-composer") ? "activity" : section.querySelector(".detail-files") ? "attachments" : section.classList.contains("linked-assets-section") || section.classList.contains("dependency-section") || section.classList.contains("item-relationships") || section.classList.contains("work-diagram-section") ? "relationships" : "overview";
     section.dataset.detailTabSection = tab;
+    section.hidden = tab !== "overview";
   });
   document.getElementById("detail-status")?.addEventListener("change", (event) => { const next = (event.target as HTMLSelectElement).value as WorkItem["status"]; if (next === item.status) return; openStatusUpdateModal(id, next); });
   document.getElementById("detail-priority")?.addEventListener("change", (event) => { const previous = item.priority; item.priority = (event.target as HTMLSelectElement).value as WorkItem["priority"]; logWorkChange(item, "Öncelik", previous, item.priority); save(); render(); openItem(id); });
 }
+
+let detailTabWheelCooldownUntil = 0;
+let detailTabWheelDelta = 0;
+document.addEventListener("wheel", (event) => {
+  const tabBar = event.target instanceof Element ? event.target.closest<HTMLElement>(".detail-tabs") : null;
+  if (!tabBar || event.ctrlKey) return;
+  const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+  if (!delta) return;
+  event.preventDefault();
+  const now = performance.now();
+  if (now < detailTabWheelCooldownUntil) return;
+  detailTabWheelDelta += delta;
+  if (Math.abs(detailTabWheelDelta) < 45) return;
+  const buttons = [...tabBar.querySelectorAll<HTMLButtonElement>("[data-detail-tab]")];
+  const current = buttons.findIndex((button) => button.classList.contains("selected"));
+  const next = Math.max(0, Math.min(buttons.length - 1, current + (detailTabWheelDelta > 0 ? 1 : -1)));
+  detailTabWheelDelta = 0;
+  if (current < 0 || next === current) return;
+  detailTabWheelCooldownUntil = now + 240;
+  buttons[next].click();
+}, { passive: false });
 
 async function addFilesToItem(id: string): Promise<void> {
   const item = itemById(id);
@@ -2851,13 +3041,15 @@ function duplicateBacklogItem(id: string): void {
 function openSetupWizard(firstRun = false): void {
   const projectsText = state.projects.map((project) => project.name).join("\n");
   const teamsText = state.teams.map((team) => team.name + ": " + team.members.join(", ")).join("\n");
-  modalRoot.innerHTML = '<div class="modal-backdrop" ' + (firstRun ? '' : 'data-close-modal') + '><section class="modal settings-modal setup-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">İLK KURULUM</div><h2>' + (firstRun ? "Çalışma alanını oluşturalım" : "Çalışma alanı kurulumunu düzenle") + '</h2></div>' + (firstRun ? '' : '<button class="modal-close" data-close-modal>×</button>') + '</header><form id="setup-form" class="settings-form"><p class="settings-intro">Kurum ve kullanıcı bilgilerini gir; projeleri ve takımları tanımla. Veriler bu cihazda saklanır.</p>' + (firstRun ? '<fieldset class="setup-choice"><legend>Başlangıç verisi</legend><label><input type="radio" name="starter" value="sample" checked> Örnek banka backlog’u ile başla</label><label><input type="radio" name="starter" value="empty"> Boş çalışma alanı oluştur</label></fieldset>' : '') + '<div class="form-two-col"><label class="field-label">Kurum / ekip<input class="field-input" name="organization" maxlength="60" required value="' + esc(state.profile.organization) + '"></label><label class="field-label">Çalışma alanı adı<input class="field-input" name="workspace" maxlength="60" required value="' + esc(state.profile.workspace) + '"></label><label class="field-label">Adın<input class="field-input" name="userName" maxlength="60" required value="' + esc(state.profile.userName) + '"></label><label class="field-label">Rolün<input class="field-input" name="userRole" maxlength="60" required value="' + esc(state.profile.userRole) + '"></label></div><label class="field-label">Projeler <small>(her satıra bir proje)</small><textarea class="field-input field-textarea" name="projects" rows="3" required>' + esc(projectsText) + '</textarea></label><label class="field-label">Takımlar ve üyeler <small>(Takım adı: Üye 1, Üye 2 — her takım ayrı satırda)</small><textarea class="field-input field-textarea" name="teams" rows="3" placeholder="Takım 1: Ayşe Yılmaz, Mehmet Demir">' + esc(teamsText) + '</textarea></label><div class="settings-note">Örnek veri seçimi yalnızca ilk açılışta sunulur. Mevcut işler, görevler ve notlar kurulum tekrar açıldığında korunur.</div><footer class="modal-footer">' + (firstRun ? '' : '<button type="button" class="button button-quiet" data-close-modal>Kapat</button>') + '<button type="submit" class="button button-primary">Kurulumu tamamla</button></footer></form></section></div>';
+  modalRoot.innerHTML = '<div class="modal-backdrop" ' + (firstRun ? '' : 'data-close-modal') + '><section class="modal settings-modal setup-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">İLK KURULUM</div><h2>' + (firstRun ? "Çalışma alanını oluşturalım" : "Çalışma alanı kurulumunu düzenle") + '</h2></div>' + (firstRun ? '' : '<button class="modal-close" data-close-modal>×</button>') + '</header><form id="setup-form" class="settings-form"><p class="settings-intro">Kurum ve kullanıcı bilgilerini gir; projeleri ve takımları tanımla. Veriler bu cihazda saklanır.</p>' + (firstRun ? '<fieldset class="setup-choice"><legend>Başlangıç verisi</legend><label><input type="radio" name="starter" value="sample" checked> Örnek banka backlog’u ile başla</label><label><input type="radio" name="starter" value="empty"> Boş çalışma alanı oluştur</label></fieldset>' : '') + '<div class="form-two-col"><label class="field-label">Kurum / ekip<input class="field-input" name="organization" maxlength="60" required value="' + esc(state.profile.organization) + '"></label><label class="field-label">Çalışma alanı adı<input class="field-input" name="workspace" maxlength="60" required value="' + esc(state.profile.workspace) + '"></label><label class="field-label">Adın<input class="field-input" name="userName" maxlength="60" required value="' + esc(state.profile.userName) + '"></label><label class="field-label">Rolün<input class="field-input" name="userRole" maxlength="60" required value="' + esc(state.profile.userRole) + '"></label></div><section class="jira-settings-block"><h3>Jira (isteğe bağlı)</h3><p>Base URL eklediğinde Jira paneli açılır. Token’ı daha sonra Jira’dan oluşturup panelde kaydedebilirsin.</p><label class="field-label">Jira Base URL<input class="field-input" name="jiraBaseUrl" type="url" placeholder="https://jira.kurum.local" value="' + esc(state.profile.jiraBaseUrl || "") + '"></label></section><label class="field-label">Projeler <small>(her satıra bir proje)</small><textarea class="field-input field-textarea" name="projects" rows="3" required>' + esc(projectsText) + '</textarea></label><label class="field-label">Takımlar ve üyeler <small>(Takım adı: Üye 1, Üye 2 — her takım ayrı satırda)</small><textarea class="field-input field-textarea" name="teams" rows="3" placeholder="Takım 1: Ayşe Yılmaz, Mehmet Demir">' + esc(teamsText) + '</textarea></label><div class="settings-note">Örnek veri seçimi yalnızca ilk açılışta sunulur. Mevcut işler, görevler ve notlar kurulum tekrar açıldığında korunur.</div><footer class="modal-footer">' + (firstRun ? '' : '<button type="button" class="button button-quiet" data-close-modal>Kapat</button>') + '<button type="submit" class="button button-primary">Kurulumu tamamla</button></footer></form></section></div>';
 }
 
 function saveSetup(event: SubmitEvent): void {
   event.preventDefault();
   const form = event.target as HTMLFormElement;
   const values = new FormData(form);
+  const jiraBaseUrl = String(values.get("jiraBaseUrl") || "").trim().replace(/\/+$/, "");
+  if (!validJiraBaseUrl(jiraBaseUrl)) { toast("Jira Base URL HTTPS adresi olmalı; yalnızca localhost için HTTP kullanılabilir."); return; }
   const newProjectNames = [...new Set(String(values.get("projects") || "").split(/\r?\n/).map((value) => value.trim()).filter(Boolean))];
   if (!newProjectNames.length) { toast("En az bir proje ekle."); return; }
   const oldProjects = [...state.projects];
@@ -2910,7 +3102,8 @@ function saveSetup(event: SubmitEvent): void {
   });
   state.projects = newProjects;
   state.teams = newTeams;
-  state.profile = { organization: String(values.get("organization") || "").trim(), workspace: String(values.get("workspace") || "").trim(), userName: String(values.get("userName") || "").trim(), userRole: String(values.get("userRole") || "").trim() };
+  state.profile = { organization: String(values.get("organization") || "").trim(), workspace: String(values.get("workspace") || "").trim(), userName: String(values.get("userName") || "").trim(), userRole: String(values.get("userRole") || "").trim(), ...(jiraBaseUrl ? { jiraBaseUrl } : {}) };
+  if (!jiraBaseUrl) { jiraBoards = []; jiraProjects = []; jiraSprints = []; jiraIssueTypes = []; jiraIssues = []; jiraCatalogLoadedFor = ""; } else if (jiraCatalogLoadedFor !== jiraBaseUrl) jiraCatalogLoadedFor = "";
   if (!hasStoredWorkspace && values.get("starter") === "empty") { state.items = []; state.tasks = []; state.notes = []; }
   const importedFeatures = importRotaProductPlan();
   activeProjectId = ROTA_PRODUCT_PROJECT_ID;
@@ -3578,7 +3771,21 @@ document.addEventListener("click", async (event) => {
   if (view?.dataset.view) { setView(view.dataset.view); return; }
   const action = target.closest<HTMLElement>("[data-action]");
   if (action) {
-    if (action.dataset.action === "new") openQuickCreateModal(action.dataset.type);
+    if (action.dataset.action === "open-workspace-settings") openWorkspaceSettings();
+    else if (action.dataset.action === "jira-refresh") await refreshJiraCatalog();
+    else if (action.dataset.action === "jira-save-token") await saveJiraPat();
+    else if (action.dataset.action === "jira-replace-token") { jiraHasSavedToken = false; jiraError = "Yeni tokenı kaydettiğinde mevcut PAT değiştirilir."; renderJira(); }
+    else if (action.dataset.action === "jira-remove-token") await removeJiraPat();
+    else if (action.dataset.action === "jira-open-token-page") {
+      try { if (!state.profile.jiraBaseUrl) throw new Error("Önce Jira Base URL tanımla."); await desktop.jiraOpenTokenPage(state.profile.jiraBaseUrl); }
+      catch (error) { toast(error instanceof Error ? error.message : "Jira token sayfası açılamadı."); }
+    }
+    else if (action.dataset.action === "jira-fetch-issues") await fetchJiraIssues();
+    else if (action.dataset.action === "jira-create-issue") await createJiraIssueFromRota();
+    else if (action.dataset.action === "jira-open-issue" && action.dataset.issueKey && state.profile.jiraBaseUrl) {
+      try { await desktop.jiraOpenIssue(state.profile.jiraBaseUrl, action.dataset.issueKey); } catch (error) { toast(error instanceof Error ? error.message : "Jira işi açılamadı."); }
+    }
+    else if (action.dataset.action === "new") openQuickCreateModal(action.dataset.type);
     else if (action.dataset.action === "add-related-record" && action.dataset.id) openRelatedRecordPicker(action.dataset.id);
     else if (action.dataset.action === "remove-related-record" && action.dataset.id && action.dataset.linkId) { const item = itemById(action.dataset.id); if (item) { item.relatedRecords = (item.relatedRecords || []).filter((link) => link.id !== action.dataset.linkId); save(); openItem(item.id); } }
     else if (action.dataset.action === "open-related-record" && action.dataset.type && action.dataset.targetId) {
@@ -3940,7 +4147,7 @@ document.addEventListener("click", async (event) => {
   const openSourceEmail = target.closest<HTMLElement>("[data-open-source-email]");
   if (openSourceEmail?.dataset.openSourceEmail) { await openAttachment(openSourceEmail.dataset.openSourceEmail); return; }
   if (target.closest("[data-select-backlog-item], [data-select-visible-backlog]")) { event.stopPropagation(); return; }
-  if (open?.dataset.openItem) { openItem(open.dataset.openItem); return; }
+  if (open?.dataset.openItem && !open.classList.contains("detail-modal")) { openItem(open.dataset.openItem); return; }
   const openAssetButton = target.closest<HTMLElement>("[data-open-asset]");
   if (openAssetButton?.dataset.openAsset) { openAsset(openAssetButton.dataset.openAsset); return; }
   const openTaskButton = target.closest<HTMLElement>("[data-open-task]");
@@ -4063,6 +4270,14 @@ window.addEventListener("resize", () => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target instanceof HTMLSelectElement) {
+    if (event.target.id === "jira-board-select") { jiraSelectedBoardId = event.target.value; void loadJiraBoardDetails(); return; }
+    if (event.target.id === "jira-project-select") { jiraSelectedProjectKey = event.target.value; void loadJiraProjectIssueTypes(); return; }
+    if (event.target.id === "jira-scope-select") { jiraIssueScope = event.target.value as typeof jiraIssueScope; jiraIssues = []; renderJira(); return; }
+    if (event.target.id === "jira-sprint-select") { jiraSelectedSprintId = event.target.value; jiraIssues = []; renderJira(); return; }
+    if (event.target.id === "jira-issue-type-select") { jiraSelectedIssueTypeId = event.target.value; return; }
+    if (event.target.id === "jira-rota-item-select") { jiraSelectedRotaItemId = event.target.value; renderJira(); return; }
+  }
   if (event.target instanceof HTMLInputElement && event.target.id === "daily-plan-date" && event.target.value) { selectedDailyDate = event.target.value; renderDailyPlan(); return; }
   if (event.target instanceof HTMLInputElement && event.target.id === "weekly-summary-start" && event.target.value) { selectedWeeklyStart = weekStartDate(new Date(event.target.value + "T00:00:00")); renderWeeklySummary(); return; }
   if (event.target instanceof HTMLSelectElement && event.target.id === "handover-project") { selectedHandoverProjectId = event.target.value; renderHandover(); return; }

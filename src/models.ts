@@ -48,6 +48,7 @@ interface WorkItem {
   releaseId?: string;
   sprintId?: string;
   sprintOrder?: number;
+  jiraIssueKey?: string;
   sourceEmail?: EmailSourceInfo;
   archived?: boolean;
   relatedRecords?: WorkRecordLink[];
@@ -258,7 +259,16 @@ interface WorkspaceProfile {
   workspace: string;
   userName: string;
   userRole: string;
+  jiraBaseUrl?: string;
 }
+
+interface JiraDashboard { id: string; name: string; viewUrl?: string; }
+interface JiraBoard { id: string; name: string; type: string; }
+interface JiraProject { id: string; key: string; name: string; }
+interface JiraSprint { id: string; name: string; state: string; startDate?: string; endDate?: string; goal?: string; }
+interface JiraIssueType { id: string; name: string; subtask?: boolean; }
+interface JiraSavedFilter { id: string; name: string; jql?: string; }
+interface JiraIssue { id: string; key: string; summary: string; issueType: string; status: string; priority: string; assignee: string; updated: string; browseUrl: string; }
 
 interface WorkspaceState {
   items: WorkItem[];
@@ -314,4 +324,18 @@ interface DesktopBridge {
   stageWorkspaceRestore(): Promise<{ token: string; workspace: unknown; attachmentCount: number } | null>;
   commitWorkspaceRestore(token: string): Promise<void>;
   cancelWorkspaceRestore(token: string): Promise<void>;
+  jiraHasToken(): Promise<boolean>;
+  jiraSaveToken(token: string): Promise<void>;
+  jiraRemoveToken(): Promise<void>;
+  jiraOpenTokenPage(baseUrl: string): Promise<void>;
+  jiraOpenIssue(baseUrl: string, issueKey: string): Promise<void>;
+  jiraListDashboards(baseUrl: string): Promise<JiraDashboard[]>;
+  jiraListFilters(baseUrl: string): Promise<JiraSavedFilter[]>;
+  jiraFetchFilterIssues(baseUrl: string, filterId: string): Promise<JiraIssue[]>;
+  jiraListBoards(baseUrl: string): Promise<JiraBoard[]>;
+  jiraListBoardProjects(baseUrl: string, boardId: string): Promise<JiraProject[]>;
+  jiraListSprints(baseUrl: string, boardId: string): Promise<JiraSprint[]>;
+  jiraFetchBoardIssues(baseUrl: string, boardId: string, scope: "backlog" | "board" | "sprint", sprintId?: string): Promise<JiraIssue[]>;
+  jiraListIssueTypes(baseUrl: string, projectKey: string): Promise<JiraIssueType[]>;
+  jiraCreateIssue(baseUrl: string, boardId: string, projectKey: string, issueTypeId: string, summary: string, description: string): Promise<{ id: string; key: string }>;
 }

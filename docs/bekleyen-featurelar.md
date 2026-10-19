@@ -86,7 +86,7 @@ Initiative/epic hiyerarşisi, roadmap, release sağlığı ve geçmiş/gelecek r
 
 ### Sonraki faz — Entegrasyonlar ve otomasyon
 
-Jira Server ve çok kullanıcılı çalışma; ihtiyaç ve kurum teknik koşulları doğrulandıktan sonra ele alınmalı.
+Jira’da kayıt oluşturma/güncelleme, çift yönlü senkron ve çok kullanıcılı çalışma; ihtiyaç ve kurum teknik koşulları doğrulandıktan sonra ele alınmalı. İlk Jira bağlantısı ve salt okunur backlog paneli tamamlandı.
 
 ## Önerilen kabul ölçütleri
 
@@ -107,7 +107,7 @@ Jira Server ve çok kullanıcılı çalışma; ihtiyaç ve kurum teknik koşulla
 
 ## Güncel roadmap
 
-**Kaynak:** Rota çalışma alanındaki backlog, 19 Ekim 2026 tarihinde okundu ve uygulama teslimleriyle eşitlendi. 202 plan kaydının 198’i tamamlandı, 2’si yeni, 2’si devam ediyor. Bu belge yalnızca Rota’da hâlâ bulunan bekleyen işleri gösterir; Rota’dan silinen öneriler yeniden eklenmedi. Tarih ve kapasite bilgisi olmadığı için fazlar takvim taahhüdü değil, önerilen sıralamadır.
+**Kaynak:** Rota çalışma alanındaki backlog, 20 Ekim 2026 tarihinde okundu ve uygulama teslimleriyle eşitlendi. 203 plan kaydının 199’u tamamlandı, 2’si yeni, 2’si devam ediyor. Bu belge yalnızca Rota’da hâlâ bulunan bekleyen işleri gösterir; Rota’dan silinen öneriler yeniden eklenmedi. Tarih ve kapasite bilgisi olmadığı için fazlar takvim taahhüdü değil, önerilen sıralamadır.
 
 ### Faz 1 — Tamamlandı: PO kararlarını ve backlog hazırlığını güçlendir
 
@@ -121,12 +121,9 @@ Jira Server ve çok kullanıcılı çalışma; ihtiyaç ve kurum teknik koşulla
 
 **ROTA-PLAN-090, 091, 092, 093, 097, 098 ve 099** tamamlandı. Kayıtlar arasında çapraz bağlantılar, arşiv araması, yeni işte benzer kayıt uyarısı, tarih bazlı PO planı, takip hatırlatmaları, haftalık ürün özeti ve proje devir paketi uygulamaya eklendi. Ayrıntılar `tamamlanan-featurelar.md` içinde.
 
-### Sonraki faz — Jira Server entegrasyonu
+### Jira Server — sonraki genişletmeler
 
-- **ROTA-PLAN-034 · Jira Server teknik keşfi:** Kurum sürümü, ağ erişimi ve kimlik doğrulama yöntemini öğren.
-- **ROTA-PLAN-035 · Senkronizasyon tasarımı:** Tek/çift yön, alan eşleme, çakışma ve denetim izini tasarla.
-
-İki madde Rota’da **İleri sürüm adayı** etiketinde. Önce entegrasyon koşulları keşfedilecek; Jira mevcut sürüm kapsamına alınmıyor.
+Agile board, backlog ve sprintleri görüntüleme ile Rota işinden seçili board projesinde Jira issue oluşturma tamamlandı. Sonraki kapsam olarak Jira’dan Rota’ya issue içe aktarma, iki yönlü senkronizasyon, alan eşleme ve çakışma/denetim izi ayrıca planlanmalı.
 
 ### Paralel hazırlık ve en son dağıtım
 
@@ -137,7 +134,6 @@ Jira Server ve çok kullanıcılı çalışma; ihtiyaç ve kurum teknik koşulla
 
 | Kayıt | Durum | Öncelik / takip |
 | --- | --- | --- |
-| ROTA-PLAN-034, ROTA-PLAN-035 | Yeni | Orta · Jira Server sonraki faz |
 | ROTA-PLAN-039 | Devam ediyor | Orta · Sertifika ve update feed bağımlılığı |
 | ROTA-PLAN-043 | Devam ediyor | Düşük · En son öncelik |
 

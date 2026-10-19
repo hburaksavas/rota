@@ -1643,6 +1643,26 @@ export const ROTA_PRODUCT_FEATURE_ADDITIONS: RotaProductFeatureImport[] = [
     area: "Genel kullanım ve gezinme",
     description: "Backlog işi, kişisel görev ve not, ürün bileşeni, proje, roadmap hedefi, release ve takım üyesinde bağlama uygun açma, düzenleme, çoğaltma, durum değiştirme, dönüştürme, arşivleme ve silme eylemlerini sağ tık menüsünden sun. Form alanlarında ve diyagram tuvalinde yerleşik menüyü koru; klavye ile menüyü kapatmayı ve gezmeyi destekle.",
     labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-252",
+    title: "Rota backlog işinden seçili Jira Agile board için issue oluşturma",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Jira Server entegrasyonu",
+    description: "PO, Jira panelinde erişebildiği Agile board’u ve board kapsamındaki Jira projesini seçerek Rota backlog işinden Jira issue oluşturabilir. Issue türleri proje oluşturma metadata’sından listelenir; başlık ve açıklama Jira’ya gönderilmeden önce düzenlenebilir. Oluşan Jira issue key Rota işine bağlanır ve aktiviteye yazılır; tekrar oluşturma engellenir.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-253",
+    title: "Sayfa çerçevesi sabit kalmalı, uzun listeler ve dashboard içerikleri kendi alanında kaymalı",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Görünüm ve kullanım kolaylığı",
+    description: "Masaüstü penceresinde ana içerik dikey kaymamalı. Üst başlık ve sayfa adı sabit kalırken uzun liste, dashboard ve sayfa gövdesi kendine ait sınırlı kaydırma alanında hareket etmeli. Backlog tablosu ve board mevcut kendi iç kaydırmasını kullanmalı; soru, envanter ve Jira tabloları kendi listelerinde kayabilmeli. Uzun sol navigasyon da bağımsız kaydırılmalı.",
+    labels: ["Ürün planı", "Tamamlanan"]
   }
 ];
 
@@ -1659,6 +1679,60 @@ export interface RotaProductFeatureUpdate {
 
 // Add one uniquely keyed entry when an existing Rota feature changes state.
 export const ROTA_PRODUCT_FEATURE_UPDATES: RotaProductFeatureUpdate[] = [
+  {
+    key: "2026-10-20-backlog-activity-column-meaning-044",
+    id: "ROTA-PLAN-044",
+    title: "Son aktivite kolonu olayın ne olduğunu göstermeli.",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"],
+    description: "Backlog tablosunun Son aktivite kolonunda son olayın açıklaması, yapan kişi ve geçen süre birlikte gösterilir. Geçmiş kaydı olmayan işte teknik güncelleme metni yerine 'Henüz aktivite yok' görünür; son güncelleme zamanı ayrı Güncellendi kolonunda kalır."
+  },
+  {
+    key: "2026-10-20-detail-tab-wheel-201",
+    id: "ROTA-PLAN-201",
+    title: "İş ayrıntısı sekmeleri fare tekerleğiyle değiştirilebilmeli.",
+    area: "Görünüm ve erişilebilirlik",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"],
+    description: "İş ayrıntısının Özet, Aktivite, Ekler ve İlişkiler sekme çubuğu üzerindeyken fare tekerleği yukarı/aşağı çevrilerek önceki veya sonraki sekmeye geçilir. Dikey içerik kaydırması sekme çubuğunun dışında değişmeden çalışır."
+  },
+  {
+    key: "2026-10-20-jira-first-slice-034",
+    id: "ROTA-PLAN-034",
+    title: "Jira Server bağlantısı Base URL ve kullanıcı PAT’i ile yapılandırılmalı.",
+    area: "Jira Server entegrasyonu",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"],
+    description: "İlk kurulum ve çalışma alanı ayarlarında Jira Base URL yapılandırılır; URL yoksa Jira paneli devre dışı kalır. Kullanıcı Jira’da kendi hesabı için Personal Access Token (PAT) üretip Rota’ya kaydeder. Token Electron ana sürecinde OS safeStorage ile şifrelenir ve REST isteklerinde Bearer olarak kullanılır; localStorage ve yedek dosyalarına yazılmaz."
+  },
+  {
+    key: "2026-10-20-jira-first-slice-035",
+    id: "ROTA-PLAN-035",
+    title: "Seçili Jira Agile board’un backlog, board ve sprint kayıtları listelenmeli.",
+    area: "Jira Server entegrasyonu",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"],
+    description: "Jira paneli kullanıcının erişebildiği Agile board’ları listeler. Seçilen board’un backlog, tüm board işleri veya seçili sprint kapsamı Agile REST API üzerinden en fazla 100 kayıtla canlı görüntülenebilir. Sprint kataloğu aktif, gelecek ve tamamlanmış sprintleri içerir. Jira kayıtlarını okuma akışı değiştirmez."
+  },
+  {
+    key: "2026-10-20-jira-rota-issue-create-252",
+    id: "ROTA-PLAN-252",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"],
+    description: "Jira panelinde seçili Agile board’un proje kapsamından proje seçilir, o projenin oluşturulabilir issue türleri Jira create metadata’sından yüklenir. Kullanıcı Rota backlog işini seçer, gönderim öncesi özet onayı verir ve düzenlenebilir başlık/açıklamayla issue oluşturur. Başarılı Jira key’i Rota işine kalıcı bağlanır ve aktivite günlüğüne yazılır; aynı Rota işi için ikinci oluşturma engellenir."
+  },
+  {
+    key: "2026-10-20-contained-page-scroll-253",
+    id: "ROTA-PLAN-253",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"]
+  },
   {
     key: "2026-10-19-phase-1-2-052",
     id: "ROTA-PLAN-052",
