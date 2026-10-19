@@ -1618,11 +1618,39 @@ export const ROTA_PRODUCT_FEATURES: RotaProductFeatureImport[] = [
 // New catalog entries are imported additively for existing workspaces. Keep them
 // separate from the original catalog so a plan version bump never restores records
 // that a PO intentionally deleted from their local Rota backlog.
-export { ROTA_PRODUCT_FEATURE_ADDITIONS } from "./rota-product-plan-ux";
+import { ROTA_PRODUCT_FEATURE_ADDITIONS as ROTA_PRODUCT_UX_ADDITIONS } from "./rota-product-plan-ux";
+import { ROTA_PRODUCT_DISCOVERY_ADDITIONS } from "./rota-product-plan-discovery";
+
+export const ROTA_PRODUCT_FEATURE_ADDITIONS: RotaProductFeatureImport[] = [
+  ...ROTA_PRODUCT_UX_ADDITIONS,
+  ...ROTA_PRODUCT_DISCOVERY_ADDITIONS,
+  {
+    id: "ROTA-PLAN-213",
+    title: "Backlog satırında ayrı ikonlu eylem kolonları",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Backlog yönetimi",
+    description: "Liste görünümünde düzenle, çoğalt ve sil eylemleri ayrı kolonlarda her zaman görünür ikon düğmeleriyle sunulur. Her ikon kısa açıklamalı tooltip ve erişilebilir eylem adı taşır.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-251",
+    title: "Kayıtlar için bağlama duyarlı sağ tık menüsü",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Genel kullanım ve gezinme",
+    description: "Backlog işi, kişisel görev ve not, ürün bileşeni, proje, roadmap hedefi, release ve takım üyesinde bağlama uygun açma, düzenleme, çoğaltma, durum değiştirme, dönüştürme, arşivleme ve silme eylemlerini sağ tık menüsünden sun. Form alanlarında ve diyagram tuvalinde yerleşik menüyü koru; klavye ile menüyü kapatmayı ve gezmeyi destekle.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  }
+];
 
 export interface RotaProductFeatureUpdate {
   key: string;
   id: string;
+  title?: string;
+  area?: string;
   status?: WorkItem["status"];
   addLabels?: string[];
   removeLabels?: string[];
@@ -1631,6 +1659,62 @@ export interface RotaProductFeatureUpdate {
 
 // Add one uniquely keyed entry when an existing Rota feature changes state.
 export const ROTA_PRODUCT_FEATURE_UPDATES: RotaProductFeatureUpdate[] = [
+  {
+    key: "2026-10-19-phase-1-2-052",
+    id: "ROTA-PLAN-052",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"],
+    description: "Açık sorular çalışma alanına ayrı bir görünüm olarak eklendi. Soru; yanıt sahibi, beklenen tarih ve isteğe bağlı backlog işiyle kaydedilir; gecikenler vurgulanır, yanıt notu girilebilir ve kapatılan soru yeniden açılabilir."
+  },
+  {
+    key: "2026-10-19-phase-1-2-053",
+    id: "ROTA-PLAN-053",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"],
+    description: "Story, bug ve bankacılık değişiklikleri için yeniden kullanılabilir kabul kriteri şablonları; yeni iş ve düzenleme formlarında uygulanabilir. Kullanıcı girdiği kriterleri adlandırıp kendi şablonlarına kaydedebilir."
+  },
+  {
+    key: "2026-10-19-phase-1-2-059",
+    id: "ROTA-PLAN-059",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"],
+    description: "Backlog listesinde bekleme süresine göre sıralama; her satır son aktiviteden geçen gün sayısını ve son karar tarihini gösterir. Tarihçesi olmayan eski kayıtlar için süre uydurulmaz ve bilinmiyor gösterilir."
+  },
+  {
+    key: "2026-10-19-phase-1-2-073",
+    id: "ROTA-PLAN-073",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"],
+    description: "Backlog Liste görünümünde varsayılan sıra seçiliyken satırlar sürükle-bırak ile yeniden sıralanabilir. Sıra çalışma alanında saklanır; arama ve filtreler içinde görünen kayıtların pozisyonları korunur."
+  },
+  {
+    key: "2026-10-19-phase-1-2-075",
+    id: "ROTA-PLAN-075",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"],
+    description: "İş detayındaki bağımlılıklar dikey zaman çizgisinde sıralanır; her bağımlılık ve mevcut iş için durum, başlangıç ve hedef tarih görünür. Tamamlanan ve bekleyen işler görsel olarak ayrılır."
+  },
+  {
+    key: "2026-10-19-phase-1-2-078",
+    id: "ROTA-PLAN-078",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"],
+    description: "Backlog Liste görünümünde Hazır iş havuzu; tamamlanmamış, bloke olmayan, en az bir kabul kriteri içeren ve tamamlanmamış bağımlılığı bulunmayan işleri ayırır. Mevcut takım filtresiyle belirli takım kapsamına indirilebilir."
+  },
+  {
+    key: "2026-10-19-phase-1-2-072",
+    id: "ROTA-PLAN-072",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
+    addLabels: ["Tamamlanan"],
+    description: "Tamamlanan sprint kartındaki kapanış özeti; tamamlanan, açık/taşınan ve bloke iş sayılarını ve iş başlıklarını toplar. PO öğrenimleri ve takip notlarını kaydedebilir; bunlar sprint kaydında korunur."
+  },
   ...[
     ["ROTA-PLAN-101", "Kullanıcı her ekrandaki hızlı kayıt düğmesiyle iş, kişisel görev veya not başlatabilir."],
     ["ROTA-PLAN-102", "Ctrl+Shift+N hızlı kayıt penceresini açar; kayıt türü klavyeyle seçilebilir."],
@@ -2222,6 +2306,36 @@ export const ROTA_PRODUCT_FEATURE_UPDATES: RotaProductFeatureUpdate[] = [
     removeLabels: ["Öneri"],
     addLabels: ["Devam ediyor"],
     description: "Paketlenmiş Windows uygulamasına güvenli güncelleme akışı eklendi: yalnızca HTTPS feed, paketleme sırasında sabitlenen Authenticode yayıncı adı, varsayılan otomatik indirme yerine kullanıcı onayı ve imza doğrulaması. Akış ancak kurumun kod imzalama sertifikası/yayıncı adı ve HTTPS yayın feed'i sağlanınca paketlenip uçtan uca doğrulanabilir."
+  },
+  {
+    key: "2026-10-19-discovery-210-fraud-protection-journey",
+    id: "ROTA-PLAN-210",
+    title: "Dolandırıcılık şüphesinde müşteri koruma yolu",
+    area: "Müşteri sonucu ve deneyim",
+    description: "Şüpheli ödeme anında uyarı, işlemi durdurma, güvenli doğrulama ve olay sonrası destek adımları birlikte tasarlanır; gereksiz engelleme ile koruma dengesi incelenir."
+  },
+  {
+    key: "2026-10-19-phase-1-2-191",
+    id: "ROTA-PLAN-191",
+    status: "Tamamlandı",
+    removeLabels: ["Öneri", "İleri sürüm adayı", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Açık/koyu/sistem tema seçimi korunurken koyu tema tüm ekran yüzeylerine uygulandı: envanter, release, takım, sprint ve backlog alanları; formlar, menüler, etiketler ve önizlemeler aynı paletle okunabilir."
   }
+  , ...[
+    ["ROTA-PLAN-093", "Kayıtlar arası çapraz bağlantı", "İş detayından backlog işi, ürün bileşeni, release, kişisel karar notu, açık soru ve risk kayıtlarına doğrudan ilişki eklenebilir; bağlantılar iş detayında açılır ve kaldırılır."],
+    ["ROTA-PLAN-097", "Arşivde arama", "Arşivlenmiş backlog işleri, projeler ve release'ler; ID, başlık, açıklama ve proje bilgisi üzerinden aranır, sonuçlar arşivden çıkarılabilir."],
+    ["ROTA-PLAN-098", "Yinelenen işi bulma yardımcısı", "Yeni backlog işi formunda başlık ve açıklama yazılırken benzer mevcut işler gösterilir; adaydan mevcut işi açmak veya yeni işi sürdürmek mümkündür."],
+    ["ROTA-PLAN-090", "Günlük PO planı", "Tarihe göre günlük odak planında backlog işleri ve kişisel görevler sıralanabilir; plan notu cihazda saklanır."],
+    ["ROTA-PLAN-092", "Hatırlatma ve takip tarihi", "Kişisel göreve hatırlatma zamanı, bloke işe takip zamanı eklenir. Vakti gelen ve henüz bildirilmemiş takipler uygulama açıldığında ve açıkken bildirimle sunulur."],
+    ["ROTA-PLAN-091", "Haftalık ürün özeti", "Seçilen hafta için tamamlanan işler, yeni blokajlar, hedef tarihli işler ve release'ler özetlenir; PO değerlendirmesi kaydedilip metin kopyalanabilir."],
+    ["ROTA-PLAN-099", "PO devir paketi", "Proje hedefleri, açık kararlar, blokajlar, riskler, sprintler, release'ler ve ürün notları bir devir özetinde toplanır; PO notu saklanabilir, kopyalanabilir veya yazdırılabilir."]
+  ].map(([id, title, description]) => ({
+    key: "2026-10-19-phase-3-" + id.slice(-3), id, title, status: "Tamamlandı" as const,
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı", "İleri faz öncesi"], addLabels: ["Tamamlanan"], description
+  }))
 ];
+
+// Removed feature-plan records must not be restored into an existing Rota workspace.
+export const ROTA_PRODUCT_FEATURE_REMOVALS = ["ROTA-PLAN-238", "ROTA-PLAN-239", "ROTA-PLAN-243"];
 

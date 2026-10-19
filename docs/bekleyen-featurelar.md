@@ -84,9 +84,9 @@ Tek kullanıcılı yerel kullanımda işe bağlı not/ilerleme günlüğü, blok
 
 Initiative/epic hiyerarşisi, roadmap, release sağlığı ve geçmiş/gelecek raporları eklenmeli. Ölçüm tanımları PO ve takımla netleştirilmeli.
 
-### Faz 4 — Entegrasyonlar ve otomasyon
+### Sonraki faz — Entegrasyonlar ve otomasyon
 
-Jira Server, Outlook'tan kayıt oluşturma ve diagram/devir araçları; ihtiyaç ve kurum teknik koşulları doğrulandıktan sonra ele alınmalı.
+Jira Server ve çok kullanıcılı çalışma; ihtiyaç ve kurum teknik koşulları doğrulandıktan sonra ele alınmalı.
 
 ## Önerilen kabul ölçütleri
 
@@ -105,98 +105,40 @@ Jira Server, Outlook'tan kayıt oluşturma ve diagram/devir araçları; ihtiyaç
 4. Gerçek takım geçmişi için kurum içi kimlik/API ve barındırma modeli ne olacak? Bu karar Faz 3 öncesi gerekir.
 5. İlk roadmap hiyerarşisi Initiative → Epic → Story/Task/Bug yeterli mi? **Öneri:** İlk aşamada bu seviyelerle sınırlı kal.
 
-## İleri sürüm adayları — henüz onaylı değil
+## Güncel roadmap
 
-## İleri fazdan önce değerlendirilebilecek 50 fikir
+**Kaynak:** Rota çalışma alanındaki backlog, 19 Ekim 2026 tarihinde okundu ve uygulama teslimleriyle eşitlendi. 202 plan kaydının 198’i tamamlandı, 2’si yeni, 2’si devam ediyor. Bu belge yalnızca Rota’da hâlâ bulunan bekleyen işleri gösterir; Rota’dan silinen öneriler yeniden eklenmedi. Tarih ve kapasite bilgisi olmadığı için fazlar takvim taahhüdü değil, önerilen sıralamadır.
 
-Bu liste ürün keşif havuzudur; fikirler henüz onaylanmış veya taahhüt edilmiş kapsam değildir. Öneriler Rota backlog'una `Öneri` etiketiyle alınmıştır ve PO önceliklendirmesine göre sıraya konabilir.
+### Faz 1 — Tamamlandı: PO kararlarını ve backlog hazırlığını güçlendir
 
-### PO kararları ve keşif
+**ROTA-PLAN-052, 053 ve 059** tamamlandı. Açık sorular sahibi/tarihi ve iş bağlantısıyla izleniyor; kabul kriterleri şablondan uygulanıp yeniden kullanılabiliyor; backlog bekleme süresi ve son karar tarihine göre sıralanabiliyor. Ayrıntılar `tamamlanan-featurelar.md` içinde.
 
-1. **Karar günlüğü:** Ürün kararlarını tarih, gerekçe, alternatifler ve etkilediği işler ile kaydet.
-2. **Toplantı çıktısı şablonları:** Refinement, operasyon görüşmesi ve risk değerlendirmesi için doldurulabilir not şablonları sun.
-3. **Açık soru havuzu:** Henüz yanıtlanmamış iş sorularını sahibine ve beklenen yanıt tarihine bağla.
-4. **Kabul kriteri kontrol listeleri:** Story, bug ve bankacılık değişikliği tipine göre tekrar kullanılabilir kriter taslakları oluştur.
-5. **Kapsam dışı kayıtları:** Bir işte özellikle yapılmayacakları ve bu kararın gerekçesini tut.
-6. **Paydaş haritası:** İş alanı veya bileşen başına iş birimi, operasyon, risk ve teknik temas kişilerini PO notu olarak kaydet.
-7. **Refinement hazırlık puanı:** Açıklama, kriter, bileşen, bağımlılık ve açık soru alanlarından şeffaf bir hazırlık kontrolü üret.
-8. **Alternatif çözüm karşılaştırması:** Bir iş için seçenekleri, etkileri ve seçilen yaklaşımın gerekçesini yan yana sakla.
-9. **Talep kaynağı ve kanıt:** İş talebini şikayet, operasyon bulgusu, hedef veya mevzuat girdisine; ek veya nota bağla.
-10. **İş yaşlandırma görünümü:** Backlog'da ne kadar süredir beklediğini ve son karar tarihini göster.
+### Faz 2 — Tamamlandı: Sprint kapsamını planla ve sonuçlandır
 
-### Bankacılık ürün kapsamı ve etki analizi
+**ROTA-PLAN-072, 073, 075 ve 078** tamamlandı. Backlog listesi manuel sıralanabiliyor, bağımlılıklar tarihli zaman çizgisinde görünüyor, hazır iş havuzu kriterleri tamamlanmış ve bloke olmayan işleri ayırıyor; tamamlanan sprintler için sonuç ve öğrenim özeti saklanıyor. Ayrıntılar `tamamlanan-featurelar.md` içinde.
 
-11. **Kanal etiketi:** Mobil, internet şubesi, çağrı merkezi, şube ve ATM etkisini bileşen/iş üzerinde seç.
-12. **Müşteri segmenti kapsamı:** Bireysel, ticari, KOBİ veya kurumsal kapsamını kaydet.
-13. **İşlem yaşam döngüsü haritası:** İşlemin talep, doğrulama, onay, muhasebeleştirme ve iade adımlarını kayıtla ilişkilendir.
-14. **Hata senaryosu kataloğu:** Ürün alanı başına hata kodu, kullanıcı mesajı ve beklenen operasyon aksiyonunu tanımla.
-15. **Durum geçiş tablosu:** İşlem durumlarının izin verilen geçişlerini ve tetikleyen koşulları basit bir tabloda tut.
-16. **Veri alanı sözlüğü:** Bileşenlerde kullanılan kritik alanları, anlamını, formatını ve maskeleme notunu belgele.
-17. **Arayüz sözleşme notları:** Servis veya entegrasyon bileşenine istek/yanıt alanı ve uyumluluk notları ekle.
-18. **Dosya formatı envanteri:** Batch dosyalarının alan sırası, zorunlulukları ve sürüm notlarını bileşene bağla.
-19. **Kesim saati takvimi:** EFT/FAST gibi iş akışlarında iş günü, tatil ve gün içi kesim saati varsayımlarını yerel referans olarak tut.
-20. **Mutabakat kontrol noktaları:** Rapor/batch bileşenlerinde kaynak, kontrol toplamı, tolerans ve istisna sahibini kaydet.
+### Faz 3 — Tamamlandı: PO’nun günlük takip ve bilgi bulma akışı
 
-### Planlama, sprint ve teslimat
+**ROTA-PLAN-090, 091, 092, 093, 097, 098 ve 099** tamamlandı. Kayıtlar arasında çapraz bağlantılar, arşiv araması, yeni işte benzer kayıt uyarısı, tarih bazlı PO planı, takip hatırlatmaları, haftalık ürün özeti ve proje devir paketi uygulamaya eklendi. Ayrıntılar `tamamlanan-featurelar.md` içinde.
 
-21. **Sprint hedefi:** Sprint adına ek olarak tek cümlelik sonuç hedefi ve başarı işaretini kaydet.
-22. **Sprint kapsam değişiklik geçmişi:** Sprint'e iş ekleme/çıkarma olaylarını gerekçesiyle göster.
-23. **Sprint kapanış özeti:** Tamamlananlar, taşınan işler, bloke nedenleri ve öğrenimleri tek ekranda toparla.
-24. **Sürükle-bırak öncelik sıralaması:** Liste görünümünde işleri kontrollü manuel sıraya al ve tercihi kaydet.
-25. **Toplu alan güncelleme:** Seçili işlerin öncelik, etiket, dönem veya ürün aşamasını tek işlemde güncelle.
-26. **Bağımlılık zaman çizgisi:** İşler arası bekleme ilişkilerini tarihleriyle kompakt bir zaman çizelgesinde göster.
-27. **Planlama senaryoları:** Gerçek kayıtları değiştirmeden farklı sprint kapsamlarını taslak olarak karşılaştır.
-28. **Efor değişim geçmişi:** Tahminin ne zaman ve hangi notla değiştiğini iş geçmişinde izle.
-29. **Hazır iş havuzu:** Belirli takım için kriterleri tamamlanmış ve bloke olmayan işleri ayrı görünümde filtrele.
-30. **Sprint kapasite notu:** Takımın izin, nöbet veya destek yükü gibi PO tarafından girilen kapasite notlarını sprintte sakla.
+### Sonraki faz — Jira Server entegrasyonu
 
-### Release, risk ve operasyon hazırlığı
+- **ROTA-PLAN-034 · Jira Server teknik keşfi:** Kurum sürümü, ağ erişimi ve kimlik doğrulama yöntemini öğren.
+- **ROTA-PLAN-035 · Senkronizasyon tasarımı:** Tek/çift yön, alan eşleme, çakışma ve denetim izini tasarla.
 
-31. **Release go/no-go listesi:** Yayın öncesi onay, izleme, geri alma ve iletişim maddelerini kontrol et.
-32. **Geri alma planı:** Release başına geri dönüş adımlarını, karar sahibini ve tetikleyicileri kaydet.
-33. **Yayın iletişim taslağı:** İç paydaş duyurusu ve operasyon bilgilendirmesi için release notlarından taslak oluştur.
-34. **Operasyon hazırlık kontrolü:** Destek ekibi, çağrı merkezi ve mutabakat ekipleri için etkilenecek süreçleri işaretle.
-35. **Risk kaydı:** Etki, olasılık, azaltım adımı, sahibi ve gözden geçirme tarihini ürün/işe bağla.
-36. **Varsayım ve doğrulama:** Ürün varsayımlarını kanıt, doğrulama yöntemi ve son tarihle takip et.
-37. **Test kanıtı bağlantıları:** Kabul kriterlerini manuel test notu, senaryo adı veya yerel dosya ekiyle ilişkilendir.
-38. **UAT geri bildirim defteri:** Kullanıcı testi bulgularını iş, önem, karar ve tekrar test durumu ile kaydet.
-39. **Gözlem penceresi:** Yayın sonrası ilk günler için kontrol edilecek göstergeleri ve sorumluyu release'te listele.
-40. **Release sonrası değerlendirme:** Beklenen ve gerçekleşen sonucu, sürprizleri ve takip işlerini yapılandırılmış kayda al.
+İki madde Rota’da **İleri sürüm adayı** etiketinde. Önce entegrasyon koşulları keşfedilecek; Jira mevcut sürüm kapsamına alınmıyor.
 
-### Kişisel akış, görünürlük ve çalışma kolaylığı
+### Paralel hazırlık ve en son dağıtım
 
-41. **Günlük PO planı:** Bugün odaklanılacak işleri, görüşmeleri ve beklenen kararları tek kişisel listede topla.
-42. **Haftalık ürün özeti:** Son hafta tamamlananlar, yeni blokajlar ve yaklaşan tarihlerden düzenlenebilir özet çıkar.
-43. **Hatırlatma ve takip tarihi:** Kişisel görev ve blokajlara yerel bildirim veya açılışta hatırlatma zamanı ekle.
-44. **Kayıtlar arası çapraz bağlantı:** İş, bileşen, release, karar notu ve risk arasında hızlı ilişki oluştur.
-45. **Şablonla iş oluşturma:** Sık tekrarlanan EFT, limit değişikliği veya rapor talebi için alanları hazır iş şablonları kullan.
-46. **Favoriler ve sabitlenmiş kayıtlar:** Sık açılan proje, iş, bileşen ve release'leri kısayol olarak sabitle.
-47. **Kişisel çalışma alanı yedek profilleri:** Ayrı ürün portföyleri için yedeklenebilir görünüm ve filtre tercihleri oluştur.
-48. **Arşivde arama:** Arşivlenmiş işleri, projeleri ve release'leri ana backlog'u kirletmeden sorgula.
-49. **Yinelenen işi bulma yardımcısı:** Başlık, açıklama, alan ve bileşen benzerliğine göre olası tekrarları kaydetmeden önce göster.
-50. **PO devir paketi:** Seçili ürün için hedefler, açık kararlar, blokajlar, sprint ve release durumlarından yazdırılabilir devir özeti hazırla.
+- **ROTA-PLAN-039 · Devam ediyor:** Güvenlik, yedekleme ve güncelleme altyapısının kurumsal HTTPS feed’i ve kod imzalama sertifikasıyla uçtan uca doğrulanması. Sertifika/feed sağlanana kadar dış bağımlılık açık kalır.
+- **ROTA-PLAN-043 · Devam ediyor · En son öncelik:** Windows kurulumunun kurum sertifikasıyla imzalanması ve güvenlik incelemesi. **ROTA-PLAN-039** için gereken yayın altyapısı netleştikten sonra tamamlanır.
 
-### Jira Server entegrasyonu
+## Rota’daki güncel açık kayıtlar
 
-**Durum:** Ertelendi; ilk sürümde yok.
+| Kayıt | Durum | Öncelik / takip |
+| --- | --- | --- |
+| ROTA-PLAN-034, ROTA-PLAN-035 | Yeni | Orta · Jira Server sonraki faz |
+| ROTA-PLAN-039 | Devam ediyor | Orta · Sertifika ve update feed bağımlılığı |
+| ROTA-PLAN-043 | Devam ediyor | Düşük · En son öncelik |
 
-- Kurum Jira Server sürümü, ağ erişimi ve kimlik doğrulama yöntemi keşfedilmeli.
-- Tek yönlü içe alma veya çift yönlü senkron, alan eşleme, çakışma, kesinti ve denetim izi tasarlanmalı.
-
-### Üretim öncesi güvenlik ve sağlamlaştırma
-
-**Durum:** Kod altyapısı hazır; kurumsal imza ve yayın ortamı ile uçtan uca doğrulama bekliyor.
-
-- **ROTA-PLAN-039 · Devam ediyor:** Paketlenmiş uygulamada HTTPS feed kontrolü, kullanıcı onaylı indirme/yeniden başlatma ve Windows Authenticode yayıncı doğrulaması için altyapı eklendi. Normal/imzasız paket güncelleme feed'ine bağlanmaz. Uçtan uca yayın için `ROTA_UPDATE_URL`, sertifikayla aynı `ROTA_PUBLISHER_NAME` ve kurum kod imzalama sertifikası gerekir. Sertifika dosyası `WIN_CSC_LINK`/`CSC_LINK` ile veya Windows sertifika deposu `ROTA_CERTIFICATE_SUBJECT_NAME`/`ROTA_CERTIFICATE_SHA1` ile seçilebilir; parola kaynak koduna konmamalı. Hassas veri içermeyen yerel loglar, yedekleme, bütünlük kontrolü ve hatalı geri yüklemede mevcut veriyi koruma tamamlandı.
-
-### R1 — Windows dağıtım paketi (en son öncelik)
-
-**Durum:** Kısmen tamamlandı · **Öncelik:** En son
-
-- **ROTA-PLAN-043 · Devam ediyor:** Per-user kurulum/kaldırma ve yükseltmede çalışma alanı verisinin korunması yapılandırıldı. Test paketi imzasız; kurumun kod imzalama sertifikası ve güvenlik incelemesi gerekiyor.
-
-### Yeni iyileştirme havuzu — ROTA-PLAN-101–200
-
-PO incelemesi için oluşturulan 100 mevcut akış iyileştirme önerisinden henüz tamamlanmayanlar burada tutulur. Tamamlananlar `tamamlanan-featurelar.md` dosyasına taşınır. Odak; hızlı iş/görev girişi, Outlook bırakma akışı, backlog liste ve düzenleme deneyimi, arama/görünümler, iş ayrıntıları, takım/proje gezinmesi, sprint/release planlama, bileşen/diyagram kullanımı, görünüm/erişilebilirlik ve dosya ekleridir. Bekleyen maddeler fikir havuzudur ve Rota içinde Yeni durumunda, Düşük öncelikte ve Öneri etiketiyle tutulur.
-
-
+Rota dışındaki eski öneri havuzları bu güncel listede tutulmuyor. Yeniden gündeme alınmaları için Rota backlog’una tekrar eklenmeleri gerekir.

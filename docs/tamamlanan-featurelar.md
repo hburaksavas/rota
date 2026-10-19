@@ -1,5 +1,15 @@
 # Rota — Tamamlanan feature'lar
 
+### Faz 3 — PO günlük takip ve bilgi bulma
+
+- **ROTA-PLAN-093 · Kayıtlar arası çapraz bağlantı:** İş detayında backlog işi, ürün bileşeni, release, kişisel not, açık soru ve risk bağlantıları eklenip kaldırılabilir. Bağlantılar doğrudan ilgili kaydı açar.
+- **ROTA-PLAN-097 · Arşivde arama:** Arşivlenmiş backlog işleri, projeler ve release'ler ID, başlık, açıklama veya proje bilgisiyle aranabilir ve arşivden çıkarılabilir.
+- **ROTA-PLAN-098 · Yinelenen işi bulma yardımcısı:** Yeni iş formu başlık/açıklama girilirken benzer açık işler gösterir; PO mevcut işi açabilir veya yeni kayda devam edebilir.
+- **ROTA-PLAN-090 · Günlük PO planı:** Gün bazında backlog işleri ve kişisel görevler sıralanıp notlarla birlikte saklanabilir.
+- **ROTA-PLAN-092 · Hatırlatma ve takip tarihi:** Kişisel görevler ve bloke işler için takip zamanı belirlenir; zamanı gelen kayıtlar uygulama açıkken veya yeniden başlatıldığında bildirilir.
+- **ROTA-PLAN-091 · Haftalık ürün özeti:** Tamamlanan işler, yeni blokajlar, hedef tarihli işler ve release'ler haftaya göre özetlenir; PO notu kaydedilip kopyalanabilir.
+- **ROTA-PLAN-099 · PO devir paketi:** Proje hedefleri, kararlar, blokajlar, riskler, sprintler, release'ler ve notlar tek belgede birleştirilir; özel devir notu kaydedilebilir, kopyalanabilir veya yazdırılabilir.
+
 Bu dosya, uygulamada tamamlanıp kullanılabilir hale gelen özelliklerin kaydıdır. Yeni bir ister tamamlandığında önce `bekleyen-featurelar.md` dosyasından kaldır, sonra buraya ekle.
 
 ## Ürün amacı
@@ -41,6 +51,8 @@ Rota, banka yazılımı üzerinde çalışan product owner'ın ürün backlog'un
 - **ROTA-PLAN-049 · Zengin backlog önizlemesi:** Backlog araç çubuğundaki toggle ile başlık önizlemesi açılıp kapatılır; varsayılanı açıktır ve tercih saklanır. Başlık üzerinde kısa süre bekleyince tooltip yerine zengin önizleme kartı açılır. Başlık bütünüyle satır kaydırarak, kısaltılmadan görünür. Kartta açıklama, durum, öncelik, proje/alan, takım ve üyeler, plan tarihleri, efor tahmini, bağlı bileşen kodları, etiketler, son aktivite, kabul kriteri/ek sayıları gösterilir. Kartta kalıp ayrıntılara geçilebilir veya kapatılabilir; klavye odağıyla da açılır.
 - **ROTA-PLAN-048 · Sprint oluşturma:** Backlog Liste görünümünde tek tek veya görünen işlerin tümünü seçerek sprint oluştur. Sprint adı, tek takım ve başlangıç/bitiş tarihleri belirlenir; geçersiz tarih aralığı reddedilir. Seçili işler sprint'e bağlanır, yeni sprint kolonu ve her işin aktivite geçmişinde görünür. Board kipinde sprint aracı ve seçim satırı gösterilmez.
 - **ROTA-PLAN-100 · Hızlı ve toplu silme:** Liste görünümünde satır başına Hızlı Sil düğmesiyle tek iş silinebilir; onay penceresi işin başlığını ve geri alınamaz olduğunu belirtir. İşaretlenen backlog işleri tek bir onayla topluca silinir ve onayda iş sayısı, başlık önizlemesi ve silinecek ek sayısı gösterilir. İş ekleri ve diyagramları kaldırılır, diğer işlerdeki bağımlılık bağlantıları temizlenip geçmişe yazılır; bağlı kişisel görev ve notlar korunarak bağlantıları kaldırılır. Board görünümünde satır silme araçları gösterilmez.
+- **ROTA-PLAN-213 · Backlog satırında ayrı ikonlu eylem kolonları:** Liste görünümünde düzenle, çoğalt ve sil eylemleri ayrı kolonlarda her zaman görünür ikon düğmeleriyle sunulur. Her ikon kısa açıklamalı tooltip ve erişilebilir eylem adı taşır; Board görünümü etkilenmez.
+- **ROTA-PLAN-251 · Kayıtlar için bağlama duyarlı sağ tık menüsü:** Backlog işleri, kişisel görevler ve notlar, envanter bileşenleri, projeler, roadmap hedefleri, release'ler ve takım üyeleri sağ tık menüsünden kendi bağlamına uygun eylemler sunar. Menü pencere sınırlarında görünür kalır, dışarı tıklama veya Escape ile kapanır, ok tuşlarıyla gezilebilir. Metin/form alanları ve diyagram tuvali kendi yerleşik sağ tık davranışlarını korur.
 - **ROTA-PLAN-047 · Sprint dışa aktarımı:** Excel ana backlog sayfasına sprint adı eklenir; ayrıca Sprintler sayfasında takım, başlangıç/bitiş, iş sayısı ve iş ID'leri yer alır.
 - İş ayrıntısında durum ve öncelik güncelleme, dosya ekleri ve devir özeti.
 - Silme öncesi onay. Backlog işi silinince bağlı kişisel görevler ve notlar korunur, bağlantıları kaldırılır; işe ait ek dosyalar silinir.
@@ -202,6 +214,16 @@ Bu grup hızlı kayıt, Outlook e-posta kaynağını izleme, backlog görünüm/
 - **ROTA-PLAN-148 · Sık kullanılan görünümleri sabitleme** — Sabitlenen görünümler seçim listesinin başında gösterilir.
 - **ROTA-PLAN-149 · Görünüm değişikliklerini kaydetme uyarısı** — Aktif görünümde değişiklik varsa güncelleme eylemi bunu belirtir.
 
+### Backlog kararları ve sprint akışı
+
+- **ROTA-PLAN-052 · Açık soru havuzu:** Sorular yanıt sahibi, beklenen yanıt tarihi ve isteğe bağlı backlog işiyle kaydedilir; gecikenler belirginleşir, yanıt notu eklenebilir ve soru yeniden açılabilir.
+- **ROTA-PLAN-053 · Kabul kriteri şablonları:** Story, bug ve bankacılık değişikliği için hazır kriterler yeni iş ve düzenleme formlarından uygulanabilir. Kullanıcı kendi kriterlerini adlandırıp tekrar kullanılabilir şablon olarak saklayabilir.
+- **ROTA-PLAN-059 · İş yaşlandırma görünümü:** Backlog bekleme süresine göre sıralanır; son aktiviteden geçen süre ve son karar tarihi görünür. Tarihçesi olmayan kayıtta süre bilinmiyor gösterilir.
+- **ROTA-PLAN-073 · Manuel backlog sıralaması:** Liste görünümünde varsayılan sıra seçiliyken işler sürükle-bırakla yeniden sıralanır; sıralama çalışma alanında korunur.
+- **ROTA-PLAN-075 · Bağımlılık zaman çizgisi:** İş detayında bağımlı işler ve mevcut iş; durum, başlangıç ve hedef tarih bilgileriyle zaman çizgisinde gösterilir.
+- **ROTA-PLAN-078 · Hazır iş havuzu:** Tamamlanmamış, bloke olmayan, kabul kriteri bulunan ve açık bağımlılığı olmayan işler filtrelenir. Takım filtresiyle havuz daraltılabilir.
+- **ROTA-PLAN-072 · Sprint kapanış özeti:** Tamamlanan, açık/taşınan ve bloke işler özetlenir; PO öğrenim ve takip notlarını sprintte saklayabilir.
+
 ## Tamamlanmış MVP kabul kapsamı
 
 - Özet, backlog ve kişisel alan arasında geçiş.
@@ -266,7 +288,7 @@ Bu grup hızlı kayıt, Outlook e-posta kaynağını izleme, backlog görünüm/
 - **ROTA-PLAN-175 · Sprint detayında ilerleme göstergesi:** Sprint özet kartları tamamlanma, bloke iş sayısı ve oran çubuğu gösterir.
 - **ROTA-PLAN-178 · Sprint listesinde hızlı filtreler:** Sprint özetinde tümü, aktif, yaklaşan ve tamamlanan sprintler filtrelenir.
 - **ROTA-PLAN-157 · İş eklerini ayrıntıdan önizleme:** PNG, JPEG, GIF, WebP ve PDF dosyaları iş ayrıntısında önizlenir; diğer dosyalar masaüstü uygulamasında açılır.
-- **ROTA-PLAN-191 · Açık/koyu sistem teması:** Açık, koyu veya işletim sistemi temasına göre çalışan görünüm seçilebilir.
+- **ROTA-PLAN-191 · Açık/koyu sistem teması:** Açık, koyu veya işletim sistemi temasına göre çalışan görünüm seçilebilir. Koyu tema envanter, release, takım, sprint ve backlog ekranlarında; formlarda, menülerde, etiketlerde ve önizlemelerde tutarlı koyu yüzey ve okunabilir metin renkleri kullanır.
 - **ROTA-PLAN-199 · Silme ve arşivleme sonrası geri al:** Backlog işi, görev, not silme ve proje arşivleme altı saniye içinde geri alınabilir; dosya ekleri bekleme süresi sonunda temizlenir.
 - **ROTA-PLAN-176 · Sprint bitiminde kalan işleri seçme:** Tamamlanan sprintin açık işleri Backlog'a çıkarılabilir veya başka sprintlere taşınabilir; her kayda aktivite eklenir.
 - **ROTA-PLAN-184 · Diyagramda geri al ve yinele:** İş devir diyagramında 50 adıma kadar değişiklik geçmişi geri alınabilir ve yeniden uygulanabilir.

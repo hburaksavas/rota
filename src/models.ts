@@ -49,6 +49,31 @@ interface WorkItem {
   sprintId?: string;
   sprintOrder?: number;
   sourceEmail?: EmailSourceInfo;
+  archived?: boolean;
+  relatedRecords?: WorkRecordLink[];
+}
+
+interface WorkRecordLink {
+  id: string;
+  type: "item" | "asset" | "release" | "note" | "question" | "risk";
+  targetId: string;
+  label?: string;
+}
+
+interface ProductRisk {
+  id: string;
+  title: string;
+  description: string;
+  project: string;
+  owner: string;
+  status: "Açık" | "Azaltılıyor" | "Kapandı";
+  updatedAt: string;
+}
+
+interface DailyPlan {
+  date: string;
+  entries: { type: "item" | "task"; id: string }[];
+  note: string;
 }
 
 interface Sprint {
@@ -58,6 +83,32 @@ interface Sprint {
   startDate: string;
   endDate: string;
   createdAt: string;
+  closingLearnings?: string;
+  closedAt?: string;
+  closingSnapshot?: {
+    done: { id: string; title: string; status: string }[];
+    carryover: { id: string; title: string; status: string }[];
+    blocked: { id: string; title: string; status: string }[];
+  };
+}
+
+interface OpenQuestion {
+  id: string;
+  text: string;
+  owner: string;
+  expectedAt: string;
+  status: "Açık" | "Yanıtlandı";
+  linkedItemId?: string;
+  answer?: string;
+  createdAt: string;
+  answeredAt?: string;
+}
+
+interface AcceptanceTemplate {
+  id: string;
+  name: string;
+  category: "Story" | "Bug" | "Bankacılık değişikliği" | "Genel";
+  criteria: string[];
 }
 
 type ProductStage = "Fikirler" | "Keşif" | "Sırada" | "Planlandı" | "Teslimatta" | "Tamamlandı";
@@ -88,6 +139,7 @@ interface ProductRelease {
   status: ReleaseStatus;
   description: string;
   actualDate?: string;
+  archived?: boolean;
   dateHistory?: { from: string; to: string; reason: string; at: string; actor: string }[];
   releaseNotes?: string;
   outcome?: string;
@@ -101,6 +153,8 @@ interface WorkBlocker {
   owner?: string;
   openedAt: string;
   resolvedAt?: string;
+  followUpAt?: string;
+  remindedAt?: string;
 }
 
 interface WorkActivity {
@@ -171,6 +225,8 @@ interface PersonalTask {
   attachments?: AttachmentInfo[];
   sourceNoteId?: string;
   sourceEmail?: EmailSourceInfo;
+  remindAt?: string;
+  remindedAt?: string;
 }
 
 interface PersonalNote {
@@ -216,6 +272,12 @@ interface WorkspaceState {
   releases: ProductRelease[];
   diagrams: WorkDiagram[];
   sprints: Sprint[];
+  openQuestions?: OpenQuestion[];
+  acceptanceTemplates?: AcceptanceTemplate[];
+  risks?: ProductRisk[];
+  dailyPlans?: DailyPlan[];
+  weeklySummaryNotes?: Record<string, string>;
+  handoverNotes?: Record<string, string>;
 }
 
 interface ImportedAttachment extends AttachmentInfo {
