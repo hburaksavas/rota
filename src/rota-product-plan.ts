@@ -1663,6 +1663,66 @@ export const ROTA_PRODUCT_FEATURE_ADDITIONS: RotaProductFeatureImport[] = [
     area: "Görünüm ve kullanım kolaylığı",
     description: "Masaüstü penceresinde ana içerik dikey kaymamalı. Üst başlık ve sayfa adı sabit kalırken uzun liste, dashboard ve sayfa gövdesi kendine ait sınırlı kaydırma alanında hareket etmeli. Backlog tablosu ve board mevcut kendi iç kaydırmasını kullanmalı; soru, envanter ve Jira tabloları kendi listelerinde kayabilmeli. Uzun sol navigasyon da bağımsız kaydırılmalı.",
     labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-254",
+    title: "Backlog görünüm tercihlerini açılır menüde toplama",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Backlog yönetimi",
+    description: "Backlog listesindeki satır yoğunluğu, ikincil bilgi, başlık kaydırma, kolon yönetimi ve başlık önizleme kontrolleri varsayılan olarak kapalı bir Görünüm seçenekleri menüsünde toplanır; kullanıcı tercihini gerektiğinde açıp değiştirir.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-255",
+    title: "Tamamlanan işleri backlogda varsayılan gizleme",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Backlog yönetimi",
+    description: "Backlog listesi tamamlanan işleri varsayılan olarak gizler. Tamamlananları göster seçeneğiyle dahil etmek veya durum filtresinden Tamamlandı seçmek mümkündür; görünüm tercihi kaydedilmiş filtrelerde korunur.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-256",
+    title: "Backlog tablo işlemlerini alt menüye taşıma",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Backlog yönetimi",
+    description: "Excel dışa aktarma, seçili işlerden sprint oluşturma ve seçili işleri silme eylemleri Liste görünümünde tablonun altındaki Tablo işlemleri menüsünde yer alır.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-257",
+    title: "Backlog filtre ve araç çubuğunu sadeleştirme",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Backlog yönetimi",
+    description: "Backlog ekranında arama birincil ve geniş alan olarak sunulur; durum, tür, etiket, takım, sorumlu, arama kapsamı ve tamamlanan işleri gösterme seçenekleri sayaç rozetli filtre panelinde gruplanır. Liste/Board geçişi, kaydedilmiş görünümler ve görünüm ayarları ayrı ve kompakt araç alanlarında tutulur.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-258",
+    title: "Backlog tablo araçlarını bütünleşik üst şeritte ve özeti alt bilgide sunma",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Backlog yönetimi",
+    description: "Liste/Board ve Görüntüle ve devamı kontrolleri ile Tablo işlemleri menüsü tablonun üst kenarına bağlı bir araç şeridinde sunulur. Görünüm menüsünde geçerli/kaydedilmiş görünüm seçimi ve tablo tercihleri yer alır. İş adedi ile hazır/bloke durum özeti tablo altında bağlı alt bilgi olarak görünür.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-259",
+    title: "Rota uygulama simgesi",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Genel kullanım ve gezinme",
+    description: "Rota'nın rota ve ilerleme temasını taşıyan özel simgesi çok çözünürlüklü Windows ICO biçiminde üretildi. Masaüstü penceresinde ve Windows kurulum paketinde aynı simge kullanılır.",
+    labels: ["Ürün planı", "Tamamlanan"]
   }
 ];
 
@@ -1679,6 +1739,16 @@ export interface RotaProductFeatureUpdate {
 
 // Add one uniquely keyed entry when an existing Rota feature changes state.
 export const ROTA_PRODUCT_FEATURE_UPDATES: RotaProductFeatureUpdate[] = [
+  {
+    key: "2026-10-20-backlog-column-click-sorting-150",
+    id: "ROTA-PLAN-150",
+    title: "Backlog kolon başlıklarına tıklayarak sıralama.",
+    area: "Backlog yönetimi",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Backlog listesindeki görünür kolonların başlıklarına tıklayarak o alana göre artan veya azalan sıralama yapılır. Aynı başlığa tekrar tıklanınca yön değişir; aktif kolon ve yön okla gösterilir. Sıralama dropdown'ları kaldırılmıştır. Kayıtlı backlog görünümleri sıralama kolonunu ve yönünü saklar."
+  },
   {
     key: "2026-10-20-backlog-activity-column-meaning-044",
     id: "ROTA-PLAN-044",
@@ -1697,6 +1767,16 @@ export const ROTA_PRODUCT_FEATURE_UPDATES: RotaProductFeatureUpdate[] = [
     removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı"],
     addLabels: ["Tamamlanan"],
     description: "İş ayrıntısının Özet, Aktivite, Ekler ve İlişkiler sekme çubuğu üzerindeyken fare tekerleği yukarı/aşağı çevrilerek önceki veya sonraki sekmeye geçilir. Dikey içerik kaydırması sekme çubuğunun dışında değişmeden çalışır."
+  },
+  {
+    key: "2026-10-21-backlog-table-menu-layering-258",
+    id: "ROTA-PLAN-258",
+    title: "Backlog tablo araçları ve özet yerleşimi",
+    area: "Backlog yönetimi",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Tablo üstündeki gereksiz 'Görüntüle ve devamı' etiketi kaldırıldı. Görünüm ve Tablo işlemleri açılır menüleri, tablonun sticky kolon başlıklarının ve satırlarının üzerinde kalacak şekilde ayrı bir üst katmana alındı; menü zeminleri opaklaştırıldı. Görünüm menüsünde kaydedilmiş/geçerli görünüm seçimi korunur, tablo özeti tablonun altında kalır."
   },
   {
     key: "2026-10-20-jira-first-slice-034",
@@ -1789,6 +1869,14 @@ export const ROTA_PRODUCT_FEATURE_UPDATES: RotaProductFeatureUpdate[] = [
     addLabels: ["Tamamlanan"],
     description: "Tamamlanan sprint kartındaki kapanış özeti; tamamlanan, açık/taşınan ve bloke iş sayılarını ve iş başlıklarını toplar. PO öğrenimleri ve takip notlarını kaydedebilir; bunlar sprint kaydında korunur."
   },
+  {
+    key: "2026-10-21-member-search-auto-team-assignment-164",
+    id: "ROTA-PLAN-164",
+    status: "Tamamlandı",
+    removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı", "İleri faz öncesi", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "İş oluşturma/düzenleme, proje ekibi ve backlog satır içi atamalarında kullanıcı tek bir aranabilir üye alanından kişiyi seçer. Üyenin bağlı olduğu takım arka planda otomatik belirlenip saklanır; atama akışında takım seçimi gösterilmez. Sorumluluk alanı ve çoklu kişi ataması korunur."
+  },
   ...[
     ["ROTA-PLAN-101", "Kullanıcı her ekrandaki hızlı kayıt düğmesiyle iş, kişisel görev veya not başlatabilir."],
     ["ROTA-PLAN-102", "Ctrl+Shift+N hızlı kayıt penceresini açar; kayıt türü klavyeyle seçilebilir."],
@@ -1839,7 +1927,6 @@ export const ROTA_PRODUCT_FEATURE_UPDATES: RotaProductFeatureUpdate[] = [
     ["ROTA-PLAN-139", "Backlog satırındaki üç nokta menüsü düzenle, çoğalt ve sil eylemlerini bir araya getirir."],
     ["ROTA-PLAN-140", "Bir backlog işi yeni ID ve boş geçmişle taslak olarak çoğaltılabilir; seçili içerik ve ekler korunur."],
     ["ROTA-PLAN-146", "Son kullanılan beş backlog arama ve filtre bileşimi saklanır ve tek seçimle yeniden uygulanabilir."],
-    ["ROTA-PLAN-150", "Backlog önce birincil, sonra ikincil sıralama ölçütüne göre sıralanabilir; ayar kaydedilmiş görünüme dahil edilir."],
     ["ROTA-PLAN-153", "İş ayrıntısı panelinin altındaki eylem şeridi uzun içerik kaydırılırken görünür kalır."],
     ["ROTA-PLAN-154", "Yeni backlog işi formundaki başlık alanı kısa ve eylem odaklı yazım örneği gösterir."],
     ["ROTA-PLAN-156", "Yeni iş ve iş düzenleme formundaki açıklama ve kriter metin alanları yazıldıkça içerik yüksekliğine uyum sağlar."],
@@ -1863,7 +1950,7 @@ export const ROTA_PRODUCT_FEATURE_UPDATES: RotaProductFeatureUpdate[] = [
     ["ROTA-PLAN-193", "Yüksek kontrast seçeneği metin ve durum etiketlerinin kontrastını ve odak göstergesini artırır."],
     ["ROTA-PLAN-195", "Animasyonları azalt tercihi hareketli geçişleri kapatır ve cihazda saklanır."],
     ["ROTA-PLAN-196", "Çalışma alanı ayarları backlog kolon, görünüm ve tablo tercihlerini iş verisini etkilemeden varsayılana döndürür."],
-    ["ROTA-PLAN-164", "Takım ve üye seçicileri standart klavye ile yazı yazarak eşleşen üyeye atlar; takım seçimi listeyi üyelere göre sınırlar."],
+    ["ROTA-PLAN-164", "Kullanıcı yeni veya mevcut atamada tek aranabilir üye alanından kişiyi seçer. Üyenin takımı arka planda otomatik belirlenip saklanır; takım seçimi atama akışında gösterilmez."],
     ["ROTA-PLAN-182", "Envanter bileşen ayrıntısındaki bağlı backlog işleri listesinden ilişkili iş doğrudan açılabilir."],
     ["ROTA-PLAN-183", "Bileşen ayrıntısından düzenlemeye geçilip birden fazla ilişkili bileşen seçilebilir veya bağlantı kaldırılabilir."],
     ["ROTA-PLAN-197", "Son açılan sekiz backlog işi ID ve başlıkla tutulur; backlog araç çubuğundan hızlıca yeniden açılabilir."],
@@ -2407,7 +2494,47 @@ export const ROTA_PRODUCT_FEATURE_UPDATES: RotaProductFeatureUpdate[] = [
   ].map(([id, title, description]) => ({
     key: "2026-10-19-phase-3-" + id.slice(-3), id, title, status: "Tamamlandı" as const,
     removeLabels: ["Yeni", "Öneri", "İleri sürüm adayı", "İleri faz öncesi"], addLabels: ["Tamamlanan"], description
-  }))
+  })),
+  {
+    key: "2026-10-21-compact-inline-assignment-and-type-icons",
+    id: "ROTA-PLAN-046",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Backlog hızlı düzenleme kompakt ikonlarla çalışır: sorumlu arama ve atama dar bir satır içi panelden yapılır, ekleme tik ikonu ile onaylanır, atamalar kişi adıyla listelenip küçük kaldırma ikonu ile silinir. Takım adı backlog kolonunda gösterilmez; takım üye seçimine göre arka planda belirlenir. Story, Bug ve Task ayrı tabloda tür kolonu olmadan başlık solundaki türe özgü ikonlarla görünür; tür açıklaması tablo kaydırma alanı dışında sabit katmanda gösterilir, fare ve klavye odağıyla açılır."
+  },
+  {
+    key: "2026-10-21-backlog-type-icon-only-and-no-row-tooltip",
+    id: "ROTA-PLAN-044",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Backlog kolon seçicisinden Tür alanı çıkarıldı; iş türü yalnızca başlık solundaki Story/Bug/Task ikonuyla ayırt edilir. Elle sıralama sürükleme davranışı korunur ancak satır üzerinde rahatsız eden tarayıcı tooltip'i gösterilmez."
+  },
+  {
+    key: "2026-10-21-question-answer-in-app-dialog",
+    id: "ROTA-PLAN-052",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Açık sorunun yanıtı uygulama içi form penceresinde girilir ve boş yanıt kabul edilmez. Kaydedince yanıt metni ve zamanı saklanır, durum Yanıtlandı olur ve kullanıcı yanıtlanan sorular listesine alınır. Yeniden açma işlemi de Açık filtresine geçip soruyu görünür tutar."
+  },
+  {
+    key: "2026-10-21-daily-plan-focus-layout",
+    id: "ROTA-PLAN-090",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Günlük plan; seçili tarih ve Bugün kısayolu, planlanan/tamamlanan/açık sayaçları, sıradaki işleri ve ayrı gün notu panelini tek ekranda sunar. Backlog işi ve kişisel görev eklenebilir, görev tamamlanabilir, kayıtlar küçük yukarı/aşağı kontrolleriyle sıralanıp plandan çıkarılabilir. Günlük not seçilen tarihe göre kaydedilir."
+  },
+  {
+    key: "2026-10-21-backlog-selection-column",
+    id: "ROTA-PLAN-100",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Backlog Liste görünümünde ayrı seçim kolonu İş kolonunun solunda yer alır. Başlıktaki checkbox filtrelerle görünür durumdaki tüm işleri seçer; her satırdaki checkbox tek işi seçer. Seçimler sprint oluşturma ve toplu silme işlemlerinde kullanılabilir."
+  }
 ];
 
 // Removed feature-plan records must not be restored into an existing Rota workspace.

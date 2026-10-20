@@ -2,6 +2,8 @@ import { _electron as electron } from "playwright";
 import os from "node:os";
 import path from "node:path";
 import { writeFileSync } from "node:fs";
+import { addComplexCases } from "./complex-cases.mjs";
+import { addUncoveredCases } from "./uncovered-cases.mjs";
 
 const cases = [];
 const add = (name, run) => cases.push({ name, run });
@@ -47,7 +49,7 @@ const backlogSelectors = [
   ["UAT-021 Backlog satırları yüklenir", "#backlog-rows tr"], ["UAT-022 Backlog arama alanı görünür", "#backlog-search"],
   ["UAT-023 Durum filtresi görünür", "#status-filter"], ["UAT-024 Tür filtresi görünür", "#type-filter"],
   ["UAT-025 Takım filtresi görünür", "#team-filter"], ["UAT-026 Sorumlu filtresi görünür", "#assignee-filter"],
-  ["UAT-027 Kayıtlı görünüm seçilebilir", "#backlog-saved-view"], ["UAT-028 Sıralama seçilebilir", "#backlog-sort"],
+  ["UAT-027 Kayıtlı görünüm seçilebilir", "#backlog-saved-view"], ["UAT-028 Kolon başlığı tıklaması sıralama yönünü değiştirir", '[data-sort-column="title"]'],
   ["UAT-029 Görünüm kaydetme eylemi görünür", '[data-action="save-backlog-view"]'], ["UAT-030 Görünüm yönetimi açılır", '[data-action="manage-backlog-views"]'],
   ["UAT-031 Hazır iş havuzu kontrolü görünür", '[data-action="toggle-ready-pool"]'], ["UAT-032 Kolon yönetimi açılır", '[data-action="manage-backlog-columns"]'],
   ["UAT-033 Başlık önizleme kontrolü görünür", '[data-action="toggle-backlog-preview"]'], ["UAT-034 Excel dışa aktarma eylemi görünür", '[data-action="backlog-export-excel"]'],
@@ -57,7 +59,7 @@ const backlogSelectors = [
   ["UAT-041 Board görünümüne geçilebilir", '[data-action="kanban"]'], ["UAT-042 Board görünümünde kolonlar sunulur", ".board-column"],
   ["UAT-043 Board kartları görünür", ".board-card"], ["UAT-044 Boarddan listeye geri dönülebilir", '[data-action="list"]'],
   ["UAT-045 Filtrelenmiş kayıt adedi sunulur", "#visible-count"], ["UAT-046 Toplam kayıt adedi sunulur", "#total-count"],
-  ["UAT-047 Filtre temizleme alanı bulunur", ".backlog-filter-chips"], ["UAT-048 Başlık önizleme varsayılanı açık", '[data-action="toggle-backlog-preview"][aria-pressed="true"]'],
+  ["UAT-047 Tablo araçları üstte, durum özeti altta yer alır", ".backlog-table-shell"], ["UAT-048 Tamamlananlar varsayılan olarak gizlidir", "#include-completed"],
   ["UAT-049 Kolonlarda hızlı düzenleme alanı bulunur", ".backlog-table"], ["UAT-050 Tek satır hızlı silme kontrolü tablo satırında sunulur", "#backlog-rows tr"],
 ];
 for (const [name, selector] of backlogSelectors) {
@@ -65,7 +67,39 @@ for (const [name, selector] of backlogSelectors) {
     await nav(p, "backlog", ".backlog-page");
     if (name === "UAT-042 Board görünümünde kolonlar sunulur" || name === "UAT-043 Board kartları görünür") await p.locator('[data-action="kanban"]').click();
     if (name === "UAT-044 Boarddan listeye geri dönülebilir") { await p.locator('[data-action="kanban"]').click(); await p.locator('[data-action="list"]').click(); }
-    if (name === "UAT-047 Filtre temizleme alanı bulunur") assert(await p.locator(selector).count() === 1, "Filtre durumu alanı yok");
+    if (name === "UAT-028 Kolon başlığı tıklaması sıralama yönünü değiştirir") {
+      await p.locator(selector).click();
+      assert(await p.locator(selector).evaluate(button => button.closest("th")?.getAttribute("aria-sort")) === "ascending", "İlk tıklama artan sıralama uygulamadı");
+      await p.locator(selector).click();
+      assert(await p.locator(selector).evaluate(button => button.closest("th")?.getAttribute("aria-sort")) === "descending", "İkinci tıklama azalan sıralamaya geçmedi");
+      return;
+    }
+    if (["UAT-027 Kayıtlı görünüm seçilebilir", "UAT-029 Görünüm kaydetme eylemi görünür", "UAT-030 Görünüm yönetimi açılır", "UAT-032 Kolon yönetimi açılır", "UAT-033 Başlık önizleme kontrolü görünür", "UAT-034 Excel dışa aktarma eylemi görünür", "UAT-035 Toplu silme eylemi görünür", "UAT-036 Sprint oluşturma eylemi görünür"].includes(name)) {
+      const menu = name === "UAT-034 Excel dışa aktarma eylemi görünür" || name === "UAT-035 Toplu silme eylemi görünür" || name === "UAT-036 Sprint oluşturma eylemi görünür" ? ".backlog-actions-menu" : ".backlog-display-menu";
+      await p.locator(`${menu} > summary`).click();
+    }
+    if (["UAT-023 Durum filtresi görünür", "UAT-024 Tür filtresi görünür", "UAT-025 Takım filtresi görünür", "UAT-026 Sorumlu filtresi görünür", "UAT-048 Tamamlananlar varsayılan olarak gizlidir"].includes(name)) await p.locator(".backlog-filter-menu > summary").click();
+    if (name === "UAT-047 Tablo araçları üstte, durum özeti altta yer alır") {
+      const positions = await p.locator(selector).evaluate(shell => {
+        const order = (a, b) => Boolean(a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING);
+        return {
+          toolsAboveTable: order(shell.querySelector(".backlog-table-topbar"), shell.querySelector(".backlog-table-wrap")),
+          summaryBelowTable: order(shell.querySelector(".backlog-table-wrap"), shell.querySelector(".backlog-summary-footer")),
+          actionsInTopbar: Boolean(shell.querySelector(".backlog-table-topbar .backlog-actions-menu")),
+          savedViewInMenu: Boolean(shell.querySelector(".backlog-display-menu #backlog-saved-view")),
+          extraLabelRemoved: !shell.querySelector(".table-topbar-label"),
+          menuLayersAboveRows: Number(getComputedStyle(shell.querySelector(".backlog-table-topbar")).zIndex) > Number(getComputedStyle(shell.querySelector(".backlog-table-wrap")).zIndex)
+        };
+      });
+      assert(positions.toolsAboveTable && positions.summaryBelowTable && positions.actionsInTopbar && positions.savedViewInMenu && positions.extraLabelRemoved && positions.menuLayersAboveRows, "Tablo araçları, katman sırası veya özeti beklenen şekilde değil");
+    }
+    else if (name === "UAT-048 Tamamlananlar varsayılan olarak gizlidir") {
+      assert(!(await p.locator(selector).isChecked()), "Tamamlananlar varsayılan olarak işaretli");
+      assert(await p.locator("#backlog-rows tr[data-open-item]").evaluateAll(rows => rows.every(row => !row.innerText.includes("Tamamlandı"))), "Varsayılan backlog listesinde tamamlanmış iş bulundu");
+      await p.locator(".backlog-filter-menu > summary").click();
+      await p.locator(".backlog-display-menu > summary").click();
+      assert(await p.locator('[data-action="toggle-backlog-preview"][aria-pressed="true"]').isVisible(), "Başlık önizlemesi varsayılan olarak açık değil");
+    }
     else await visible(p, selector);
     if (name === "UAT-021 Backlog satırları yüklenir") assert(await p.locator(selector).count() > 0, "Örnek backlog satırı yok");
   });
@@ -125,12 +159,18 @@ const finalChecks = [
 ];
 for(const [name,selector,view] of finalChecks) add(name,async p=>{await nav(p,view,selector);assert((await p.locator("#view-root").innerText()).trim().length>15,"Sayfa içeriği boş");});
 
-if (cases.length !== 100) throw new Error(`Kabul senaryosu sayısı 100 değil: ${cases.length}`);
+addComplexCases(cases);
+addUncoveredCases(cases);
+
+if (cases.length !== 350) throw new Error(`Kabul senaryosu sayısı 350 değil: ${cases.length}`);
+const complexFilter = process.env.ROTA_UAT_FILTER || "";
+const complexCases = cases.slice(100).filter(test => !complexFilter || test.name.toLocaleLowerCase("tr-TR").includes(complexFilter.toLocaleLowerCase("tr-TR")));
+const casesForRun = process.env.ROTA_UAT_COMPLEX_ONLY === "1" ? [...cases.slice(0, 8), ...complexCases] : cases;
 
 const tempProfile = path.join(os.tmpdir(), `rota-uat-${Date.now()}`);
 const app = await electron.launch({ args: [`--user-data-dir=${tempProfile}`, "."], timeout: 60000 });
 const page = await app.firstWindow();
-page.setDefaultTimeout(1500);
+page.setDefaultTimeout(process.env.ROTA_UAT_COMPLEX_ONLY === "1" ? 1800 : 1500);
 const results = [];
 try {
   await page.waitForSelector("#setup-form", { timeout: 20000 });
@@ -147,9 +187,10 @@ try {
   await page.locator('#setup-form button[type="submit"]').click();
   await page.waitForSelector("#view-root", { timeout: 20000 });
   await page.waitForTimeout(1200);
-  for (const test of cases.slice(8)) {
+  for (const test of casesForRun.slice(8)) {
     try { await test.run(page); results.push({ id: `UAT-${String(results.length + 1).padStart(3,"0")}`, name: test.name, result: "PASS", detail: "" }); }
     catch (error) { results.push({ id: `UAT-${String(results.length + 1).padStart(3,"0")}`, name: test.name, result: "FAIL", detail: String(error?.message || error).replace(/\s+/g," ").slice(0,240) }); }
+    if (process.env.ROTA_UAT_COMPLEX_ONLY === "1" && results.length % 25 === 0) console.log(`İlerleme: ${results.length - 8}/${complexCases.length} yeni test`);
   }
 } finally {
   await app.close();
@@ -159,6 +200,6 @@ for (const row of results) console.log(`${row.result.padEnd(4)} ${row.id} ${row.
 const failed = results.filter(row => row.result === "FAIL");
 console.log(`\nSonuç: ${results.length} senaryo, ${results.length - failed.length} başarılı, ${failed.length} başarısız.`);
 const rows = results.map(row => `| ${row.id} | ${row.name.replace(/^UAT-\d+\s*/, "")} | ${row.result}${row.detail ? ` — ${row.detail.replaceAll("|", "\\|")}` : ""} |`).join("\n");
-const report = `# Kullanıcı kabul testleri\n\nJira entegrasyonu kapsam dışıdır. Testler Electron uygulamasını geçici ve izole bir kullanıcı profiliyle açar; mevcut Rota kullanıcı verilerine dokunmaz.\n\n- Senaryo sayısı: ${results.length}\n- Başarılı: ${results.length - failed.length}\n- Başarısız: ${failed.length}\n- Çalıştırma zamanı: ${new Date().toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}\n- Çalıştırma: \`npm run test:acceptance\`\n\nHer senaryo, belirtilen kullanıcı akışının ilgili ekranını, alanını veya eylemini Electron arayüzünde doğrular. PASS olan senaryolar beklenen UI kabul ölçütünü karşıladı.\n\n| ID | Kullanıcı kabul senaryosu | Sonuç |\n|---|---|---|\n${rows}\n`;
+const report = `# Kullanıcı kabul testleri\n\nTestler Electron uygulamasını geçici ve izole bir kullanıcı profiliyle açar; mevcut Rota kullanıcı verilerine dokunmaz. Canlı Jira sunucusu entegrasyonu kapsam dışıdır; Jira kapalıyken kullanıcı akışı doğrulanır.\n\n- Senaryo sayısı: ${results.length}\n- Başarılı: ${results.length - failed.length}\n- Başarısız: ${failed.length}\n- Çalıştırma zamanı: ${new Date().toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}\n- Çalıştırma: \`npm run test:acceptance\`\n\nHer senaryo, belirtilen kullanıcı akışının ilgili ekranını, alanını veya eylemini Electron arayüzünde doğrular. PASS olan senaryolar beklenen UI kabul ölçütünü karşıladı.\n\n| ID | Kullanıcı kabul senaryosu | Sonuç |\n|---|---|\n${rows}\n`;
 writeFileSync(new URL("../../docs/kullanici-kabul-testleri.md", import.meta.url), report, "utf8");
 if (failed.length) process.exitCode = 1;

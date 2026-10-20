@@ -528,6 +528,7 @@ async function createWindow(): Promise<void> {
     minHeight: 700,
     backgroundColor: "#f5f6f5",
     title: "Rota · PO çalışma alanı",
+    icon: path.join(app.getAppPath(), "assets", "rota.ico"),
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),

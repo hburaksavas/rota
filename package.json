@@ -30,9 +30,12 @@
       "!dist/installers/**/*",
       "index.html",
       "src/styles.css",
+      "assets/rota.ico",
+      "assets/rota-icon.svg",
       "package.json"
     ],
     "win": {
+      "icon": "assets/rota.ico",
       "target": [
         {
           "target": "nsis",
