@@ -10,39 +10,40 @@
   <body>
     <div class="app-shell">
       <aside class="sidebar">
-        <div class="brand">
-          <div class="brand-mark"><span></span><span></span><span></span></div>
-          <div><strong>rota</strong><small>PRODUCT WORKSPACE</small></div>
-          <button class="sidebar-toggle" data-action="toggle-sidebar" aria-label="Yan menüyü daralt" title="Yan menüyü daralt">‹</button>
-        </div>
-        <button class="workspace-switcher" title="Çalışma alanını ayarla">
+        <div class="sidebar-tools"><button class="sidebar-toggle" data-action="toggle-sidebar" aria-label="Yan menüyü daralt" title="Yan menüyü daralt"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M9 4.5v15"/></svg></button></div>
+        <button class="workspace-switcher active" data-view="overview" title="Genel bakış" aria-label="Genel bakışı aç">
           <span class="workspace-avatar">K</span>
           <span class="workspace-label"><strong>Kuzey Finans</strong><small>PO çalışma alanı</small></span>
-          <span class="chevron">⌄</span>
+          <svg class="workspace-overview-icon" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1.2"/><rect x="14" y="4" width="6" height="6" rx="1.2"/><rect x="4" y="14" width="6" height="6" rx="1.2"/><rect x="14" y="14" width="6" height="6" rx="1.2"/></svg>
         </button>
         <div class="sidebar-scroll">
-        <div class="nav-label">ÇALIŞMA ALANI</div>
         <nav class="primary-nav">
-          <button class="nav-item active" data-view="overview"><span class="nav-icon">◫</span>Genel bakış</button>
-          <button class="nav-item" data-view="backlog"><span class="nav-icon">☷</span>Backlog <span class="nav-count" id="nav-backlog-count">12</span></button>
-          <button class="nav-item jira-nav-item" data-view="jira"><span class="nav-icon">◈</span>Jira <span class="jira-nav-state" id="jira-nav-state">Kapalı</span></button>
-          <button class="nav-item" data-view="assets"><span class="nav-icon">▤</span>Ürün envanteri <span class="nav-count" id="nav-assets-count">0</span></button>
-          <button class="nav-item" data-view="teams"><span class="nav-icon">♧</span>Takım paneli <span class="nav-count" id="nav-teams-count">0</span></button>
-          <button class="nav-item" data-view="roadmap"><span class="nav-icon">⌁</span>Yol haritası</button>
-          <button class="nav-item" data-view="releases"><span class="nav-icon">↗</span>Release planı</button>
-          <button class="nav-item" data-view="focus"><span class="nav-icon">◷</span>Kişisel alan</button>
-          <button class="nav-item" data-view="questions"><span class="nav-icon">?</span>Açık sorular <span class="nav-count" id="nav-question-count">0</span></button>
-          <button class="nav-item" data-view="daily-plan"><span class="nav-icon">☑</span>Günlük plan</button>
-          <button class="nav-item" data-view="weekly-summary"><span class="nav-icon">▥</span>Haftalık özet</button>
-          <button class="nav-item" data-view="archive-search"><span class="nav-icon">⌕</span>Arşivde ara</button>
-          <button class="nav-item" data-view="handover"><span class="nav-icon">↗</span>PO devir paketi</button>
+          <details class="nav-group" data-nav-group="product" open>
+            <summary><span>Proje Takip</span><i aria-hidden="true"></i></summary>
+            <div class="nav-group-items">
+              <button class="nav-item" data-view="backlog"><span class="nav-icon">☷</span>Backlog <span class="nav-count" id="nav-backlog-count">12</span></button>
+              <button class="nav-item jira-nav-item" data-view="jira"><span class="nav-icon">◈</span>Jira <span class="jira-nav-state" id="jira-nav-state">Kapalı</span></button>
+              <button class="nav-item" data-view="assets"><span class="nav-icon">▤</span>Ürün envanteri <span class="nav-count" id="nav-assets-count">0</span></button>
+              <button class="nav-item" data-view="roadmap"><span class="nav-icon">⌁</span>Yol haritası</button>
+              <button class="nav-item" data-view="releases"><span class="nav-icon">▦</span>Release planı</button>
+              <div class="nav-label project-label">PROJELER <button class="tiny-plus" title="Proje ekle" aria-label="Yeni proje oluştur">+</button></div>
+              <div class="project-list">
+                <button class="project-item selected"><span class="project-dot dot-blue"></span>Ödeme Platformu</button>
+                <button class="project-item"><span class="project-dot dot-violet"></span>Dijital Kanallar</button>
+                <button class="project-item"><span class="project-dot dot-amber"></span>Kredi Yaşam Döngüsü</button>
+              </div>
+            </div>
+          </details>
+          <details class="nav-group" data-nav-group="personal">
+            <summary><span>Kişisel çalışma</span><i aria-hidden="true"></i></summary>
+            <div class="nav-group-items">
+              <button class="nav-item" data-view="focus"><span class="nav-icon">◷</span>Kişisel alan</button>
+              <button class="nav-item" data-view="questions"><span class="nav-icon">?</span>Açık sorular <span class="nav-count" id="nav-question-count">0</span></button>
+              <button class="nav-item" data-view="daily-plan"><span class="nav-icon">☑</span>Günlük plan</button>
+              <button class="nav-item" data-view="weekly-summary"><span class="nav-icon">▥</span>Haftalık özet</button>
+            </div>
+          </details>
         </nav>
-        <div class="nav-label project-label">PROJELER <button class="tiny-plus" title="Proje ekle" aria-label="Yeni proje oluştur">+</button></div>
-        <div class="project-list">
-          <button class="project-item selected"><span class="project-dot dot-blue"></span>Ödeme Platformu</button>
-          <button class="project-item"><span class="project-dot dot-violet"></span>Dijital Kanallar</button>
-          <button class="project-item"><span class="project-dot dot-amber"></span>Kredi Yaşam Döngüsü</button>
-        </div>
         </div>
         <div class="sidebar-bottom">
           <div class="storage-card">
@@ -63,7 +64,7 @@
           <div class="breadcrumb"><span>Kuzey Finans</span><span class="crumb-separator">/</span><strong id="breadcrumb-current">Genel bakış</strong></div>
           <div class="topbar-actions">
             <label class="global-search"><span>⌕</span><input id="global-search" type="search" placeholder="İşlerde ara…"><kbd>Ctrl K</kbd></label>
-            <button class="icon-button" title="Bildirimler">♧<i></i></button>
+            <button class="icon-button archive-search-button" data-view="archive-search" title="Arşivde ara" aria-label="Arşivde ara"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h12.5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2v-7a2 2 0 0 1 1.5-1.94"/><path d="M2.5 8.5V5.75A1.75 1.75 0 0 1 4.25 4h8.5L16 7.25"/><circle cx="17" cy="15.5" r="3.25"/><path d="m19.4 17.9 2.1 2.1"/></svg></button>
             <div class="topbar-divider"></div>
             <button class="help-button">?</button>
           </div>

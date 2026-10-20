@@ -521,6 +521,7 @@ ipcMain.handle("backup:cancel-restore", async (event, rawToken: unknown) => {
 });
 
 async function createWindow(): Promise<void> {
+  const appIconPath = path.join(app.getAppPath(), "assets", "rota.ico");
   const win = new BrowserWindow({
     width: 1440,
     height: 940,
@@ -528,7 +529,7 @@ async function createWindow(): Promise<void> {
     minHeight: 700,
     backgroundColor: "#f5f6f5",
     title: "Rota · PO çalışma alanı",
-    icon: path.join(app.getAppPath(), "assets", "rota.ico"),
+    icon: appIconPath,
     autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -537,6 +538,7 @@ async function createWindow(): Promise<void> {
       sandbox: true
     }
   });
+  win.setIcon(appIconPath);
 
   await win.loadFile(path.resolve(__dirname, "../../index.html"));
   logOperationalEvent("window-ready");

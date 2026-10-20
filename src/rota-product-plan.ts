@@ -1723,6 +1723,136 @@ export const ROTA_PRODUCT_FEATURE_ADDITIONS: RotaProductFeatureImport[] = [
     area: "Genel kullanım ve gezinme",
     description: "Rota'nın rota ve ilerleme temasını taşıyan özel simgesi çok çözünürlüklü Windows ICO biçiminde üretildi. Masaüstü penceresinde ve Windows kurulum paketinde aynı simge kullanılır.",
     labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-260",
+    title: "Backlog'da sprinte göre hızlı filtreleme ve sprint panelini kaldırma",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Backlog yönetimi",
+    description: "Tablo altındaki sprint özet paneli kaldırılır. Backlog filtre menüsünde sprint adı veya sprint atanmamış işler seçilerek liste ve board kapsamı daraltılır. Sprint filtresi etkin filtre etiketi, filtre sayacı, son kullanılan filtreler ve kaydedilmiş görünümlerle birlikte çalışır.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-261",
+    title: "Sol navigasyonu sadeleştirme ve menü grupları",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Genel kullanım ve gezinme",
+    description: "Sol menünün üstündeki ürün logosu ve marka yazısı kaldırılır. Backlog, ürün envanteri, roadmap ve release gibi menüler ürün ve teslimat altında; takım ve sorular ekip ve takip altında; kişisel alan, günlük plan ve haftalık özet kişisel çalışma altında; arşiv ve devir araçları ayrı bir açılır kapanır grupta toplanır. Grup tercihleri cihazda hatırlanır, seçili sayfanın grubu kapalıysa otomatik açılır. Daraltılmış ikon görünümünde menü öğeleri erişilebilir kalır.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-262",
+    title: "Takım yönetimini çalışma alanı ayarlarına taşıma",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Takım yönetimi",
+    description: "Açık Sorular Kişisel çalışma grubunda yer alır ve Ekip ve takip menü grubu kaldırılır. Takım paneli gezinme ekranı kaldırılır; takım listesini görme, takım/üye düzenleme, takım oluşturma ve silme çalışma alanı ayarlarının Takımlar ve üyeler bölümünden yapılır. Kurulum sihirbazı mevcut takımları değiştirmez; yönetim için ayarlara yönlendirir.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-263",
+    title: "Navigasyonda proje takibi ve arşiv aramasını öne çıkarma",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Genel kullanım ve gezinme",
+    description: "Ürün ve teslimat grubu Proje Takip olarak adlandırılır ve projeler bu açılır menünün içine alınır. Arşivde Ara, sol menüden kaldırılarak üst çubukta bildirimler ikonunun yerinde arşiv arama ikonu olarak sunulur; bildirimler ikonu kaldırılır. PO devir paketi ve iş detayındaki devir özeti kaldırılır.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-264",
+    title: "Backlog ve yol haritası metinleri ile yön simgelerini sadeleştirme",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Genel kullanım ve gezinme",
+    description: "Genel backlog etiketi Genel olarak gösterilir. Backlog başlığındaki İşlerini önceliklendir açıklaması aynı satıra taşınır ve bağlamı kaybetmeden ilerlet ifadesi kaldırılır. Dashboard kayıt akışındaki Ayrıntılı form eylemleri Form olarak kısaltılır. Initiative kavramı arayüzde yaratıcı ve anlaşılır biçimde Ürün Hamlesi olarak adlandırılır. Yukarı/aşağı hareket kontrolleri ok yerine sade chevron işaretleri kullanır; diğer eylem simgeleri de yön oku olmayan uygun simgelerle gösterilir.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-265",
+    title: "Çalışma alanı kartı Genel bakış kısayolu olsun",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Genel kullanım ve gezinme",
+    description: "Sol menüdeki çalışma alanı kartına tıklandığında Genel bakış açılır. Ayrı Genel bakış menü öğesi kaldırılır; çalışma alanı ayarlarına alt kısımdaki profil menüsünden erişim sürer.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-266",
+    title: "Çalışma alanı kartında Genel bakış simgesi kullanma",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Düşük",
+    area: "Genel kullanım ve gezinme",
+    description: "Çalışma alanı kartındaki aşağı ok simgesi kaldırılır ve kartın Genel bakış kısayolu olduğunu anlatan, uygulamanın çizgi ikonlarıyla uyumlu kompakt pano simgesi gösterilir. Simge daraltılmış menüde gizlenir.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-267",
+    title: "Sol menü gruplarında modern açılır kapanır işareti",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Düşük",
+    area: "Genel kullanım ve gezinme",
+    description: "Proje Takip ve Kişisel çalışma menü gruplarındaki metin okları ince çizgili chevron simgesiyle değiştirilir. Simge grup açıkken yumuşak geçişle döner; açık ve koyu temada görünür kalır.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-268",
+    title: "Yeni kayıt ve iş detay panelleri için ortak tasarım",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Yüksek",
+    area: "Genel kullanım ve gezinme",
+    description: "Hızlı kayıt, ayrıntılı backlog formu, iş düzenleme ve iş detay izleme paneli ortak panel genişliği, başlık ve tipografi hiyerarşisi, alan boşlukları, giriş kontrolleri ve eylem altbilgisi kullanır. Hızlı kayıttaki proje, atama, ilişki ve planlama alanları Detaylar açılır panelinde tutulur; temel başlık/açıklama akışı kompakt kalır.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-269",
+    title: "Backlog listesinden yalnızca başlığa tıklayarak işi açma ve türü değiştirme",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Backlog yönetimi",
+    description: "Liste görünümünde iş detay paneli yalnızca başlık bağlantısına tıklanınca açılır; diğer hücreler yanlışlıkla detay açmaz. Başlığın solundaki tür ikonu üzerinden Story/Bug/Task türü satır içinden seçilip kaydedilebilir.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-270",
+    title: "Tür düzenlemede onay ve iptal ikonlarını hizalama",
+    type: "Bug",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Backlog yönetimi",
+    description: "Backlog başlık tür seçicisindeki kaydet ve iptal ikonları aynı satırda, sabit boyutta ve kendi kapsayıcısında hizalanır. Genel satır içi iptal ikonunun mutlak konumlandırması tür düzenleme kontrollerini etkilemez.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-271",
+    title: "Satır içi düzenlemeyi dışarı tıklayınca kaydetme",
+    type: "Story",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Backlog yönetimi",
+    description: "Backlog başlığı, durumu, türü veya ataması satır içinden düzenlenirken kullanıcı ✓/Kaydet simgesine basmadan başka bir yere tıklarsa değişiklik otomatik kaydedilir. Geçersiz veya eksik atama seçimi kaybolmaz; düzenleme açık kalıp kullanıcıdan geçerli takım üyesi seçmesi istenir. × ile açıkça iptal etme davranışı korunur.",
+    labels: ["Ürün planı", "Tamamlanan"]
+  },
+  {
+    id: "ROTA-PLAN-272",
+    title: "Durum satır içi düzenlemesinde iptal simgesini görünür kılma",
+    type: "Bug",
+    status: "Tamamlandı",
+    priority: "Orta",
+    area: "Backlog yönetimi",
+    description: "Durum seçicisinin onay ve iptal ikonları satır içinde yan yana hizalanır. İptal ikonu mutlak konumlandırmayla başka alana taşınmaz ve düzenleme sırasında görünür kalır.",
+    labels: ["Ürün planı", "Tamamlanan"]
   }
 ];
 
@@ -2534,9 +2664,78 @@ export const ROTA_PRODUCT_FEATURE_UPDATES: RotaProductFeatureUpdate[] = [
     removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
     addLabels: ["Tamamlanan"],
     description: "Backlog Liste görünümünde ayrı seçim kolonu İş kolonunun solunda yer alır. Başlıktaki checkbox filtrelerle görünür durumdaki tüm işleri seçer; her satırdaki checkbox tek işi seçer. Seçimler sprint oluşturma ve toplu silme işlemlerinde kullanılabilir."
+  },
+  {
+    key: "2026-10-21-navigation-project-grouping",
+    id: "ROTA-PLAN-261",
+    description: "Sol menüde marka alanı kaldırılmıştır. Backlog, Jira, ürün envanteri, yol haritası, release planı ve projeler Proje Takip grubundadır. Açık Sorular ve kişisel çalışma araçları Kişisel çalışma grubunda yer alır; Takım paneli ayarlara taşınır. Arşivde Ara üst çubukta simgeyle açılır, bildirimler simgesi ve PO devir araçları kaldırılmıştır. Gruplar açılıp kapanır ve tercihler cihazda korunur."
+  },
+  {
+    key: "2026-10-21-workspace-card-opens-overview",
+    id: "ROTA-PLAN-265",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Sol menüdeki Kuzey Finans çalışma alanı kartı Genel bakışı açar; ayrı Genel bakış menü öğesi kaldırılmıştır. Çalışma alanı ayarları alt kısımdaki profil erişiminden açılır."
+  },
+  {
+    key: "2026-10-21-workspace-card-overview-icon",
+    id: "ROTA-PLAN-266",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Çalışma alanı kartındaki aşağı ok yerine Genel bakış kısayolunu temsil eden kompakt pano simgesi gösterilir."
+  },
+  {
+    key: "2026-10-21-sidebar-group-chevron-icons",
+    id: "ROTA-PLAN-267",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Sol menüdeki açılır kapanır grup işaretleri ince çizgili ve açık/koyu temayla uyumlu chevron simgelerine dönüştürülür; durum geçişi hafifçe animasyonludur."
+  },
+  {
+    key: "2026-10-21-work-record-forms-and-details-visual-system",
+    id: "ROTA-PLAN-268",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Hızlı kayıt, ayrıntılı form, düzenleme ve iş detay panelleri ortak tipografi, aralık, alan ve panel yapısına taşındı. Hızlı kayıt ek alanlarını Detaylar açılır bölümü içinde sunuyor."
+  },
+  {
+    key: "2026-10-21-backlog-title-open-and-inline-type-edit",
+    id: "ROTA-PLAN-269",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Backlog liste satırında detay yalnızca başlıkla açılır. Başlığın solundaki tür ikonu üzerinden Story/Bug/Task türü satır içinden değiştirilir."
+  },
+  {
+    key: "2026-10-21-inline-type-editor-action-icon-alignment",
+    id: "ROTA-PLAN-270",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Tür düzenleme alanındaki kaydet ve iptal ikonları genel iptal ikonunun mutlak konumlandırmasından ayrılarak aynı satırda hizalanır."
+  },
+  {
+    key: "2026-10-21-inline-edit-commit-on-outside-click",
+    id: "ROTA-PLAN-271",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Başlık, durum, tür ve atama satır içi düzenlemeleri başka bir yere tıklanınca otomatik kaydedilir. Eksik/geçersiz atama girdisi kaybolmaz ve açıkça iptal simgesi düzenlemeyi iptal eder."
+  },
+  {
+    key: "2026-10-21-inline-status-cancel-icon-alignment",
+    id: "ROTA-PLAN-272",
+    status: "Tamamlandı",
+    removeLabels: ["Kullanıcı isteği", "Öneri", "Devam ediyor"],
+    addLabels: ["Tamamlanan"],
+    description: "Durum düzenleme alanının iptal ve kaydet simgeleri satır içinde yan yana sabitlenerek görünür kalır."
   }
 ];
 
 // Removed feature-plan records must not be restored into an existing Rota workspace.
-export const ROTA_PRODUCT_FEATURE_REMOVALS = ["ROTA-PLAN-238", "ROTA-PLAN-239", "ROTA-PLAN-243"];
+export const ROTA_PRODUCT_FEATURE_REMOVALS = ["ROTA-PLAN-099", "ROTA-PLAN-238", "ROTA-PLAN-239", "ROTA-PLAN-243"];
 

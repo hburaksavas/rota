@@ -1,5 +1,14 @@
 # Rota — Tamamlanan feature'lar
 
+- **ROTA-PLAN-265 · Çalışma alanı kartı Genel bakış kısayolu olsun:** Sol menüde Kuzey Finans yazan çalışma alanı kartına tıklanınca Genel bakış açılır. Ayrı Genel bakış menü öğesi kaldırılır; çalışma alanı ayarları alt kısımdaki profil menüsünden açılır.
+- **ROTA-PLAN-266 · Çalışma alanı kartı simgesi:** Aşağı ok yerine kartın Genel bakış kısayolu olduğunu anlatan kompakt pano simgesi kullanılır.
+- **ROTA-PLAN-267 · Sol menü grup simgeleri:** Açılır kapanır menülerdeki metin okları, grup durumuna göre dönen ince çizgili chevron simgeleriyle değiştirilir; açık ve koyu temada uyumludur.
+- **ROTA-PLAN-268 · Kayıt formları ve iş detaylarında ortak tasarım:** Hızlı kayıt, ayrıntılı backlog formu, iş düzenleme ve iş detay paneli aynı başlık, yazı, aralık, giriş alanı ve eylem düzenini kullanır. Hızlı kayıttaki isteğe bağlı alanlar Detaylar açılır panelindedir.
+- **ROTA-PLAN-269 · Liste satırında başlıkla açma ve türü değiştirme:** Backlog Liste görünümünde detay paneli yalnızca başlığa tıklanınca açılır. Başlığın solundaki tür ikonu ile Story/Bug/Task türü satır içinden değiştirilip kaydedilebilir.
+- **ROTA-PLAN-270 · Tür düzenleme ikon hizası:** Tür seçimi sırasında onay ve iptal ikonları aynı satırda ve sabit boyutta hizalanır; genel iptal butonu kuralı bu kontrollerin konumunu bozamaz.
+- **ROTA-PLAN-271 · Satır içi düzenlemeyi dışarı tıklayınca kaydetme:** Başlık, durum, tür veya atama düzenlemesi dışarı tıklanınca otomatik kaydedilir. Eksik/geçersiz atama korunup seçim istenir; × simgesiyle açık iptal çalışmaya devam eder.
+- **ROTA-PLAN-272 · Durum düzenlemede iptal simgesini görünür kılma:** Durum seçicisindeki onay ve iptal simgeleri aynı satırda hizalanıp görünür kalır.
+
 ### Faz 3 — PO günlük takip ve bilgi bulma
 
 - **ROTA-PLAN-093 · Kayıtlar arası çapraz bağlantı:** İş detayında backlog işi, ürün bileşeni, release, kişisel not, açık soru ve risk bağlantıları eklenip kaldırılabilir. Bağlantılar doğrudan ilgili kaydı açar.
@@ -8,7 +17,6 @@
 - **ROTA-PLAN-090 · Günlük PO planı:** Günlük plan; tarih/bugün kısayolu, planlanan-tamamlanan-açık sayaçları, ayrı odak listesi ve günlük not paneliyle sunulur. Backlog işleri ile kişisel görevler eklenip çıkarılabilir, sırası yukarı/aşağı ikonlarıyla ayarlanabilir ve görevler tamamlandı olarak işaretlenebilir. Not, ilgili günün planıyla birlikte saklanır.
 - **ROTA-PLAN-092 · Hatırlatma ve takip tarihi:** Kişisel görevler ve bloke işler için takip zamanı belirlenir; zamanı gelen kayıtlar uygulama açıkken veya yeniden başlatıldığında bildirilir.
 - **ROTA-PLAN-091 · Haftalık ürün özeti:** Tamamlanan işler, yeni blokajlar, hedef tarihli işler ve release'ler haftaya göre özetlenir; PO notu kaydedilip kopyalanabilir.
-- **ROTA-PLAN-099 · PO devir paketi:** Proje hedefleri, kararlar, blokajlar, riskler, sprintler, release'ler ve notlar tek belgede birleştirilir; özel devir notu kaydedilebilir, kopyalanabilir veya yazdırılabilir.
 
 ### Jira Server entegrasyonu — ilk dilim
 
@@ -328,3 +336,12 @@ Bu grup hızlı kayıt, Outlook e-posta kaynağını izleme, backlog görünüm/
 - **ROTA-PLAN-256 · Tablo işlemleri alt menüsü:** Excel’e aktar, Sprint oluştur ve Seçilileri sil eylemleri Liste görünümünde tablonun altındaki menüye taşındı.
 - **ROTA-PLAN-257 · Backlog filtre ve araç çubuğunu sadeleştirme:** Arama birincil alana alındı; durum, tür, etiket, takım, sorumlu, arama kapsamı ve tamamlanan işler sayaçlı filtre panelinde gruplanır. Liste/Board seçimi, kayıtlı görünümler ve görünüm ayarları ayrı kompakt araç alanlarında gösterilir.
 - **ROTA-PLAN-258 · Tablo üst şeridi ve alt özeti:** Liste/Board kontrolleri ile Tablo işlemleri tablonun hemen üstünde, tabloyla bütünleşik görünür. Gereksiz üst etiket kaldırıldı. Görünüm ve Tablo işlemleri menüleri tablo satırlarının üstünde açılır; geçerli görünüm seçimi Görünüm menüsündedir. İş sayısı, hazır ve bloke sayıları tablonun altında bağlı alt bilgi olarak gösterilir.
+- **ROTA-PLAN-260 · Sprinte göre hızlı filtreleme:** Backlog tablosunun altındaki sprint özet paneli kaldırıldı. Hızlı filtreleme menüsünden belirli bir sprint veya sprint atanmamış işler seçilebilir; sayaç, etkin filtre etiketi, son filtreler ve kaydedilmiş görünümler seçimi korur.
+- **ROTA-PLAN-261 · Sade ve gruplandırılmış sol menü:** Sol menüdeki Rota marka alanı kaldırıldı. Proje Takip ve Kişisel çalışma başlıkları açılıp kapanabilir; tercihler hatırlanır ve daraltılmış ikon görünümünde sayfalar erişilebilir kalır.
+- **ROTA-PLAN-262 · Takımları ayarlardan yönetme:** Açık Sorular Kişisel çalışma grubuna taşındı ve Takım paneli menüden kaldırıldı. Takım oluşturma, üye düzenleme ve takım silme işlemleri Çalışma alanı ayarları içindeki Takımlar ve üyeler bölümüne alındı; kurulum sihirbazı var olan takımları değiştirmez.
+- **ROTA-PLAN-263 · Proje Takip grubu ve arşiv arama kısayolu:** Projeler sol menüde Proje Takip grubuna alındı. Arşivde Ara, bildirimler ikonunun yerini alarak üst çubuk simgesinden açılır; bildirimler ikonu kaldırıldı.
+- **ROTA-PLAN-264 · Backlog ve yol haritası metinleri ile yön simgelerini sadeleştirme:** Genel backlog etiketi Genel oldu; “İşlerini önceliklendir” başlığıyla aynı hizaya taşındı ve gereksiz devam ifadesi kaldırıldı. Dashboard’daki “Ayrıntılı form” eylemi “Form” oldu. Initiative arayüzde “Ürün Hamlesi” olarak adlandırıldı; yukarı/aşağı sıralama kontrolleri ok yerine chevron simgelerine geçirildi.
+
+### Kaldırılan işlevler
+
+- **ROTA-PLAN-099 · PO devir paketi:** PO devir ekranı ve iş detayındaki devir özeti kaldırıldı; Rota backlog planından da çıkarıldı.
