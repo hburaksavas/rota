@@ -460,5 +460,93 @@ export function addComplexCases(cases) {
     const instance = Math.floor(i / crossJourneys.length) + 1;
     test(`${name} · senaryo varyantı ${instance}`, run);
   }
-  if (i !== 150) throw new Error(`Karmaşık kabul testi sayısı 150 olmalı: ${i}`);
+
+  const decisionInput = (page, field, value) => fill(page, `#decision-form [name="${field}"]`, value);
+  const createDecision = async (page, title) => {
+    await go(page, "decisions", ".decisions-page");
+    await click(page, '[data-action="new-decision"]');
+    await decisionInput(page, "title", title);
+    await decisionInput(page, "context", "Müşteri transfer deneyiminde limit kontrolünün tutarlı olması gerekiyor.");
+    await decisionInput(page, "options", "Uygulama katmanında kontrol\nServis katmanında kontrol");
+    await decisionInput(page, "rationale", "Kontrolü merkezi serviste yapmak kanallar arasında aynı sonucu sağlar.");
+    await decisionInput(page, "owner", "UAT Product Owner");
+    await decisionInput(page, "decidedAt", "2026-10-21");
+  };
+  test("Ürün kararı işi, envanteri, projeyi ve release'i bağlayarak kaydeder", async page => {
+    await go(page, "releases", ".releases-page");
+    await click(page, '[data-action="create-release"]');
+    await fill(page, '#release-form [name="name"]', "Karar UAT Release");
+    await page.locator('#release-form [name="project"]').selectOption({ label: "Ödeme Platformu" });
+    await page.locator('#release-form button[type="submit"]').click();
+    const before = await readVisible(page);
+    const releaseId = before.releases.find(entry => entry.name === "Karar UAT Release")?.id;
+    expect(Boolean(releaseId), "Karar ilişkilendirmesi için release hazırlanmadı");
+    await createDecision(page, "FAST limit kararı — ilk sürüm");
+    await page.locator('#decision-form [name="workItemIds"]').selectOption("PAY-241");
+    await page.locator('#decision-form [name="assetIds"]').selectOption("AST-FAST-LIMIT-API");
+    await page.locator('#decision-form [name="projectIds"]').selectOption("payments");
+    await page.locator('#decision-form [name="releaseIds"]').selectOption(releaseId);
+    await page.locator('#decision-form button[type="submit"]').click();
+    const state = await readVisible(page);
+    const decision = state.decisions.find(entry => entry.title === "FAST limit kararı — ilk sürüm");
+    expect(decision?.workItemIds.includes("PAY-241") && decision.assetIds.includes("AST-FAST-LIMIT-API") && decision.projectIds.includes("payments") && decision.releaseIds.includes(releaseId), "Karar kayıtlarından biri bağlantıya eklenmedi");
+    await click(page, `[data-decision-id="${decision.id}"] [data-action="open-decision"]`);
+    const detailTitles = await page.locator('.decision-detail-modal .decision-detail-section h3').allInnerTexts();
+    expect(detailTitles.some(title => title.includes("İlişkili kayıtlar")), `Karar ayrıntısı ilişkileri göstermedi: ${detailTitles.join(" | ")} · ${await page.locator("#modal-root").innerText()}`);
+    expect(await page.locator('.decision-detail-modal [data-open-item="PAY-241"]').count() === 1 && await page.locator('.decision-detail-modal [data-open-asset="AST-FAST-LIMIT-API"]').count() === 1 && await page.locator('.decision-detail-modal [data-action="edit-release"]').count() === 1, "İlişkili kayıt kısayolları eksik");
+  });
+  test("Karar düzenlemesi önceki içeriği sürüm geçmişinde saklar", async page => {
+    await go(page, "decisions", ".decisions-page");
+    const state = await readVisible(page);
+    const decision = state.decisions.find(entry => entry.title === "FAST limit kararı — ilk sürüm");
+    expect(Boolean(decision), "Önceki test kararı oluşturmadı");
+    await click(page, `[data-decision-id="${decision.id}"] [data-action="edit-decision"]`);
+    await decisionInput(page, "title", "FAST limit kararı — güncel sürüm");
+    await decisionInput(page, "rationale", "Güncel karar: limit servisinde tek bir kontrol uygulanır ve kanallara aynı sonuç döner.");
+    await page.locator('#decision-form button[type="submit"]').click();
+    const updated = await readVisible(page);
+    const current = updated.decisions.find(entry => entry.id === decision.id);
+    expect(current.history.length === 1 && current.history[0].snapshot.title === "FAST limit kararı — ilk sürüm", "Eski karar içeriği geçmişe alınmadı");
+    await click(page, `[data-decision-id="${decision.id}"] [data-action="open-decision"]`);
+    expect(await page.locator(".decision-history-entry").count() === 1, "Karar geçmişi detay görünümünde yok");
+    expect((await page.locator(".decision-history-entry").innerText()).includes("Güncel karar" ) === false, "Geçmiş sürüm güncel gerekçeyle karıştı");
+  });
+  test("Karar araması eski sürüm başlığını da bulur", async page => {
+    await go(page, "decisions", ".decisions-page");
+    await fill(page, "#decision-search", "ilk sürüm");
+    expect(await page.locator(".decision-card:visible").count() === 1, "Eski karar sürümü aramada bulunamadı");
+    await fill(page, "#decision-search", "");
+  });
+  test("Yerine yeni karar gelen kayıt geçersiz olur ve karar zincirinde gösterilir", async page => {
+    await createDecision(page, "FAST limit kararı — yeni karar");
+    const before = await readVisible(page);
+    const previous = before.decisions.find(entry => entry.title === "FAST limit kararı — güncel sürüm");
+    await page.locator('#decision-form [name="supersedesId"]').selectOption(previous.id);
+    await page.locator('#decision-form button[type="submit"]').click();
+    const after = await readVisible(page);
+    const priorAfter = after.decisions.find(entry => entry.id === previous.id);
+    const current = after.decisions.find(entry => entry.title === "FAST limit kararı — yeni karar");
+    expect(priorAfter.status === "Geçersiz" && priorAfter.supersededById === current.id && current.supersedesId === priorAfter.id, "Eski ve yeni karar arasında yerine geçme bağlantısı kurulmadı");
+    await click(page, `[data-decision-id="${current.id}"] [data-action="open-decision"]`);
+    expect(await page.locator(".decision-detail-section h3").allInnerTexts().then(titles => titles.includes("Karar zinciri")), "Karar zinciri ayrıntıda görünmüyor");
+  });
+  test("Gözden geçirme tarihi geçen karar ilgili durum filtresinde görünür", async page => {
+    await createDecision(page, "Gözden geçirme zamanı gelen limit kararı");
+    await decisionInput(page, "reviewAt", "2026-10-20");
+    await page.locator('#decision-form button[type="submit"]').click();
+    const card = page.locator('.decision-card').filter({ hasText: "Gözden geçirme zamanı gelen limit kararı" });
+    expect(await card.locator(".decision-status").innerText() === "Gözden geçirilecek", "Geçmiş gözden geçirme tarihi uyarı durumuna dönüşmedi");
+    await page.locator("#decision-filter").selectOption("review");
+    expect(await page.locator(".decision-card").count() === 1, "Gözden geçirilecek filtresi kararı göstermedi");
+    await page.locator("#decision-filter").selectOption("all");
+  });
+  test("Karar kayıtları uygulama yeniden açıldığında korunur", async page => {
+    const before = await readVisible(page);
+    const count = before.decisions.length;
+    await page.reload();
+    await go(page, "decisions", ".decisions-page");
+    const after = await readVisible(page);
+    expect(after.decisions.length === count, "Yeniden açılışta karar kayıtları kayboldu");
+  });
+  if (i !== 156) throw new Error(`Karmaşık kabul testi sayısı 156 olmalı: ${i}`);
 }

@@ -25,7 +25,7 @@
 - Önceki kabul testi, tamamlanan feature ve bekleyen feature dokümanları silindi; içerikleri geri yükleme. Yeni takip dosyası temiz bir başlangıçtır.
 - Rota'nın ürün planı feature kayıtlarını kaynak koddan uygulama verisine aktarma. Uygulama ilk kullanımda bankacılık alanına ait örnek/test çalışma alanı verisiyle açılır.
 - Önceden kaydedilmiş kullanıcı çalışma alanını, açıkça istenmedikçe sıfırlama veya silme.
-- Son push commit'i `f260e0d` (`Remove feature and acceptance test docs`). Bu oturumdaki yeni not ve takip dosyaları henüz commit edilmedi.
+- Son tamamlanan ürün feature'ı ROTA-NEXT-001'dir; karar kayıtları `WorkspaceState.decisions` içinde yerel çalışma alanıyla birlikte saklanır.
 
 ## Değişiklikleri tamamlama
 

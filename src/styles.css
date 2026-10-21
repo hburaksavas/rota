@@ -1250,6 +1250,58 @@ kbd { font-size: 10px; }
 .release-scope-row span { display: grid; gap: 4px; }
 .release-scope-row strong { color: #303953; font-size: 12px; }
 .release-scope-row small { color: #727b92; font-size: 11px; }
+.decisions-page { max-width: 1120px; }
+.decision-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin: 17px 0 14px; }
+.decision-summary > div { display: flex; align-items: center; justify-content: space-between; padding: 12px 15px; background: #fff; border: 1px solid #e8ebf1; border-radius: 9px; }
+.decision-summary span { color: #68718a; font-size: 11px; }
+.decision-summary strong { color: #303953; font-size: 18px; }
+.decision-toolbar { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+.decision-toolbar .filter-search { flex: 1; }
+.decision-toolbar > select { width: 220px; height: 36px; }
+.decision-result-count { min-width: 58px; color: #858b98; text-align: right; font-size: 10px; }
+.decision-list { display: grid; gap: 8px; }
+.decision-card { position: relative; display: flex; align-items: stretch; gap: 8px; padding: 14px 12px 14px 16px; background: #fff; border: 1px solid #e8ebf1; border-radius: 9px; box-shadow: 0 2px 5px #242a3508; }
+.decision-card-main { flex: 1; min-width: 0; display: grid; justify-items: start; gap: 6px; padding: 0; color: inherit; border: 0; background: transparent; text-align: left; cursor: pointer; }
+.decision-card-main h2 { margin: 0; color: #303746; font-size: 14px; line-height: 1.4; }
+.decision-card-main > p { margin: 0; color: #68718a; font-size: 11px; line-height: 1.5; }
+.decision-meta { color: #858c99; font-size: 10px; }
+.decision-status { display: inline-flex; align-items: center; padding: 4px 8px; color: #4c5c91; background: #eef1fb; border: 1px solid #e1e6f6; border-radius: 99px; font-size: 9px; font-weight: 700; }
+.decision-status-geçerli { color: #176443; background: #e7f6ed; border-color: #d6eee0; }
+.decision-status-gözden-geçirilecek { color: #835419; background: #fff4dc; border-color: #f5e7c6; }
+.decision-status-geçersiz { color: #8b4a4b; background: #fbebeb; border-color: #f0dada; }
+.decision-status-taslak { color: #606b7f; background: #f0f2f5; border-color: #e4e7eb; }
+.decision-edit { align-self: flex-start; flex: 0 0 auto; }
+.decision-editor-modal { width: min(760px, 100%); max-height: min(90vh, 900px); overflow: auto; }
+.decision-editor-modal .settings-form { padding: 0 20px 20px; }
+.decision-multi-select { min-height: 76px; }
+.decision-detail-modal { width: min(820px, 100%); max-height: min(90vh, 900px); display: flex; flex-direction: column; }
+.decision-detail-modal > .modal-header, .decision-detail-modal > .modal-footer { flex: 0 0 auto; }
+.decision-detail-content { min-height: 0; overflow-y: auto; padding: 0 22px 20px; }
+.decision-detail-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 9px 16px; padding: 12px 0; color: #747d90; border-bottom: 1px solid #edf0f5; font-size: 10px; }
+.decision-detail-meta strong { color: #3d4659; }
+.decision-detail-section { padding: 14px 0; border-bottom: 1px solid #edf0f5; }
+.decision-detail-section h3 { margin: 0 0 7px; color: #343d51; font-size: 12px; }
+.decision-detail-section p, .decision-detail-section li { color: #606a7d; font-size: 11px; line-height: 1.6; white-space: pre-wrap; }
+.decision-detail-section p { margin: 4px 0; }
+.decision-detail-section ol { display: grid; gap: 5px; padding-left: 20px; }
+.decision-detail-section .linked-badge { margin: 3px 5px 3px 0; cursor: pointer; }
+.decision-history-entry { padding: 11px 12px; margin: 8px 0; background: #f8f9fc; border: 1px solid #e9ecf2; border-radius: 8px; }
+.decision-history-entry header { display: flex; justify-content: space-between; gap: 12px; }
+.decision-history-entry header strong { color: #434c60; font-size: 11px; }
+.decision-history-entry header span, .decision-history-entry small { color: #858c99; font-size: 9px; }
+.decision-history-entry > p { color: #70798b; }
+.decision-history-entry details { margin-top: 8px; color: #657086; font-size: 10px; }
+.decision-history-entry summary { cursor: pointer; }
+.decision-updated { display: block; padding-top: 12px; color: #9299a5; font-size: 9px; }
+body.dark-theme .decision-summary > div, body.dark-theme .decision-card { color: #dce2ec; background: #222834; border-color: #343c4a; }
+body.dark-theme .decision-summary strong, body.dark-theme .decision-card-main h2, body.dark-theme .decision-detail-meta strong, body.dark-theme .decision-detail-section h3, body.dark-theme .decision-history-entry header strong { color: #eef1f7; }
+body.dark-theme .decision-detail-meta, body.dark-theme .decision-detail-section, body.dark-theme .decision-history-entry { border-color: #343c4a; }
+body.dark-theme .decision-history-entry { background: #292f3b; }
+body.dark-theme .decision-status { color: #c4ccef; background: #303850; border-color: #424c68; }
+body.dark-theme .decision-status-geçerli { color: #8ed5b5; background: #263a32; border-color: #36584a; }
+body.dark-theme .decision-status-gözden-geçirilecek { color: #e6c38c; background: #3a3225; border-color: #5a4b32; }
+body.dark-theme .decision-status-geçersiz { color: #f0aaa8; background: #3b292f; border-color: #624049; }
+@media (max-width: 760px) { .decision-summary { grid-template-columns: 1fr; } .decision-toolbar { align-items: stretch; flex-wrap: wrap; } .decision-toolbar .filter-search { flex-basis: 100%; } .decision-toolbar > select { flex: 1; width: auto; } .decision-detail-meta { align-items: flex-start; flex-direction: column; } }
 @media (max-width: 760px) { .release-summary { grid-template-columns: 1fr; } .release-card > header { align-items: flex-start; } .release-dates { gap: 12px; flex-wrap: wrap; } }
 .portfolio-tracking { margin: 18px 0 24px; padding: 20px; background: #fff; border: 1px solid #e8ebf1; border-radius: 12px; }
 .portfolio-tracking-header { display: flex; justify-content: space-between; align-items: end; gap: 14px; margin-bottom: 15px; }

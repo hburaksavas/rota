@@ -147,6 +147,38 @@ interface ProductRelease {
   updated: string;
 }
 
+interface ProductDecisionSnapshot {
+  title: string;
+  context: string;
+  options: string[];
+  rationale: string;
+  owner: string;
+  decidedAt: string;
+  reviewAt?: string;
+  status: ProductDecision["status"];
+  workItemIds: string[];
+  assetIds: string[];
+  projectIds: string[];
+  releaseIds: string[];
+}
+
+interface ProductDecisionHistoryEntry {
+  version: number;
+  changedAt: string;
+  changedBy: string;
+  summary: string;
+  snapshot: ProductDecisionSnapshot;
+}
+
+interface ProductDecision extends ProductDecisionSnapshot {
+  id: string;
+  status: "Taslak" | "Geçerli" | "Gözden geçirilecek" | "Geçersiz";
+  supersedesId?: string;
+  supersededById?: string;
+  history: ProductDecisionHistoryEntry[];
+  updatedAt: string;
+}
+
 interface WorkBlocker {
   reason: string;
   nextStep: string;
@@ -280,6 +312,7 @@ interface WorkspaceState {
   assets: ProductAsset[];
   roadmap: RoadmapNode[];
   releases: ProductRelease[];
+  decisions?: ProductDecision[];
   diagrams: WorkDiagram[];
   sprints: Sprint[];
   openQuestions?: OpenQuestion[];

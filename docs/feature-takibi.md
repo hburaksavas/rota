@@ -12,12 +12,6 @@ Rota, Product Owner'ın yalnızca işleri değil, bankacılık ürününün bağ
 
 Bu faz, ekip değişse veya aylar geçse bile ürün kararlarının ve bileşenler arasındaki etkilerin izlenebilmesini sağlar.
 
-#### ROTA-NEXT-001 · Ürün karar kaydı ve karar geçmişi
-
-- **İhtiyaç:** Ürün kararları toplantı notlarında, e-postalarda ve iş yorumlarında dağınık kalıyor; ekipler kararın gerekçesini ve hâlâ geçerli olup olmadığını bulamıyor.
-- **Kapsam:** Karar, bağlam, değerlendirilen seçenekler, gerekçe, karar sahibi, tarih, gözden geçirme tarihi ve durum kaydı. Karar; iş, ürün bileşeni, proje ve release'e bağlanabilir. Yeni karar eskisini geçersiz kılabilir; eski karar geçmişte aranabilir.
-- **Başarı ölçütü:** Bir iş veya bileşen detayından ilgili geçerli karara ve önceki kararlara birkaç adımda ulaşılabilmesi.
-
 #### ROTA-NEXT-002 · Ürün çapında etki ve bağımlılık haritası
 
 - **İhtiyaç:** Envanter diyagramı tek başına değişikliğin hangi akışları, batch'leri, raporları ve teslimatları etkilediğini göstermiyor.
@@ -99,7 +93,7 @@ Bu faz, üretim ve müşteri sinyallerini kontrollü biçimde ürün kararların
 
 ## Öncelik ve bağımlılık sırası
 
-1. **001–003, 011:** Ürün kararları, sistem etkisi, ortak iş dili ve bileşen karmaşıklığı için bilgi temeli.
+1. **002–003, 011:** Sistem etkisi, ortak iş dili ve bileşen karmaşıklığı için bilgi temeli.
 2. **004–006:** Yükümlülük, inceleme ve doğrulama kanıtı arasında izlenebilirlik.
 3. **007–008, 012:** Bu bağları release hazırlığına, kapasite senaryolarına ve bileşen temelli efor tahminine taşıma.
 4. **009–010:** Operasyon ve ürün sonucu sinyalleriyle geliştirme önceliklerini besleme.
@@ -108,4 +102,8 @@ Plan faz sırasını gösterir; tarih taahhüdü değildir. Bir feature tamamlan
 
 ## Tamamlanan
 
-Henüz bu yeni takip listesinde tamamlandı olarak kaydedilmiş feature yok.
+#### ROTA-NEXT-001 · Ürün karar kaydı ve karar geçmişi
+
+- **Tamamlandı:** 21 Ekim 2026.
+- **Teslimat:** Karar, bağlam, değerlendirilen seçenekler, gerekçe, sahip, karar tarihi ve gözden geçirme tarihini kaydetme; kararı backlog işi, ürün bileşeni, proje ve release'e bağlama; düzenleme sürümlerini saklama ve eski içerikte arama; yeni kararla eskisini geçersiz kılma ve karar zincirini gösterme. Gözden geçirme tarihi geçen kararlar durum filtresinde görünür.
+- **Doğrulama:** Karar akışı için 6 yeni kabul senaryosu ve kurulum dahil toplam 14 odaklı kabul senaryosu geçti.

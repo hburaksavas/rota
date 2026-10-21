@@ -30,6 +30,7 @@ const seed: WorkspaceState = {
   teams: [],
   roadmap: [],
   releases: [],
+  decisions: [],
   diagrams: [],
   sprints: [],
   assets: [
@@ -159,6 +160,7 @@ try {
     teams: workspaceRecords<Team>(saved.teams, []),
     roadmap: workspaceRecords<RoadmapNode>(saved.roadmap, []),
     releases: workspaceRecords<ProductRelease>(saved.releases, []),
+    decisions: workspaceRecords<ProductDecision>(saved.decisions, []),
     diagrams: workspaceRecords<WorkDiagram>(saved.diagrams, []),
     sprints: workspaceRecords<Sprint>(saved.sprints, []),
     assets: workspaceRecords<ProductAsset>(saved.assets, legacySampleWorkspace ? seed.assets : []),
@@ -703,7 +705,7 @@ function setView(view: string): void {
   activeBacklogViewId = "";
   document.querySelectorAll<HTMLElement>(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   document.querySelector<HTMLElement>(".workspace-switcher")?.classList.toggle("active", view === "overview");
-  const names: Record<string, string> = { overview: "Genel bakış", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", roadmap: "Yol haritası", releases: "Release planı", focus: "Kişisel alan", questions: "Açık sorular", "daily-plan": "Günlük plan", "weekly-summary": "Haftalık özet", "archive-search": "Arşivde ara" };
+  const names: Record<string, string> = { overview: "Genel bakış", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", roadmap: "Yol haritası", decisions: "Ürün kararları", releases: "Release planı", focus: "Kişisel alan", questions: "Açık sorular", "daily-plan": "Günlük plan", "weekly-summary": "Haftalık özet", "archive-search": "Arşivde ara" };
   (document.getElementById("breadcrumb-current") as HTMLElement).textContent = names[view] ?? "Genel bakış";
   render();
 }
@@ -840,6 +842,7 @@ function render(): void {
   else if (activeView === "jira") renderJira();
   else if (activeView === "assets") renderAssets();
   else if (activeView === "roadmap") renderRoadmap();
+  else if (activeView === "decisions") renderDecisions();
   else if (activeView === "releases") renderReleases();
   else if (activeView === "questions") renderOpenQuestions();
   else if (activeView === "daily-plan") renderDailyPlan();
@@ -2202,6 +2205,127 @@ function renderRoadmap(): void {
 
 const RELEASE_STATUSES: ReleaseStatus[] = ["Planlanıyor", "Hazırlanıyor", "Yayına hazır", "Yayınlandı", "Ertelendi", "İptal edildi"];
 
+let decisionQuery = "";
+let decisionFilter: "all" | "active" | "review" | "draft" | "invalid" = "all";
+
+function decisionSnapshot(decision: ProductDecision): ProductDecisionSnapshot {
+  return {
+    title: decision.title, context: decision.context, options: [...decision.options], rationale: decision.rationale,
+    owner: decision.owner, decidedAt: decision.decidedAt, reviewAt: decision.reviewAt, status: decision.status,
+    workItemIds: [...decision.workItemIds], assetIds: [...decision.assetIds], projectIds: [...decision.projectIds], releaseIds: [...decision.releaseIds]
+  };
+}
+
+function decisionEffectiveStatus(decision: ProductDecision): ProductDecision["status"] {
+  if (decision.supersededById) return "Geçersiz";
+  if (decision.status === "Geçerli" && decision.reviewAt && decision.reviewAt < new Date().toISOString().slice(0, 10)) return "Gözden geçirilecek";
+  return decision.status;
+}
+
+function decisionSearchIndex(decision: ProductDecision): string {
+  const parts = [decision.title, decision.context, decision.options.join(" "), decision.rationale, decision.owner,
+    ...decision.workItemIds.map((id) => { const item = itemById(id); return id + " " + (item?.title || ""); }),
+    ...decision.assetIds.map((id) => { const asset = state.assets.find((entry) => entry.id === id); return id + " " + (asset?.name || ""); }),
+    ...decision.projectIds.map((id) => state.projects.find((project) => project.id === id)?.name || id),
+    ...decision.releaseIds.map((id) => { const release = state.releases.find((entry) => entry.id === id); return id + " " + (release?.name || ""); }),
+    ...decision.history.flatMap((entry) => [entry.summary, entry.snapshot.title, entry.snapshot.context, entry.snapshot.options.join(" "), entry.snapshot.rationale, entry.changedBy])
+  ];
+  return parts.join(" ").toLocaleLowerCase("tr-TR");
+}
+
+function decisionMatchesSearch(decision: ProductDecision, queryText: string): boolean {
+  const normalized = decisionSearchIndex(decision);
+  return queryText.trim().toLocaleLowerCase("tr-TR").split(/\s+/).filter(Boolean).every((term) => normalized.includes(term));
+}
+
+function renderDecisions(): void {
+  state.decisions ||= [];
+  const decisions = state.decisions || [];
+  const all = [...decisions].sort((left, right) => right.decidedAt.localeCompare(left.decidedAt) || right.updatedAt.localeCompare(left.updatedAt));
+  const filtered = all.filter((decision) => {
+    const status = decisionEffectiveStatus(decision);
+    const matchesFilter = decisionFilter === "all" || (decisionFilter === "active" && status === "Geçerli") || (decisionFilter === "review" && status === "Gözden geçirilecek") || (decisionFilter === "draft" && status === "Taslak") || (decisionFilter === "invalid" && status === "Geçersiz");
+    return matchesFilter && decisionMatchesSearch(decision, decisionQuery);
+  });
+  const activeCount = all.filter((decision) => decisionEffectiveStatus(decision) === "Geçerli").length;
+  const reviewCount = all.filter((decision) => decisionEffectiveStatus(decision) === "Gözden geçirilecek").length;
+  const cards = filtered.map((decision) => {
+    const status = decisionEffectiveStatus(decision);
+    const supersedes = decision.supersedesId ? decisions.find((entry) => entry.id === decision.supersedesId) : undefined;
+    const linkedCount = decision.workItemIds.length + decision.assetIds.length + decision.projectIds.length + decision.releaseIds.length;
+    return '<article class="decision-card" data-decision-id="' + esc(decision.id) + '" data-decision-status="' + esc(status) + '" data-decision-index="' + esc(decisionSearchIndex(decision)) + '"><button type="button" class="decision-card-main" data-action="open-decision" data-id="' + esc(decision.id) + '"><span class="decision-status decision-status-' + esc(status.toLocaleLowerCase("tr-TR").replaceAll(" ", "-")) + '">' + esc(status) + '</span><h2>' + esc(decision.title) + '</h2><p>' + esc(decision.rationale || decision.context || "Gerekçe henüz eklenmedi.") + '</p><span class="decision-meta">' + esc(decision.owner || "Sahip belirtilmedi") + ' · Karar ' + esc(decision.decidedAt || "Tarih belirtilmedi") + (decision.reviewAt ? ' · Gözden geçirme ' + esc(decision.reviewAt) : '') + '</span><span class="decision-meta">' + linkedCount + ' bağlantı · ' + decision.history.length + ' geçmiş sürüm' + (supersedes ? ' · Önceki karar: ' + esc(supersedes.title) : '') + '</span></button><button type="button" class="icon-button decision-edit" data-action="edit-decision" data-id="' + esc(decision.id) + '" aria-label="Kararı düzenle" title="Kararı düzenle">✎</button></article>';
+  }).join("");
+  root.innerHTML = '<div class="page-content decisions-page"><section class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>ÜRÜN YÖNETİMİ · KARAR HAFIZASI</div><h1>Ürün kararları</h1><p>Gerekçeleri, gözden geçirme tarihlerini ve kararlardan etkilenen kayıtları tek yerde izleyin.</p></div><button class="button button-primary" data-action="new-decision">＋ Karar kaydet</button></section><section class="decision-summary"><div><span>Karar kaydı</span><strong>' + all.length + '</strong></div><div><span>Geçerli</span><strong>' + activeCount + '</strong></div><div><span>Gözden geçirme zamanı</span><strong>' + reviewCount + '</strong></div></section><div class="decision-toolbar"><label class="filter-search"><span>⌕</span><input id="decision-search" type="search" placeholder="Karar, gerekçe, kayıt veya eski sürümlerde ara…" value="' + esc(decisionQuery) + '"></label><select id="decision-filter" class="field-input" aria-label="Kararları duruma göre filtrele"><option value="all" ' + (decisionFilter === "all" ? "selected" : "") + '>Tüm kararlar</option><option value="active" ' + (decisionFilter === "active" ? "selected" : "") + '>Geçerli</option><option value="review" ' + (decisionFilter === "review" ? "selected" : "") + '>Gözden geçirilecek</option><option value="draft" ' + (decisionFilter === "draft" ? "selected" : "") + '>Taslak</option><option value="invalid" ' + (decisionFilter === "invalid" ? "selected" : "") + '>Geçersiz / yerine yenisi geldi</option></select><span class="decision-result-count" id="decision-result-count">' + filtered.length + ' kayıt</span></div><div class="decision-list" id="decision-list">' + cards + '<div class="empty-state" data-decision-empty ' + (filtered.length ? 'hidden' : '') + '>' + (all.length ? 'Bu filtre veya aramayla eşleşen karar yok.' : 'Henüz ürün kararı kaydedilmedi. Kapsamı, seçenekleri ve gerekçeyi yazarak ürünün karar geçmişini oluşturmaya başlayın.') + '</div></div></div>';
+}
+
+function openDecisionEditor(id?: string): void {
+  state.decisions ||= [];
+  const decision = id ? state.decisions.find((entry) => entry.id === id) : undefined;
+  const multiOptions = (name: string, label: string, options: { id: string; label: string }[], selected: string[]) => '<label class="field-label">' + label + '<select class="field-input decision-multi-select" name="' + name + '" multiple size="' + Math.min(5, Math.max(3, options.length)) + '">' + options.map((option) => '<option value="' + esc(option.id) + '" ' + (selected.includes(option.id) ? 'selected' : '') + '>' + esc(option.label) + '</option>').join("") + '</select><small>Birden fazla kayıt seçmek için Ctrl (Mac’te ⌘) tuşunu kullan.</small></label>';
+  const selectablePrevious = state.decisions.filter((entry) => entry.id !== id && !entry.supersededById);
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal decision-editor-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">KARAR KAYDI · ÜRÜN HAFIZASI</div><h2>' + (decision ? 'Kararı düzenle' : 'Yeni ürün kararı') + '</h2></div><button class="modal-close" data-close-modal aria-label="Pencereyi kapat">×</button></header><form id="decision-form" class="settings-form"><label class="field-label">Karar başlığı<input class="field-input" name="title" maxlength="160" required value="' + esc(decision?.title || '') + '" placeholder="Örn. FAST işleminde günlük limit kontrolü sunucu tarafında yapılır"></label><label class="field-label">Bağlam / ihtiyaç<textarea class="field-input field-textarea" name="context" rows="3" maxlength="2500" required placeholder="Kararı gerekli kılan ürün, müşteri veya operasyon ihtiyacı…">' + esc(decision?.context || '') + '</textarea></label><label class="field-label">Değerlendirilen seçenekler <small>(her satırda bir seçenek)</small><textarea class="field-input field-textarea" name="options" rows="3" maxlength="2500" placeholder="Seçenekleri ve temel etkilerini yaz…">' + esc((decision?.options || []).join('\n')) + '</textarea></label><label class="field-label">Karar ve gerekçe<textarea class="field-input field-textarea" name="rationale" rows="3" maxlength="2500" required placeholder="Seçilen yaklaşım ve nedenleri…">' + esc(decision?.rationale || '') + '</textarea></label><div class="form-two-col"><label class="field-label">Karar sahibi<input class="field-input" name="owner" maxlength="100" required value="' + esc(decision?.owner || state.profile.userName || '') + '"></label><label class="field-label">Karar tarihi<input class="field-input" name="decidedAt" type="date" required value="' + esc(decision?.decidedAt || new Date().toISOString().slice(0, 10)) + '"></label><label class="field-label">Gözden geçirme tarihi<input class="field-input" name="reviewAt" type="date" value="' + esc(decision?.reviewAt || '') + '"></label><label class="field-label">Durum<select class="field-input" name="status">' + (["Taslak", "Geçerli", "Gözden geçirilecek", "Geçersiz"] as ProductDecision["status"][]).map((status) => '<option ' + (status === (decision?.status || "Geçerli") ? 'selected' : '') + '>' + status + '</option>').join('') + '</select></label></div>' + multiOptions("workItemIds", "İlişkili backlog işleri", state.items.filter((item) => !item.archived).map((item) => ({ id: item.id, label: item.id + ' · ' + item.title })), decision?.workItemIds || []) + multiOptions("assetIds", "Ürün bileşenleri", state.assets.map((asset) => ({ id: asset.id, label: asset.code + ' · ' + asset.name })), decision?.assetIds || []) + multiOptions("projectIds", "Projeler", state.projects.map((project) => ({ id: project.id, label: project.name })), decision?.projectIds || []) + multiOptions("releaseIds", "Release kayıtları", state.releases.map((release) => ({ id: release.id, label: release.name + ' · ' + release.project })), decision?.releaseIds || []) + (!decision && selectablePrevious.length ? '<label class="field-label">Yerine geçtiği karar<select class="field-input" name="supersedesId"><option value="">Önceki kararı değiştirmiyor</option>' + selectablePrevious.map((entry) => '<option value="' + esc(entry.id) + '">' + esc(entry.title + ' · ' + entry.status) + '</option>').join('') + '</select><small>Kaydedince önceki karar geçersiz olarak işaretlenir ve yenisine bağlanır.</small></label>' : '') + '<input type="hidden" name="id" value="' + esc(decision?.id || '') + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Kararı kaydet</button></footer></form></section></div>';
+}
+
+function openDecisionDetail(id: string): void {
+  const decisions = state.decisions || [];
+  const decision = decisions.find((entry) => entry.id === id);
+  if (!decision) return;
+  const status = decisionEffectiveStatus(decision);
+  const links: string[] = [];
+  decision.workItemIds.forEach((itemId) => { const item = itemById(itemId); links.push(item ? '<button class="linked-badge" data-open-item="' + esc(item.id) + '">İş · ' + esc(item.id + ' · ' + item.title) + '</button>' : '<span class="linked-badge">Silinmiş iş · ' + esc(itemId) + '</span>'); });
+  decision.assetIds.forEach((assetId) => { const asset = state.assets.find((entry) => entry.id === assetId); links.push(asset ? '<button class="linked-badge" data-open-asset="' + esc(asset.id) + '">Bileşen · ' + esc(asset.code + ' · ' + asset.name) + '</button>' : '<span class="linked-badge">Silinmiş bileşen · ' + esc(assetId) + '</span>'); });
+  decision.projectIds.forEach((projectId) => { const project = state.projects.find((entry) => entry.id === projectId); links.push(project ? '<button class="linked-badge" data-decision-open-project="' + esc(project.id) + '">Proje · ' + esc(project.name) + '</button>' : '<span class="linked-badge">Silinmiş proje · ' + esc(projectId) + '</span>'); });
+  decision.releaseIds.forEach((releaseId) => { const release = state.releases.find((entry) => entry.id === releaseId); links.push(release ? '<button class="linked-badge" data-action="edit-release" data-id="' + esc(release.id) + '">Release · ' + esc(release.name) + '</button>' : '<span class="linked-badge">Silinmiş release · ' + esc(releaseId) + '</span>'); });
+  const prior = decision.supersedesId ? decisions.find((entry) => entry.id === decision.supersedesId) : undefined;
+  const successor = decision.supersededById ? decisions.find((entry) => entry.id === decision.supersededById) : undefined;
+  const history = decision.history.map((entry) => '<article class="decision-history-entry"><header><strong>v' + entry.version + ' · ' + esc(entry.snapshot.title) + '</strong><span>' + esc(new Date(entry.changedAt).toLocaleString('tr-TR')) + ' · ' + esc(entry.changedBy) + '</span></header><p>' + esc(entry.summary) + '</p><div><small>Bağlam</small><p>' + esc(entry.snapshot.context) + '</p></div><div><small>Karar ve gerekçe</small><p>' + esc(entry.snapshot.rationale) + '</p></div><details><summary>Bu sürümün seçenekleri ve bağlantıları</summary><p>' + esc(entry.snapshot.options.join(' · ') || 'Seçenek kaydı yok') + '</p><small>' + entry.snapshot.workItemIds.length + ' iş · ' + entry.snapshot.assetIds.length + ' bileşen · ' + entry.snapshot.projectIds.length + ' proje · ' + entry.snapshot.releaseIds.length + ' release</small></details></article>').join('');
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal decision-detail-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">ÜRÜN KARARI · ' + esc(decision.id) + '</div><h2>' + esc(decision.title) + '</h2></div><button class="modal-close" data-close-modal aria-label="Pencereyi kapat">×</button></header><div class="decision-detail-content"><div class="decision-detail-meta"><span class="decision-status decision-status-' + esc(status.toLocaleLowerCase('tr-TR').replaceAll(' ', '-')) + '">' + esc(status) + '</span><span>Sahip: <strong>' + esc(decision.owner) + '</strong></span><span>Karar tarihi: <strong>' + esc(decision.decidedAt) + '</strong></span><span>Gözden geçirme: <strong>' + esc(decision.reviewAt || 'Planlanmadı') + '</strong></span></div><section class="decision-detail-section"><h3>Bağlam / ihtiyaç</h3><p>' + esc(decision.context) + '</p></section><section class="decision-detail-section"><h3>Değerlendirilen seçenekler</h3>' + (decision.options.length ? '<ol>' + decision.options.map((option) => '<li>' + esc(option) + '</li>').join('') + '</ol>' : '<p>Seçenek kaydı yok.</p>') + '</section><section class="decision-detail-section"><h3>Karar ve gerekçe</h3><p>' + esc(decision.rationale) + '</p></section>' + (prior || successor ? '<section class="decision-detail-section"><h3>Karar zinciri</h3>' + (prior ? '<button class="linked-badge" data-action="open-decision" data-id="' + esc(prior.id) + '">Yerine geçtiği karar · ' + esc(prior.title) + '</button>' : '') + (successor ? '<button class="linked-badge" data-action="open-decision" data-id="' + esc(successor.id) + '">Bu kararın yerine gelen · ' + esc(successor.title) + '</button>' : '') + '</section>' : '') + '<section class="decision-detail-section"><h3>İlişkili kayıtlar <span class="count-chip">' + links.length + '</span></h3><div class="relationship-chip-list">' + (links.join('') || '<p class="asset-muted">Bu karara henüz kayıt bağlanmadı.</p>') + '</div></section><section class="decision-detail-section"><h3>Karar geçmişi <span class="count-chip">' + decision.history.length + '</span></h3>' + (history || '<p class="asset-muted">Düzenleme geçmişi henüz oluşmadı.</p>') + '</section><small class="decision-updated">Son güncelleme · ' + esc(new Date(decision.updatedAt).toLocaleString('tr-TR')) + '</small></div><footer class="modal-footer"><button class="button button-quiet" data-close-modal>Kapat</button><button class="button button-primary" data-action="edit-decision" data-id="' + esc(decision.id) + '">Kararı düzenle</button></footer></section></div>';
+}
+
+function saveDecision(event: SubmitEvent): void {
+  event.preventDefault();
+  const form = event.target as HTMLFormElement;
+  const values = new FormData(form);
+  const title = String(values.get('title') || '').trim();
+  const context = String(values.get('context') || '').trim();
+  const rationale = String(values.get('rationale') || '').trim();
+  const owner = String(values.get('owner') || '').trim();
+  if (!title || !context || !rationale || !owner) { toast('Başlık, bağlam, gerekçe ve karar sahibi zorunludur.'); return; }
+  const id = String(values.get('id') || '');
+  const existing = state.decisions?.find((entry) => entry.id === id);
+  const now = new Date().toISOString();
+  const readMulti = (name: string): string[] => [...form.querySelectorAll<HTMLSelectElement>('select[name="' + name + '"]')].flatMap((select) => [...select.selectedOptions].map((option) => option.value));
+  const next: ProductDecisionSnapshot = {
+    title, context,
+    options: String(values.get('options') || '').split(/\r?\n/).map((line) => line.trim()).filter(Boolean),
+    rationale, owner, decidedAt: String(values.get('decidedAt') || ''), reviewAt: String(values.get('reviewAt') || '') || undefined,
+    status: String(values.get('status') || 'Geçerli') as ProductDecision['status'],
+    workItemIds: readMulti('workItemIds').filter((targetId) => state.items.some((item) => item.id === targetId)),
+    assetIds: readMulti('assetIds').filter((targetId) => state.assets.some((asset) => asset.id === targetId)),
+    projectIds: readMulti('projectIds').filter((targetId) => state.projects.some((project) => project.id === targetId)),
+    releaseIds: readMulti('releaseIds').filter((targetId) => state.releases.some((release) => release.id === targetId))
+  };
+  state.decisions ||= [];
+  if (existing) {
+    existing.history ||= [];
+    existing.history.unshift({ version: existing.history.length + 1, changedAt: now, changedBy: state.profile.userName || 'PO', summary: 'Karar kaydı güncellendi.', snapshot: decisionSnapshot(existing) });
+    Object.assign(existing, next, { updatedAt: now });
+  } else {
+    const newId = nextId('DEC');
+    const decision: ProductDecision = { ...next, id: newId, history: [], updatedAt: now };
+    const supersedesId = String(values.get('supersedesId') || '');
+    const previous = state.decisions.find((entry) => entry.id === supersedesId && !entry.supersededById);
+    if (previous) {
+      previous.history ||= [];
+      previous.history.unshift({ version: previous.history.length + 1, changedAt: now, changedBy: state.profile.userName || 'PO', summary: 'Yeni karar bu kaydın yerine geçti.', snapshot: decisionSnapshot(previous) });
+      previous.status = 'Geçersiz'; previous.supersededById = newId; previous.updatedAt = now;
+      decision.supersedesId = previous.id;
+    }
+    state.decisions.unshift(decision);
+  }
+  save(); closeModal(); activeView = 'decisions'; document.querySelectorAll<HTMLElement>('.nav-item').forEach((node) => node.classList.toggle('active', node.dataset.view === 'decisions')); (document.getElementById('breadcrumb-current') as HTMLElement).textContent = 'Ürün kararları'; render(); toast(existing ? 'Karar ve sürüm geçmişi kaydedildi.' : 'Ürün kararı kaydedildi.');
+}
+
 function renderReleases(): void {
   const releases = state.releases.filter((release) => !release.archived && isItemInActiveProject({ project: release.project } as WorkItem)).sort((a, b) => (a.plannedDate || "9999").localeCompare(b.plannedDate || "9999"));
   const cards = releases.map((release) => {
@@ -2424,7 +2548,7 @@ async function restoreWorkspaceBackup(): Promise<void> {
     const restoreToken = staged.token;
     const attachmentCount = staged.attachmentCount;
     const candidate = staged.workspace as Partial<WorkspaceState>;
-    if (!candidate || !Array.isArray(candidate.items) || !Array.isArray(candidate.tasks) || !Array.isArray(candidate.notes) || !Array.isArray(candidate.projects) || !Array.isArray(candidate.teams) || !Array.isArray(candidate.assets) || !Array.isArray(candidate.roadmap) || !Array.isArray(candidate.releases) || (candidate.diagrams !== undefined && !Array.isArray(candidate.diagrams)) || !candidate.profile) throw new Error("Yedek bu Rota sürümüyle uyumlu değil.");
+    if (!candidate || !Array.isArray(candidate.items) || !Array.isArray(candidate.tasks) || !Array.isArray(candidate.notes) || !Array.isArray(candidate.projects) || !Array.isArray(candidate.teams) || !Array.isArray(candidate.assets) || !Array.isArray(candidate.roadmap) || !Array.isArray(candidate.releases) || (candidate.decisions !== undefined && !Array.isArray(candidate.decisions)) || (candidate.diagrams !== undefined && !Array.isArray(candidate.diagrams)) || !candidate.profile) throw new Error("Yedek bu Rota sürümüyle uyumlu değil.");
     if (!window.confirm("Bu yedek çalışma alanındaki mevcut kayıtların yerini alacak. " + candidate.items.length + " backlog işi ve " + staged.attachmentCount + " dosya eki yüklenecek. Devam edilsin mi?")) {
       await desktop.cancelWorkspaceRestore(restoreToken);
       return;
@@ -2432,7 +2556,7 @@ async function restoreWorkspaceBackup(): Promise<void> {
     const previousState = state;
     const previousStorage = localStorage.getItem(STORAGE_KEY);
     try {
-      const restored = { ...candidate, diagrams: candidate.diagrams || [], sprints: candidate.sprints || [] } as WorkspaceState;
+      const restored = { ...candidate, decisions: candidate.decisions || [], diagrams: candidate.diagrams || [], sprints: candidate.sprints || [] } as WorkspaceState;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(restored));
       await desktop.commitWorkspaceRestore(restoreToken);
       staged = null;
@@ -4270,6 +4394,9 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
     else if (action.dataset.action === "backup-export") await exportWorkspaceBackup();
     else if (action.dataset.action === "backup-restore") await restoreWorkspaceBackup();
     else if (action.dataset.action === "create-roadmap") openRoadmapEditor();
+    else if (action.dataset.action === "new-decision") openDecisionEditor();
+    else if (action.dataset.action === "edit-decision" && action.dataset.id) openDecisionEditor(action.dataset.id);
+    else if (action.dataset.action === "open-decision" && action.dataset.id) openDecisionDetail(action.dataset.id);
     else if (action.dataset.action === "create-release") openReleaseEditor();
     else if (action.dataset.action === "edit-release" && action.dataset.id) openReleaseEditor(action.dataset.id);
     else if (action.dataset.action === "delete-release" && action.dataset.id) deleteRelease(action.dataset.id);
@@ -4338,6 +4465,8 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
   const open = target.closest<HTMLElement>("[data-open-item]");
   const openSourceEmail = target.closest<HTMLElement>("[data-open-source-email]");
   if (openSourceEmail?.dataset.openSourceEmail) { await openAttachment(openSourceEmail.dataset.openSourceEmail); return; }
+  const decisionProject = target.closest<HTMLElement>("[data-decision-open-project]");
+  if (decisionProject?.dataset.decisionOpenProject) { setProject(decisionProject.dataset.decisionOpenProject); closeModal(); return; }
   if (target.closest("[data-select-backlog-item], [data-select-visible-backlog]")) { event.stopPropagation(); return; }
   if (open?.dataset.openItem && !open.classList.contains("detail-modal")) {
     const backlogRow = target.closest<HTMLTableRowElement>("tr[data-open-item]");
@@ -4433,6 +4562,22 @@ document.addEventListener("keydown", (event) => {
 
 document.addEventListener("input", (event) => {
   const target = event.target;
+  if (target instanceof HTMLInputElement && target.id === "decision-search") {
+    decisionQuery = target.value;
+    const terms = decisionQuery.trim().toLocaleLowerCase("tr-TR").split(/\s+/).filter(Boolean);
+    let visibleCount = 0;
+    root.querySelectorAll<HTMLElement>(".decision-card").forEach((card) => {
+      const index = card.dataset.decisionIndex || "";
+      const matches = terms.every((term) => index.includes(term));
+      card.hidden = !matches;
+      if (matches) visibleCount += 1;
+    });
+    const count = root.querySelector<HTMLElement>("#decision-result-count");
+    if (count) count.textContent = visibleCount + " kayıt";
+    const empty = root.querySelector<HTMLElement>("[data-decision-empty]");
+    if (empty) empty.hidden = visibleCount > 0;
+    return;
+  }
   if (target instanceof HTMLInputElement && target.id === "sprint-item-search") {
     const query = target.value.trim().toLocaleLowerCase("tr-TR");
     modalRoot.querySelectorAll<HTMLElement>("[data-sprint-item]").forEach((row) => { row.hidden = !row.dataset.sprintSearch?.includes(query); });
@@ -4464,6 +4609,7 @@ window.addEventListener("resize", () => {
 document.addEventListener("change", (event) => {
   if (event.target instanceof HTMLTextAreaElement && event.target.id === "daily-plan-note") { getDailyPlan().note = event.target.value.trim(); save(); return; }
   if (event.target instanceof HTMLSelectElement) {
+    if (event.target.id === "decision-filter") { decisionFilter = event.target.value as typeof decisionFilter; renderDecisions(); return; }
     if (event.target.id === "jira-board-select") { jiraSelectedBoardId = event.target.value; void loadJiraBoardDetails(); return; }
     if (event.target.id === "jira-project-select") { jiraSelectedProjectKey = event.target.value; void loadJiraProjectIssueTypes(); return; }
     if (event.target.id === "jira-scope-select") { jiraIssueScope = event.target.value as typeof jiraIssueScope; jiraIssues = []; renderJira(); return; }
@@ -4686,6 +4832,7 @@ document.addEventListener("submit", (event) => {
     else state.openQuestions.unshift({ id: nextId("Q"), text, owner, expectedAt: String(values.get("expectedAt") || ""), status: "Açık", linkedItemId: String(values.get("linkedItemId") || "") || undefined, createdAt: new Date().toISOString() });
     save(); closeModal(); setView("questions"); toast("Açık soru kaydedildi."); return;
   }
+  if (formId === "decision-form") { saveDecision(event as SubmitEvent); return; }
   if (formId === "open-question-answer-form") {
     event.preventDefault();
     const values = new FormData(event.target as HTMLFormElement);

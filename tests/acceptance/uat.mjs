@@ -29,7 +29,7 @@ add("UAT-003 Çalışma alanı adı alınır", async p => assert(await p.locator
 add("UAT-004 Kullanıcı adı ve rolü yapılandırılabilir", async p => assert(await p.locator('[name="userName"]').isVisible() && await p.locator('[name="userRole"]').isVisible(), "Kullanıcı profili alanları eksik"));
 add("UAT-005 İlk açılış örnek veya boş başlangıç sunar", async p => assert(await p.locator('[name="starter"]').count() === 2, "Başlangıç veri seçenekleri eksik"));
 add("UAT-006 Kurulumda proje listesi tanımlanabilir", async p => assert(await p.locator('[name="projects"]').isVisible(), "Proje tanımlama alanı eksik"));
-add("UAT-007 Kurulumda takım ve üyeler tanımlanabilir", async p => assert(await p.locator('[name="teams"]').isVisible(), "Takım tanımlama alanı eksik"));
+add("UAT-007 Takımların ayarlardan yönetildiği belirtilir", async p => assert((await p.locator("#setup-form .settings-intro").innerText()).includes("Takımlar ve üyeler daha sonra çalışma alanı ayarlarından yönetilir"), "Takım yönetiminin ayarlarda olduğu açıklanmıyor"));
 add("UAT-008 Kurulum zorunlu alanları doğrulanabilir", async p => assert(await p.locator('#setup-form [required]').count() >= 5, "Kurulum zorunlu alanları işaretli değil"));
 
 // Shared workspace and dashboard
@@ -161,7 +161,7 @@ for(const [name,selector,view] of finalChecks) add(name,async p=>{await nav(p,vi
 addComplexCases(cases);
 addUncoveredCases(cases);
 
-if (cases.length !== 350) throw new Error(`Kabul senaryosu sayısı 350 değil: ${cases.length}`);
+if (cases.length !== 356) throw new Error(`Kabul senaryosu sayısı 356 değil: ${cases.length}`);
 const complexFilter = process.env.ROTA_UAT_FILTER || "";
 const complexCases = cases.slice(100).filter(test => !complexFilter || test.name.toLocaleLowerCase("tr-TR").includes(complexFilter.toLocaleLowerCase("tr-TR")));
 const casesForRun = process.env.ROTA_UAT_COMPLEX_ONLY === "1" ? [...cases.slice(0, 8), ...complexCases] : cases;
@@ -178,7 +178,6 @@ try {
   await page.locator('[name="userName"]').fill("UAT Kullanıcısı");
   await page.locator('[name="userRole"]').fill("Product Owner");
   await page.locator('[name="projects"]').fill("Ödeme Platformu\nDijital Kanallar");
-  await page.locator('[name="teams"]').fill("Ödeme Takımı: Ayşe Yılmaz, Mehmet Demir\nKanallar Takımı: Ece Kaya");
   for (const test of cases.slice(0, 8)) {
     try { await test.run(page); results.push({ id: `UAT-${String(results.length + 1).padStart(3,"0")}`, name: test.name, result: "PASS", detail: "" }); }
     catch (error) { results.push({ id: `UAT-${String(results.length + 1).padStart(3,"0")}`, name: test.name, result: "FAIL", detail: String(error?.message || error).replace(/\s+/g," ").slice(0,240) }); }
