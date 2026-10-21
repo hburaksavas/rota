@@ -38,5 +38,4 @@ To build a signed release with update checks, configure `ROTA_UPDATE_URL` to the
 - Outlook message drag-and-drop needs validation against the institution's Outlook version and policy
 - Jira integration is out of the first-release scope
 
-See [`docs/tamamlanan-featurelar.md`](docs/tamamlanan-featurelar.md) for implemented features and current prototype limitations.
-See [`docs/bekleyen-featurelar.md`](docs/bekleyen-featurelar.md) for the next phase, proposed product functionality, deferred candidates, and the maintenance rules for these two feature documents.
+See [`docs/feature-takibi.md`](docs/feature-takibi.md) for the current feature tracking list.

@@ -1,5 +1,4 @@
 import { Graph, type Edge, type Node } from "@antv/x6";
-import { ROTA_PRODUCT_FEATURES, ROTA_PRODUCT_FEATURE_ADDITIONS, ROTA_PRODUCT_FEATURE_UPDATES, ROTA_PRODUCT_FEATURE_REMOVALS } from "./rota-product-plan";
 
 const seed: WorkspaceState = {
   items: [
@@ -42,12 +41,6 @@ const seed: WorkspaceState = {
 };
 
 const STORAGE_KEY = "rota-po-workspace-v1";
-const ROTA_PRODUCT_PROJECT_ID = "rota-product";
-const ROTA_PRODUCT_PROJECT_NAME = "Rota · PO çalışma alanı";
-const ROTA_PRODUCT_IMPORT_KEY = "rota-product-plan-import-v1";
-const ROTA_PRODUCT_IMPORT_VERSION = "v66";
-const ROTA_PRODUCT_UX_REFRESH_KEY = "rota-product-plan-ux-refresh-v1";
-const ROTA_PRODUCT_UPDATES_KEY = "rota-product-plan-updates-v1";
 const BACKLOG_PREVIEW_PREFERENCE_KEY = "rota-backlog-preview-enabled";
 const BACKLOG_COLUMNS_PREFERENCE_KEY = "rota-backlog-columns";
 const BACKLOG_DENSITY_PREFERENCE_KEY = "rota-backlog-density";
@@ -627,77 +620,6 @@ function openStatusUpdateModal(itemId: string, nextStatus: WorkItem["status"], r
   const blocked = nextStatus === "Bloke";
   modalRoot.innerHTML = '<div class="modal-backdrop"><section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="status-update-title"><header class="modal-header"><div><div class="panel-kicker">DURUM GÜNCELLEMESİ · ' + esc(item.id) + '</div><h2 id="status-update-title">' + (blocked ? "İş neden bloke?" : esc(nextStatus) + " durumuna geçir") + '</h2></div><button class="modal-close" data-cancel-status-update>×</button></header><div class="settings-form"><p class="settings-intro">' + (blocked ? "Blokajı takip edebilmek için nedenini ve sıradaki adımı kaydet." : "İstersen bu durum değişikliği için kısa bir güncelleme notu ekle.") + '</p>' + (blocked ? '<label class="field-label">Blokaj nedeni<textarea id="blocker-reason" class="field-input field-textarea" rows="3" maxlength="1000" required>' + esc(blocker?.reason || "") + '</textarea></label><label class="field-label">Sonraki adım<textarea id="blocker-next-step" class="field-input field-textarea" rows="2" maxlength="1000" required>' + esc(blocker?.nextStep || "") + '</textarea></label>' : '') + '<label class="field-label">Güncelleme notu <small>(isteğe bağlı)</small><textarea id="status-update-note" class="field-input field-textarea" rows="2" maxlength="2000" placeholder="İlerleme, karar veya sonraki adım…"></textarea></label><footer class="modal-footer"><button type="button" class="button button-quiet" data-cancel-status-update>Vazgeç</button><button type="button" class="button button-primary" data-save-item-status="' + esc(itemId) + '" data-next-status="' + esc(nextStatus) + '">Kaydet</button></footer></div></section></div>';
   if (blocked) modalRoot.querySelector("#blocker-next-step")?.parentElement?.insertAdjacentHTML("afterend", '<label class="field-label">Beklenen karar veya iş<textarea id="blocker-expected" class="field-input field-textarea" rows="2" maxlength="1000" required>' + esc(blocker?.expectedAction || "") + '</textarea></label><label class="field-label">Takip sahibi<select id="blocker-owner" class="field-input" required>' + blockerOwnerOptions(blocker?.owner || (state.profile.userName ? state.profile.userName + " (PO)" : "PO")) + '</select></label><label class="field-label">Takip hatırlatması<input id="blocker-follow-up" type="datetime-local" class="field-input" value="' + esc(blocker?.followUpAt || "") + '"></label>');
-}
-
-function importRotaProductPlan(): number {
-  const currentVersion = localStorage.getItem(ROTA_PRODUCT_IMPORT_KEY);
-  let appliedUpdates: string[] = [];
-  try { appliedUpdates = JSON.parse(localStorage.getItem(ROTA_PRODUCT_UPDATES_KEY) || "[]") as string[]; } catch { appliedUpdates = []; }
-  const appliedUpdateKeys = new Set(appliedUpdates);
-  const pendingUpdate = ROTA_PRODUCT_FEATURE_UPDATES.some((update) => !appliedUpdateKeys.has(update.key));
-  const pendingRemoval = ROTA_PRODUCT_FEATURE_REMOVALS.some((id) => state.items.some((item) => item.id === id));
-  if (currentVersion === ROTA_PRODUCT_IMPORT_VERSION && !pendingUpdate && !pendingRemoval) return 0;
-  let project = state.projects.find((entry) => entry.id === ROTA_PRODUCT_PROJECT_ID || entry.name === ROTA_PRODUCT_PROJECT_NAME);
-  if (!project) {
-    project = { id: ROTA_PRODUCT_PROJECT_ID, name: ROTA_PRODUCT_PROJECT_NAME, color: "violet", assignments: [] };
-    state.projects.push(project);
-  }
-  const importedIds = new Set(state.items.map((item) => item.id));
-  // Existing installations receive only newly introduced records. Re-importing the
-  // full catalog on a version bump would resurrect suggestions the PO removed.
-  const featuresToImport = currentVersion === null
-    ? [...ROTA_PRODUCT_FEATURES, ...ROTA_PRODUCT_FEATURE_ADDITIONS]
-    : ROTA_PRODUCT_FEATURE_ADDITIONS;
-  const additions: WorkItem[] = featuresToImport.filter((feature) => !importedIds.has(feature.id)).map((feature) => ({
-    ...feature,
-    project: project!.name,
-    updated: "Plan aktarımı",
-    acceptance: [],
-    attachments: [],
-    assetIds: []
-  }));
-  state.items.push(...additions);
-  localStorage.setItem(ROTA_PRODUCT_IMPORT_KEY, ROTA_PRODUCT_IMPORT_VERSION);
-  let refreshedCount = 0;
-  if (localStorage.getItem(ROTA_PRODUCT_UX_REFRESH_KEY) !== "v1") {
-    const generatedLabels = new Set(["Öneri", "İleri faz öncesi", "İleri sürüm adayı"]);
-    for (const feature of ROTA_PRODUCT_FEATURE_ADDITIONS) {
-      const item = state.items.find((entry) => entry.id === feature.id);
-      if (!item) continue;
-      item.title = feature.title;
-      item.area = feature.area;
-      item.description = feature.description;
-      const customLabels = (item.labels || []).filter((label) => !generatedLabels.has(label) && label !== "Ürün planı");
-      item.labels = [...new Set(["Ürün planı", "Öneri", "İleri sürüm adayı", ...customLabels])];
-      item.updated = "Rota planı iyileştirildi";
-      refreshedCount += 1;
-    }
-    localStorage.setItem(ROTA_PRODUCT_UX_REFRESH_KEY, "v1");
-  }
-  let updatedCount = 0;
-  for (const update of ROTA_PRODUCT_FEATURE_UPDATES) {
-    if (appliedUpdateKeys.has(update.key)) continue;
-    const item = state.items.find((entry) => entry.id === update.id);
-    if (!item) continue;
-    if (update.title) item.title = update.title;
-    if (update.area) item.area = update.area;
-    if (update.status) item.status = update.status;
-    item.labels = [...new Set([...(item.labels || []).filter((label) => !update.removeLabels?.includes(label)), ...(update.addLabels || [])])];
-    if (update.description) item.description = update.description;
-    item.updated = "Rota planı güncellendi";
-    appliedUpdateKeys.add(update.key);
-    updatedCount += 1;
-  }
-  state.items = state.items.filter((item) => !ROTA_PRODUCT_FEATURE_REMOVALS.includes(item.id));
-  const removedIds = new Set(ROTA_PRODUCT_FEATURE_REMOVALS);
-  state.items.forEach((item) => {
-    item.dependsOnIds = (item.dependsOnIds || []).filter((id) => !removedIds.has(id));
-    item.relatedRecords = (item.relatedRecords || []).filter((link) => !removedIds.has(link.targetId));
-  });
-  state.diagrams = state.diagrams.filter((diagram) => !removedIds.has(diagram.ownerId));
-  localStorage.setItem(ROTA_PRODUCT_UPDATES_KEY, JSON.stringify([...appliedUpdateKeys]));
-  save();
-  return additions.length + updatedCount + refreshedCount + (pendingRemoval ? 1 : 0);
 }
 
 const icon = (name: string): string => {
@@ -3360,13 +3282,12 @@ function saveSetup(event: SubmitEvent): void {
   state.profile = { organization: String(values.get("organization") || "").trim(), workspace: String(values.get("workspace") || "").trim(), userName: String(values.get("userName") || "").trim(), userRole: String(values.get("userRole") || "").trim(), ...(jiraBaseUrl ? { jiraBaseUrl } : {}) };
   if (!jiraBaseUrl) { jiraBoards = []; jiraProjects = []; jiraSprints = []; jiraIssueTypes = []; jiraIssues = []; jiraCatalogLoadedFor = ""; } else if (jiraCatalogLoadedFor !== jiraBaseUrl) jiraCatalogLoadedFor = "";
   if (!hasStoredWorkspace && values.get("starter") === "empty") { state.items = []; state.tasks = []; state.notes = []; }
-  const importedFeatures = importRotaProductPlan();
-  activeProjectId = ROTA_PRODUCT_PROJECT_ID;
+  activeProjectId = state.projects[0]?.id || null;
   activeView = "backlog";
   document.querySelectorAll<HTMLElement>(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === "backlog"));
-  (document.getElementById("breadcrumb-current") as HTMLElement).textContent = ROTA_PRODUCT_PROJECT_NAME;
+  (document.getElementById("breadcrumb-current") as HTMLElement).textContent = state.projects.find((project) => project.id === activeProjectId)?.name || "Backlog";
   save(); closeModal(); render();
-  toast(importedFeatures ? `Rota ürün planı aktarıldı: ${importedFeatures} feature.` : "Çalışma alanı hazır.");
+  toast("Çalışma alanı hazır.");
 }
 
 function saveEditedRecord(event: SubmitEvent, kind: "item" | "task" | "note"): void {
@@ -4903,17 +4824,9 @@ window.addEventListener("drop", async (event) => {
   await importDroppedAttachments(files, destination, activityDrop);
 });
 
-const importedRotaFeatures = hasStoredWorkspace ? importRotaProductPlan() : 0;
-if (importedRotaFeatures) {
-  activeView = "backlog";
-  activeProjectId = ROTA_PRODUCT_PROJECT_ID;
-  document.querySelectorAll<HTMLElement>(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === "backlog"));
-  (document.getElementById("breadcrumb-current") as HTMLElement).textContent = ROTA_PRODUCT_PROJECT_NAME;
-}
 render();
 checkFollowUpReminders();
 window.setInterval(checkFollowUpReminders, 60_000);
 if (!hasStoredWorkspace) openSetupWizard(true);
-else if (importedRotaFeatures) toast(`Rota ürün planı aktarıldı: ${importedRotaFeatures} feature.`);
 
 

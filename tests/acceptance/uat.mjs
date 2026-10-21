@@ -1,7 +1,6 @@
 import { _electron as electron } from "playwright";
 import os from "node:os";
 import path from "node:path";
-import { writeFileSync } from "node:fs";
 import { addComplexCases } from "./complex-cases.mjs";
 import { addUncoveredCases } from "./uncovered-cases.mjs";
 
@@ -199,7 +198,4 @@ try {
 for (const row of results) console.log(`${row.result.padEnd(4)} ${row.id} ${row.name}${row.detail ? ` — ${row.detail}` : ""}`);
 const failed = results.filter(row => row.result === "FAIL");
 console.log(`\nSonuç: ${results.length} senaryo, ${results.length - failed.length} başarılı, ${failed.length} başarısız.`);
-const rows = results.map(row => `| ${row.id} | ${row.name.replace(/^UAT-\d+\s*/, "")} | ${row.result}${row.detail ? ` — ${row.detail.replaceAll("|", "\\|")}` : ""} |`).join("\n");
-const report = `# Kullanıcı kabul testleri\n\nTestler Electron uygulamasını geçici ve izole bir kullanıcı profiliyle açar; mevcut Rota kullanıcı verilerine dokunmaz. Canlı Jira sunucusu entegrasyonu kapsam dışıdır; Jira kapalıyken kullanıcı akışı doğrulanır.\n\n- Senaryo sayısı: ${results.length}\n- Başarılı: ${results.length - failed.length}\n- Başarısız: ${failed.length}\n- Çalıştırma zamanı: ${new Date().toLocaleString("tr-TR", { timeZone: "Europe/Istanbul" })}\n- Çalıştırma: \`npm run test:acceptance\`\n\nHer senaryo, belirtilen kullanıcı akışının ilgili ekranını, alanını veya eylemini Electron arayüzünde doğrular. PASS olan senaryolar beklenen UI kabul ölçütünü karşıladı.\n\n| ID | Kullanıcı kabul senaryosu | Sonuç |\n|---|---|\n${rows}\n`;
-writeFileSync(new URL("../../docs/kullanici-kabul-testleri.md", import.meta.url), report, "utf8");
 if (failed.length) process.exitCode = 1;
