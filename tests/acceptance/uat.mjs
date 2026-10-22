@@ -1,4 +1,7 @@
-import { _electron as electron } from "playwright";
+import { chromium } from "playwright";
+import { spawn, spawnSync } from "node:child_process";
+import { createServer } from "node:net";
+import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { addComplexCases } from "./complex-cases.mjs";
@@ -167,10 +170,39 @@ const complexCases = cases.slice(100).filter(test => !complexFilter || test.name
 const casesForRun = process.env.ROTA_UAT_COMPLEX_ONLY === "1" ? [...cases.slice(0, 8), ...complexCases] : cases;
 
 const tempProfile = path.join(os.tmpdir(), `rota-uat-${Date.now()}`);
-const app = await electron.launch({ args: [`--user-data-dir=${tempProfile}`, "."], timeout: 60000 });
-const page = await app.firstWindow();
+const debugPort = await new Promise((resolve, reject) => {
+  const server = createServer();
+  server.once("error", reject);
+  server.listen(0, "127.0.0.1", () => { const port = server.address().port; server.close(() => resolve(port)); });
+});
+const appProcess = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["start"], {
+  cwd: process.cwd(),
+  env: { ...process.env, ROTA_WEBVIEW2_USER_DATA: tempProfile, ROTA_USER_DATA_DIR: path.join(tempProfile, "user-data"), ROTA_WEBVIEW2_DEBUG_PORT: String(debugPort) },
+  stdio: "inherit",
+  shell: process.platform === "win32",
+  windowsHide: true
+});
+let app;
+let page;
+const connectDeadline = Date.now() + 60_000;
+while (!app && Date.now() < connectDeadline) {
+  try { app = await chromium.connectOverCDP(`http://127.0.0.1:${debugPort}`, { timeout: 1500 }); }
+  catch { await new Promise(resolve => setTimeout(resolve, 400)); }
+  if (appProcess.exitCode !== null) throw new Error(`Rota başlatılamadı (exit ${appProcess.exitCode}).`);
+}
+if (!app) throw new Error("WebView2 test penceresine bağlanılamadı.");
+const context = app.contexts()[0];
+while (!page && Date.now() < connectDeadline) {
+  page = context.pages().find(candidate => candidate.url().startsWith("file:"));
+  if (!page) await new Promise(resolve => setTimeout(resolve, 250));
+}
+if (!page) throw new Error("Rota arayüz sekmesi WebView2 içinde bulunamadı.");
 page.setDefaultTimeout(process.env.ROTA_UAT_COMPLEX_ONLY === "1" ? 1800 : 1500);
 const results = [];
+const recordResult = row => {
+  results.push(row);
+  console.log(`${row.result.padEnd(4)} ${row.id} ${row.name}${row.detail ? ` — ${row.detail}` : ""}`);
+};
 try {
   await page.waitForSelector("#setup-form", { timeout: 20000 });
   await page.locator('[name="organization"]').fill("UAT Bankası");
@@ -179,19 +211,22 @@ try {
   await page.locator('[name="userRole"]').fill("Product Owner");
   await page.locator('[name="projects"]').fill("Ödeme Platformu\nDijital Kanallar");
   for (const test of cases.slice(0, 8)) {
-    try { await test.run(page); results.push({ id: `UAT-${String(results.length + 1).padStart(3,"0")}`, name: test.name, result: "PASS", detail: "" }); }
-    catch (error) { results.push({ id: `UAT-${String(results.length + 1).padStart(3,"0")}`, name: test.name, result: "FAIL", detail: String(error?.message || error).replace(/\s+/g," ").slice(0,240) }); }
+    try { await test.run(page); recordResult({ id: `UAT-${String(results.length + 1).padStart(3,"0")}`, name: test.name, result: "PASS", detail: "" }); }
+    catch (error) { recordResult({ id: `UAT-${String(results.length + 1).padStart(3,"0")}`, name: test.name, result: "FAIL", detail: String(error?.message || error).replace(/\s+/g," ").slice(0,240) }); }
   }
   await page.locator('#setup-form button[type="submit"]').click();
   await page.waitForSelector("#view-root", { timeout: 20000 });
   await page.waitForTimeout(1200);
   for (const test of casesForRun.slice(8)) {
-    try { await test.run(page); results.push({ id: `UAT-${String(results.length + 1).padStart(3,"0")}`, name: test.name, result: "PASS", detail: "" }); }
-    catch (error) { results.push({ id: `UAT-${String(results.length + 1).padStart(3,"0")}`, name: test.name, result: "FAIL", detail: String(error?.message || error).replace(/\s+/g," ").slice(0,240) }); }
+    try { await test.run(page); recordResult({ id: `UAT-${String(results.length + 1).padStart(3,"0")}`, name: test.name, result: "PASS", detail: "" }); }
+    catch (error) { recordResult({ id: `UAT-${String(results.length + 1).padStart(3,"0")}`, name: test.name, result: "FAIL", detail: String(error?.message || error).replace(/\s+/g," ").slice(0,240) }); }
     if (process.env.ROTA_UAT_COMPLEX_ONLY === "1" && results.length % 25 === 0) console.log(`İlerleme: ${results.length - 8}/${complexCases.length} yeni test`);
   }
 } finally {
-  await app.close();
+  await app.close().catch(() => {});
+  if (appProcess.pid && process.platform === "win32") spawnSync("taskkill", ["/PID", String(appProcess.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
+  else appProcess.kill("SIGTERM");
+  if (fs.existsSync(tempProfile)) fs.rmSync(tempProfile, { recursive: true, force: true });
 }
 
 for (const row of results) console.log(`${row.result.padEnd(4)} ${row.id} ${row.name}${row.detail ? ` — ${row.detail}` : ""}`);

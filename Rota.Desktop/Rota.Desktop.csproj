@@ -1,0 +1,27 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="ClosedXML" Version="0.105.1" />
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.4258.31" />
+    <PackageReference Include="MimeKit" Version="4.18.2" />
+    <PackageReference Include="MsgReader" Version="6.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\index.html" Link="index.html" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\src\styles.css" Link="src\styles.css" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\dist\renderer\app.js" Link="dist\renderer\app.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="webview2-bridge.js" Link="Rota.Desktop\webview2-bridge.js" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" />
+    <Content Include="..\assets\rota.ico" Link="assets\rota.ico" CopyToOutputDirectory="PreserveNewest" CopyToPublishDirectory="PreserveNewest" Condition="Exists('..\assets\rota.ico')" />
+    <Resource Include="..\assets\rota.ico" Link="assets\rota.ico" Condition="Exists('..\assets\rota.ico')" />
+  </ItemGroup>
+
+</Project>

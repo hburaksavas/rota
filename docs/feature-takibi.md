@@ -6,6 +6,15 @@ Bu dosya Rota feature'larının güncel takip kaynağıdır. Önceki feature lis
 
 Rota, Product Owner'ın yalnızca işleri değil, bankacılık ürününün bağlamını, kararlarını, etkilerini ve teslimat güvenini yönetebildiği bir masaüstü çalışma alanı olmalı. Yeni kabiliyetler mevcut backlog, envanter, ekip, sprint ve release ekranlarını çoğaltmak yerine bu kayıtlar arasındaki karar ve kanıt bağlarını güçlendirmelidir.
 
+## Platform geçişi — devam ediyor
+
+### ROTA-PLATFORM-001 · Electron'dan .NET + WebView2 masaüstü kabuğuna geçiş
+
+- **İhtiyaç:** Kurum ağı Electron çalışma zamanı ikilisinin indirilmesini engelliyor; ürünün native dosya işlemleri ve Outlook `.msg` sürükle-bırak akışı korunmalı.
+- **Kapsam:** TypeScript arayüzünü koruyarak WPF + WebView2 kabuğu kurmak; Electron IPC/preload işlevlerini doğrulamalı .NET–JavaScript mesajlaşmasına taşımak; mevcut kullanıcı verisini koruyarak geçiş yapmak; WebView2 runtime dağıtımını belgelemek.
+- **Durum:** Native WPF + WebView2 host, bridge ve self-contained x64 publish eklendi. Electron npm bağımlılığı ve kaynakları kaldırıldı; `npm install` artık `electron.exe` indirmiyor; `npm start` masaüstü hostunu açıyor. Ek yönetimi, `.msg`/`.eml` okuma, yedekleme/geri yükleme, Excel dışa aktarma ve Jira REST/PAT işlevleri taşındı. Kabul testi başlatıcısı WebView2 hata ayıklama portuna uyarlandı.
+- **Bekleyen işler:** Electron localStorage workspace verisini WebView2'ye taşımak veya yedek üzerinden kayıpsız içe aktarma akışını belgelemek; klasik Outlook sürükle-bırak ve Jira sunucusunu doğrulamak; hedef kurum WebView2 runtime dağıtımını ve paket imzalama sürecini doğrulamak.
+
 ## Bekleyen — Yol Haritası
 
 ### Faz 1 — Ürün bilgisini ve etkisini görünür kıl

@@ -4,64 +4,20 @@
   "version": "0.1.0",
   "private": true,
   "description": "PO workbench for banking software backlogs",
-  "main": "dist/electron/main.js",
   "scripts": {
-    "build": "tsc -p tsconfig.renderer.json && esbuild src/app.ts --bundle --format=iife --platform=browser --target=es2022 --outfile=dist/renderer/app.js && tsc -p tsconfig.electron.json",
+    "build:renderer": "tsc -p tsconfig.renderer.json && esbuild src/app.ts --bundle --format=iife --platform=browser --target=es2022 --outfile=dist/renderer/app.js",
+    "build": "npm run build:renderer",
     "test:acceptance": "npm run build && node tests/acceptance/uat.mjs",
-    "start": "npm run build && electron .",
-    "package:win": "npm run build && electron-builder --config electron-builder.config.cjs --win nsis --x64"
+    "start": "npm run build:renderer && node scripts/run-dotnet.mjs run --project Rota.Desktop/Rota.Desktop.csproj",
+    "build:desktop": "npm run build:renderer && node scripts/run-dotnet.mjs publish Rota.Desktop/Rota.Desktop.csproj -c Release -r win-x64 --self-contained true"
   },
   "devDependencies": {
-    "@types/node": "^26.6.5",
-    "electron": "^44.0.0",
-    "electron-builder": "^26.15.3",
     "esbuild": "^0.28.2",
     "playwright": "^1.64.1",
     "typescript": "^7.0.2"
   },
-  "build": {
-    "appId": "com.rota.po",
-    "productName": "Rota",
-    "directories": {
-      "output": "release/unsigned"
-    },
-    "files": [
-      "dist/**/*",
-      "!dist/installers/**/*",
-      "index.html",
-      "src/styles.css",
-      "assets/rota.ico",
-      "assets/rota-icon.svg",
-      "package.json"
-    ],
-    "win": {
-      "icon": "assets/rota.ico",
-      "target": [
-        {
-          "target": "nsis",
-          "arch": [
-            "x64"
-          ]
-        }
-      ],
-      "artifactName": "${productName}-Setup-${version}-${arch}.${ext}"
-    },
-    "nsis": {
-      "oneClick": true,
-      "perMachine": false,
-      "allowElevation": false,
-      "createDesktopShortcut": true,
-      "createStartMenuShortcut": true,
-      "deleteAppDataOnUninstall": false,
-      "runAfterFinish": true
-    }
-  },
   "dependencies": {
     "@antv/x6": "^3.1.8",
-    "@kenjiuno/msgreader": "^1.29.0",
-    "electron-updater": "^6.8.9",
-    "exceljs": "^4.4.0",
-    "postal-mime": "^4.0.8",
     "tslib": "^2.8.1"
   }
 }

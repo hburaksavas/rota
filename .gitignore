@@ -11,7 +11,8 @@ release/
 .npm-cache/
 Rota.Desktop/bin/
 Rota.Desktop/obj/
-Rota.Desktop/
+Rota.Desktop/bin/
+Rota.Desktop/obj/
 dotnet-install.ps1
 .env
 .env.*

@@ -3,9 +3,9 @@
 ## Proje ve çalışma biçimi
 
 - Rota, yazılım ürünleri üzerinde çalışan Product Owner'lar için Windows odaklı bir masaüstü uygulamasıdır.
-- Güncel uygulama Electron + TypeScript'tir. Arayüz `src/app.ts`, stiller `src/styles.css`, Electron ana süreci `electron/main.ts` içindedir.
+- Güncel uygulama TypeScript arayüzünü WPF + WebView2 (.NET 10) masaüstü kabuğunda çalıştırır. Arayüz `src/app.ts`, stiller `src/styles.css`, native host `Rota.Desktop/` içindedir. Electron bağımlılığı ve kaynakları kaldırılmıştır.
 - Ana branch `main`; GitHub uzak deposu `https://github.com/hburaksavas/rota.git`.
-- Derleme: `npm run build`. Geliştirme uygulamasını başlatma: `npm start`. Kabul testleri: `npm run test:acceptance`.
+- Derleme: `npm run build`; Windows host derlemesi: `node scripts/run-dotnet.mjs build Rota.Desktop/Rota.Desktop.csproj`; uygulamayı başlatma: `npm start`; Windows x64 self-contained publish: `npm run build:desktop`; kabul testleri: `npm run test:acceptance`.
 - Kullanıcı Türkçe konuşur; uygulama arayüzü ve kullanıcıya dönük dokümantasyon Türkçe olmalıdır.
 
 ## Ürün kararları ve arayüz tercihleri
