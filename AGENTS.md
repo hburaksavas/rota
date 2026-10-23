@@ -3,14 +3,14 @@
 ## Proje ve çalışma biçimi
 
 - Rota, yazılım ürünleri üzerinde çalışan Product Owner'lar için Windows odaklı bir masaüstü uygulamasıdır.
-- Güncel uygulama TypeScript arayüzünü WPF + WebView2 (.NET 10) masaüstü kabuğunda çalıştırır. Arayüz `src/app.ts`, stiller `src/styles.css`, native host `Rota.Desktop/` içindedir. Electron bağımlılığı ve kaynakları kaldırılmıştır.
+- Güncel uygulama TypeScript arayüzünü Node.js + WebView2 masaüstü penceresinde çalıştırır. Arayüz `src/app.ts`, stiller `src/styles.css`, yerel host `scripts/start-node-webview.mjs` içindedir. Electron ve .NET SDK başlangıç bağımlılığı değildir.
 - Ana branch `main`; GitHub uzak deposu `https://github.com/hburaksavas/rota.git`.
-- Derleme: `npm run build`; Windows host derlemesi: `node scripts/run-dotnet.mjs build Rota.Desktop/Rota.Desktop.csproj`; uygulamayı başlatma: `npm start`; Windows x64 self-contained publish: `npm run build:desktop`; kabul testleri: `npm run test:acceptance`.
+- Gereksinimler: Node.js 24+ / npm ve Windows'ta WebView2 Runtime. Derleme: `npm run build`; uygulamayı başlatma: `npm start`; kabul testleri: `npm run test:acceptance`.
 - Kullanıcı Türkçe konuşur; uygulama arayüzü ve kullanıcıya dönük dokümantasyon Türkçe olmalıdır.
 
 ## Ürün kararları ve arayüz tercihleri
 
-- Uygulama yerel masaüstü deneyimi olarak geliştirilir; Outlook `.msg` sürükle-bırak akışı web kısıtları nedeniyle önemlidir.
+- Uygulama yerel masaüstü deneyimi olarak geliştirilir; Outlook `.msg` sürükle-bırak akışı web kısıtları nedeniyle önemlidir. Native pencere WebViewJS ile, yerel host özellikleri Node.js tarafında sağlanır.
 - Arayüz kompakt, okunaklı ve modern olmalı. Büyük metin butonları yerine anlaşılır ikonlar ve tooltip'ler tercih edilir.
 - Ana pencerenin tamamında sayfa kaydırması istenmez; liste ve dashboard içerikleri kendi dikey kaydırma alanlarına sahip olmalıdır. Backlog'da yatay kaydırmadan kaçınılır.
 - Backlog Liste görünümünde sütun hizaları, seçim kutuları ve satır eylemleri dikkatle hizalanmalıdır. Board ve Liste davranışlarını ayrı ele al.
