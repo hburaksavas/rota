@@ -24,6 +24,7 @@
     "@napi-rs/keyring": "^2.1.2",
     "@webviewjs/webview": "^0.4.9",
     "exceljs": "^4.4.0",
+    "koffi": "^3.3.3",
     "mailparser": "^3.12.4",
     "tslib": "^2.8.1"
   }

@@ -2,16 +2,24 @@ import { Application } from "@webviewjs/webview";
 import MsgReader from "@kenjiuno/msgreader";
 import ExcelJS from "exceljs";
 import { Entry } from "@napi-rs/keyring";
+import koffi from "koffi";
 import { simpleParser } from "mailparser";
 import { randomUUID, createHash, timingSafeEqual } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { createServer } from "node:http";
 import { mkdir, readFile, writeFile, rm, stat, rename } from "node:fs/promises";
-import { basename, extname, join, resolve, sep } from "node:path";
+import { basename, extname, join, resolve } from "node:path";
 import { homedir } from "node:os";
-import { gzipSync, gunzipSync } from "node:zlib";
+import { gzipSync, gunzipSync, inflateSync } from "node:zlib";
 
 const execFileAsync = promisify(execFile);
+if (process.platform === "win32") {
+  const shell32 = koffi.load("shell32.dll");
+  const setAppUserModelId = shell32.func("__stdcall", "SetCurrentProcessExplicitAppUserModelID", "int", ["str16"]);
+  const appIdResult = setAppUserModelId("HburakSavas.Rota");
+  if (appIdResult !== 0) throw new Error(`Rota Windows uygulama kimliği atanamadı (HRESULT 0x${(appIdResult >>> 0).toString(16)}).`);
+}
 const app = new Application();
 const dataRoot = resolve(process.env.ROTA_USER_DATA_DIR || join(process.env.APPDATA || homedir(), "rota-po"));
 const profilePath = process.env.ROTA_WEBVIEW2_USER_DATA || join(dataRoot, "webview2");
@@ -30,6 +38,39 @@ const checkedStoredPath = (name) => {
   return join(attachmentRoot, name);
 };
 const mimeTypes = { ".html": "text/html; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".css": "text/css; charset=utf-8", ".svg": "image/svg+xml", ".png": "image/png", ".jpg": "image/jpeg", ".woff2": "font/woff2" };
+const decodePngRgba = (png) => {
+  let width = 0; let height = 0; let bitDepth = 0; let colorType = 0; const chunks = [];
+  for (let offset = 8; offset < png.length;) {
+    const length = png.readUInt32BE(offset); const type = png.toString("ascii", offset + 4, offset + 8); const data = png.subarray(offset + 8, offset + 8 + length); offset += length + 12;
+    if (type === "IHDR") { width = data.readUInt32BE(0); height = data.readUInt32BE(4); bitDepth = data[8]; colorType = data[9]; }
+    else if (type === "IDAT") chunks.push(data);
+    else if (type === "IEND") break;
+  }
+  if (!width || !height || bitDepth !== 8 || colorType !== 6) throw new Error("Rota ikonu desteklenen PNG biçiminde değil.");
+  const stride = width * 4; const raw = inflateSync(Buffer.concat(chunks)); const pixels = Buffer.alloc(stride * height); let input = 0;
+  for (let y = 0; y < height; y++) {
+    const filter = raw[input++]; const row = y * stride;
+    for (let x = 0; x < stride; x++) {
+      const value = raw[input++]; const left = x >= 4 ? pixels[row + x - 4] : 0; const above = y > 0 ? pixels[row + x - stride] : 0; const upperLeft = y > 0 && x >= 4 ? pixels[row + x - stride - 4] : 0;
+      if (filter === 0) pixels[row + x] = value;
+      else if (filter === 1) pixels[row + x] = (value + left) & 255;
+      else if (filter === 2) pixels[row + x] = (value + above) & 255;
+      else if (filter === 3) pixels[row + x] = (value + Math.floor((left + above) / 2)) & 255;
+      else if (filter === 4) { const p = left + above - upperLeft; const pa = Math.abs(p - left); const pb = Math.abs(p - above); const pc = Math.abs(p - upperLeft); pixels[row + x] = (value + (pa <= pb && pa <= pc ? left : pb <= pc ? above : upperLeft)) & 255; }
+      else throw new Error("Rota ikonu bozuk bir PNG filtresi içeriyor.");
+    }
+  }
+  return { pixels, width, height };
+};
+const loadWindowIcon = async () => {
+  const ico = await readFile(join(root, "assets/rota.ico")); const count = ico.readUInt16LE(4); let selected = null;
+  for (let index = 0; index < count; index++) {
+    const entry = 6 + index * 16; const width = ico[entry] || 256; const height = ico[entry + 1] || 256; const size = ico.readUInt32LE(entry + 8); const offset = ico.readUInt32LE(entry + 12);
+    if (width === 64 && height === 64) { selected = ico.subarray(offset, offset + size); break; }
+  }
+  if (!selected) throw new Error("Rota uygulama ikonu bulunamadı.");
+  return decodePngRgba(selected);
+};
 const saveAttachment = async (name, bytes) => {
   const clean = safeName(name);
   const ext = extname(clean).slice(1).toLowerCase();
@@ -147,14 +188,28 @@ const backupExport = async (workspace, format) => {
   const output = format === "rota" ? Buffer.concat([Buffer.from("ROTA1\n"), gzipSync(json)]) : json;
   const temp = `${selected}.${randomUUID()}.tmp`; await writeFile(temp, output, { flag: "wx" }); await rename(temp, selected); return { path: selected, attachmentCount: attachments.length };
 };
-const appWindow = app.createBrowserWindow({ title: "Rota", width: 1440, height: 920, minWidth: 1080, minHeight: 720 });
-appWindow.registerProtocol("app", async (request) => {
-  const url = new URL(request.url); const requested = resolve(root, `.${decodeURIComponent(url.pathname)}`);
-  if (requested !== root && !requested.startsWith(root + sep)) return new Response("Forbidden", { status: 403 });
-  try { return new Response(await readFile(requested), { headers: { "Content-Type": mimeTypes[extname(requested).toLowerCase()] || "application/octet-stream", "Cache-Control": "no-store" } }); }
-  catch { return new Response("Not found", { status: 404 }); }
+const allowedAssets = new Set(["/", "/index.html", "/src/styles.css", "/Rota.Desktop/webview2-bridge.js", "/dist/renderer/app.js"]);
+const assetServer = createServer(async (request, response) => {
+  let pathname;
+  try { pathname = decodeURIComponent(new URL(request.url || "/", "http://127.0.0.1").pathname); }
+  catch { response.writeHead(400).end("Bad request"); return; }
+  if (!allowedAssets.has(pathname)) { response.writeHead(404).end("Not found"); return; }
+  const relative = pathname === "/" ? "index.html" : pathname.slice(1);
+  try {
+    const body = await readFile(join(root, relative));
+    response.writeHead(200, { "Content-Type": mimeTypes[extname(relative).toLowerCase()] || "application/octet-stream", "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+    response.end(body);
+  } catch { response.writeHead(404).end("Not found"); }
 });
-const webview = appWindow.createWebview({ url: "app://localhost/index.html", enableDevtools: process.env.ROTA_WEBVIEW_DEVTOOLS === "1", webContext: app.createWebContext({ dataDirectory: profilePath }), navigationHandler: (url) => url.startsWith("app://localhost/") });
+// Keep the origin stable so WebView localStorage survives app restarts.
+const appPort = 41739;
+await new Promise((resolveListen, rejectListen) => { assetServer.once("error", rejectListen); assetServer.listen(appPort, "127.0.0.1", resolveListen); });
+const appOrigin = `http://127.0.0.1:${appPort}`;
+const appIcon = await loadWindowIcon();
+const appWindow = app.createBrowserWindow({ title: "Rota", width: 1440, height: 920, minWidth: 1080, minHeight: 720, windowsClassName: "HburakSavasRota", windowsTaskbarIcon: { data: appIcon.pixels, width: appIcon.width, height: appIcon.height } });
+appWindow.setWindowIcon(appIcon.pixels, appIcon.width, appIcon.height);
+appWindow.setTaskbarIcon(appIcon.pixels, appIcon.width, appIcon.height);
+const webview = appWindow.createWebview({ url: `${appOrigin}/index.html`, enableDevtools: process.env.ROTA_WEBVIEW_DEVTOOLS === "1", webContext: app.createWebContext({ dataDirectory: profilePath }), navigationHandler: (url) => url.startsWith(`${appOrigin}/`) });
 webview.expose("rotaDesktop", {
   pickAttachments: async () => { const files = await appWindow.openFileDialog({ multiple: true, title: "Dosya ekle", filters: [{ name: "Belgeler ve görseller", extensions: [...allowedExtensions] }, { name: "Tüm dosyalar", extensions: ["*"] }] }); return importPaths(files); },
   importDroppedFiles: async (files) => Promise.all(decodeIncoming(files).map(({ name, bytes }) => saveAttachment(name, bytes))),

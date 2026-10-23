@@ -35,7 +35,7 @@ npm start
 ## Veri ve özellik notları
 
 - Çalışma alanı verileri WebView2 profilinde, ek dosyalar uygulama kullanıcı veri klasöründe yerel olarak saklanır. Kullanıcı profili `%APPDATA%\\rota-po` altındadır.
-- Önceki Electron veya dosya adresli WebView2 sürümünde tutulan `localStorage` verileri otomatik olarak yeni `app://` kaynağına taşınmaz; eski profil diskte korunur ve silinmez. Bu veriler gerekiyorsa eski sürümden yedek alıp yeni sürümde geri yükleyin.
+- Uygulama arayüzü sabit `http://127.0.0.1:41739` kaynağında sunulur; bu sabit adres, WebView2 `localStorage` verilerinin yeniden başlatmalarda aynı kalmasını sağlar. Önceki Electron veya dosya adresli WebView2 sürümündeki veriler yeni kaynağa otomatik taşınmaz; eski profil silinmez. Gerekirse eski sürümden yedek alıp yeni sürümde geri yükleyin.
 - Node.js host; dosya seçme, ek dosya içe aktarma/açma/önizleme/kaldırma, Outlook `.msg` / `.eml` okuma, yedekleme/geri yükleme, Excel dışa aktarma ve Jira API işlemlerini sağlar. Jira PAT Windows kimlik bilgisi deposunda tutulur.
 - Outlook sürükle-bırak davranışı kurumun klasik Outlook sürümünde doğrulanmalıdır. Jira kullanımı için Jira base URL'i ve kullanıcı tarafından oluşturulmuş bir PAT gerekir.
 - Örnek başlangıç verisi test amaçlıdır; gerçek müşteri, hesap veya kart bilgisi girmeyin.
