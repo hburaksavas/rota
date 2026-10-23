@@ -354,6 +354,7 @@ interface DesktopBridge {
   removeAttachment(storedName: string): Promise<boolean>;
   exportWorkspaceBackup(workspace: unknown, format: "rota" | "json"): Promise<{ path: string; attachmentCount: number } | null>;
   exportBacklogExcel(sheets: ExcelExportSheet[]): Promise<string | null>;
+  pickBacklogExcelImport(): Promise<{ filename: string; rows: { title: string; description: string }[] } | null>;
   stageWorkspaceRestore(): Promise<{ token: string; workspace: unknown; attachmentCount: number } | null>;
   commitWorkspaceRestore(token: string): Promise<void>;
   cancelWorkspaceRestore(token: string): Promise<void>;

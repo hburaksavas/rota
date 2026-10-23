@@ -31,6 +31,19 @@ npm start
 
 `npm install` arayüz ve yerel pencere bağımlılıklarını indirir. `npm start` arayüzü derler ve Node.js ile WebView2 penceresini açar; Electron veya .NET SDK indirmez. Kurum ağı npm erişimini kısıtlıyorsa `registry.npmjs.org` veya kurum içi npm aynasına erişim gerekir.
 
+## Backlog'u Excel'den içe aktarma
+
+Backlog'un **Liste** görünümünde **Tablo işlemleri → Excel'den içe aktar** yolunu kullanın. Dosya `.xlsx` biçiminde olmalı; yalnızca ilk çalışma sayfası okunur. Önerilen şablon ilk satırda `Başlık` ve isteğe bağlı `Açıklama` sütunlarını içerir:
+
+| Başlık | Açıklama |
+| --- | --- |
+| Günlük EFT limit kontrolü | Kurumsal müşteriler için günlük EFT limitinin işlem öncesinde doğrulanması. |
+| Hesap ekstresi raporu | Kullanıcının tarih aralığı seçerek hesap ekstresini indirebilmesi. |
+
+Sütun adları büyük/küçük harfe duyarsızdır. `Başlık` yerine `Title`, `Summary`, `Task`, `İş` veya `Issue`; `Açıklama` yerine `Description`, `Detay` veya `Details` de kullanılabilir. Başlık sütunu yoksa başlıklar ilk sütundan, açıklamalar ikinci sütundan okunur. Başlığı boş satırlar atlanır; diğer sütunlar içe aktarımda kullanılmaz.
+
+Dosya en fazla 20 MB, içe aktarım ise en fazla 500 iş olabilir. Başlık en fazla 120 karakterdir; açıklama 4.000 karaktere kadar alınır. Önizlemede hedef projeyi ve oluşturulacak iş türünü seçebilirsiniz. Her iş **Yeni** durumda, **Orta** öncelikte ve **Genel** alanında oluşturulur.
+
 
 ## Veri ve özellik notları
 

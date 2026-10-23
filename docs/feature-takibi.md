@@ -111,6 +111,12 @@ Plan faz sırasını gösterir; tarih taahhüdü değildir. Bir feature tamamlan
 
 ## Tamamlanan
 
+#### ROTA-NEXT-013 · Excel'den minimal backlog işi oluşturma
+
+- **Tamamlandı:** 23 Ekim 2026.
+- **Teslimat:** Backlog Liste görünümündeki Tablo işlemleri menüsünden `.xlsx` dosyası seçilir; ilk çalışma sayfasında `Başlık` zorunlu, `Açıklama` isteğe bağlı sütunları veya başlıksız ilk iki sütun okunur. İlk altı satır önizlenir, hedef proje ve varsayılan iş türü seçilir; işler `Yeni`, `Orta` öncelik ve `Genel` alan değerleriyle oluşturulur. Dosya başına 500 iş sınırı uygulanır.
+- **Doğrulama:** `npm run build` başarılı.
+
 #### ROTA-NEXT-001 · Ürün karar kaydı ve karar geçmişi
 
 - **Tamamlandı:** 21 Ekim 2026.

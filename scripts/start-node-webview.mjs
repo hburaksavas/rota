@@ -176,6 +176,46 @@ const sheetsExcel = async (sheets) => {
   if (!selected) return null;
   await workbook.xlsx.writeFile(selected); return selected;
 };
+const pickBacklogExcelImport = async () => {
+  const paths = await appWindow.openFileDialog({ title: "Backlog işleri için Excel seç", multiple: false, filters: [{ name: "Excel çalışma kitabı (.xlsx)", extensions: ["xlsx"] }] });
+  if (!paths.length) return null;
+  const path = paths[0]; const info = await stat(path);
+  if (!info.isFile() || info.size > 20 * 1024 * 1024) throw new Error("Excel dosyası 20 MB sınırını aşmamalı.");
+  const workbook = new ExcelJS.Workbook();
+  try { await workbook.xlsx.readFile(path); } catch { throw new Error("Excel dosyası okunamadı. Geçerli bir .xlsx dosyası seç."); }
+  const sheet = workbook.worksheets[0];
+  if (!sheet || sheet.rowCount === 0) throw new Error("Excel dosyasında okunabilir satır yok.");
+  const cellText = (cell) => {
+    const value = cell?.value;
+    if (value == null) return "";
+    if (value instanceof Date) return value.toISOString().slice(0, 10);
+    if (typeof value === "object") {
+      if (Array.isArray(value.richText)) return value.richText.map((part) => part.text || "").join("");
+      if ("result" in value) return String(value.result ?? "");
+      if ("text" in value) return String(value.text ?? "");
+      return "";
+    }
+    return String(value).trim();
+  };
+  const normalizeHeader = (value) => value.toLocaleLowerCase("tr-TR").replace(/[ıİşŞğĞüÜöÖçÇ]/g, (char) => ({ ı: "i", İ: "i", ş: "s", Ş: "s", ğ: "g", Ğ: "g", ü: "u", Ü: "u", ö: "o", Ö: "o", ç: "c", Ç: "c" })[char] || char).replace(/[^a-z0-9]/g, "");
+  const header = sheet.getRow(1);
+  const titleAliases = new Set(["baslik", "title", "summary", "task", "is", "issue"]);
+  const descriptionAliases = new Set(["aciklama", "description", "detay", "details"]);
+  let titleColumn = 0; let descriptionColumn = 0;
+  header.eachCell((cell, column) => { const name = normalizeHeader(cellText(cell)); if (!titleColumn && titleAliases.has(name)) titleColumn = column; if (!descriptionColumn && descriptionAliases.has(name)) descriptionColumn = column; });
+  const hasHeader = titleColumn > 0;
+  if (!hasHeader) { titleColumn = 1; descriptionColumn = 2; }
+  const rows = [];
+  for (let rowNumber = hasHeader ? 2 : 1; rowNumber <= sheet.rowCount; rowNumber++) {
+    const row = sheet.getRow(rowNumber); const title = cellText(row.getCell(titleColumn)).trim();
+    if (!title) continue;
+    if (title.length > 120) throw new Error(`Excel satır ${rowNumber}: başlık 120 karakteri aşamaz.`);
+    rows.push({ title, description: cellText(row.getCell(descriptionColumn)).trim().slice(0, 4000) });
+    if (rows.length > 500) throw new Error("Bir seferde en fazla 500 backlog işi içe aktarılabilir.");
+  }
+  if (!rows.length) throw new Error("Başlık sütununda aktarılacak iş bulunamadı.");
+  return { filename: basename(path), rows };
+};
 const backupExport = async (workspace, format) => {
   if (!["rota", "json"].includes(format)) throw new Error("Yedek biçimi seçimi geçersiz.");
   const selected = await savePathDialog({ title: "Rota çalışma alanını yedekle", defaultPath: `Rota-yedek-${new Date().toISOString().slice(0, 10)}.${format}`, filters: [{ name: format === "rota" ? "Rota sıkıştırılmış yedek" : "JSON yedek", extensions: [format] }] });
@@ -188,7 +228,7 @@ const backupExport = async (workspace, format) => {
   const output = format === "rota" ? Buffer.concat([Buffer.from("ROTA1\n"), gzipSync(json)]) : json;
   const temp = `${selected}.${randomUUID()}.tmp`; await writeFile(temp, output, { flag: "wx" }); await rename(temp, selected); return { path: selected, attachmentCount: attachments.length };
 };
-const allowedAssets = new Set(["/", "/index.html", "/src/styles.css", "/Rota.Desktop/webview2-bridge.js", "/dist/renderer/app.js"]);
+const allowedAssets = new Set(["/", "/index.html", "/src/styles.css", "/dist/renderer/app.js"]);
 const assetServer = createServer(async (request, response) => {
   let pathname;
   try { pathname = decodeURIComponent(new URL(request.url || "/", "http://127.0.0.1").pathname); }
@@ -235,6 +275,7 @@ webview.expose("rotaDesktop", {
   removeAttachment: async (storedName) => { await rm(checkedStoredPath(storedName), { force: true }); return true; },
   exportWorkspaceBackup: backupExport,
   exportBacklogExcel: sheetsExcel,
+  pickBacklogExcelImport,
   stageWorkspaceRestore: async () => { const paths = await appWindow.openFileDialog({ title: "Rota yedeğini geri yükle", filters: [{ name: "Rota yedeği", extensions: ["rota", "json"] }] }); if (!paths.length) return null; const bytes = await readFile(paths[0]); if (bytes.length > 1024 ** 3) throw new Error("Yedek dosyası 1 GB sınırını aşıyor."); let data; try { data = JSON.parse((bytes.subarray(0, 6).toString() === "ROTA1\n" ? gunzipSync(bytes.subarray(6)) : bytes).toString("utf8")); } catch { throw new Error("Yedek dosyası okunamadı. Dosya bozuk veya JSON değil."); } if (data.format !== "rota-workspace-backup" || data.version !== 1 || !Array.isArray(data.attachments)) throw new Error("Bu dosya desteklenen Rota yedeği değil."); const token = randomUUID(); restoreSessions.set(token, data); return { token, workspace: data.workspace, attachmentCount: data.attachments.length }; },
   commitWorkspaceRestore: async (token) => { const data = restoreSessions.get(token); if (!data) throw new Error("Geri yükleme oturumunun süresi doldu."); for (const file of data.attachments) { const dest = checkedStoredPath(file.storedName); const bytes = Buffer.from(file.data, "base64"); const hash = createHash("sha256").update(bytes).digest("hex"); if (bytes.length !== file.size || !timingSafeEqual(Buffer.from(hash), Buffer.from(file.sha256))) throw new Error(`Yedek eki doğrulanamadı: ${file.storedName}`); await writeFile(dest, bytes); } restoreSessions.delete(token); return null; },
   cancelWorkspaceRestore: async (token) => { restoreSessions.delete(token); return null; },

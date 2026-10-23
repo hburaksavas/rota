@@ -678,6 +678,16 @@ body.dark-theme .completed-filter { background: #292f3b; border-color: #424a58; 
 .settings-intro { margin: 0 0 16px; color: #777e8b; font-size: 11px; line-height: 1.6; }
 .settings-form .field-label { margin-bottom: 13px; }
 .settings-note { padding: 11px 12px; color: #747c8a; background: #f6f7fa; border: 1px solid #edf0f4; border-radius: 7px; font-size: 10px; line-height: 1.55; }
+.backlog-import-defaults { display: flex; align-items: center; gap: 7px; padding: 9px 10px; margin: 0 0 13px; color: #747c8a; background: #f7f8fb; border: 1px solid #edf0f4; border-radius: 7px; font-size: 10px; }
+.backlog-import-defaults strong { color: #424b5e; }
+.backlog-import-preview { padding: 11px 12px; border: 1px solid #e8ebf1; border-radius: 8px; }
+.backlog-import-preview h3 { display: flex; justify-content: space-between; margin: 0 0 7px; color: #414a5b; font-size: 11px; }
+.backlog-import-preview h3 small, .backlog-import-preview li small { color: #858d99; font-size: 9px; font-weight: 400; }
+.backlog-import-preview ul { display: grid; gap: 5px; max-height: 220px; overflow: auto; padding: 0; margin: 0; list-style: none; }
+.backlog-import-preview li { padding: 6px 8px; color: #4c5565; background: #f8f9fb; border-radius: 5px; font-size: 10px; }
+.backlog-import-preview li strong, .backlog-import-preview li small { display: block; }
+.backlog-import-preview li small { margin-top: 3px; overflow-wrap: anywhere; }
+.backlog-import-preview .metric-empty { margin: 7px 0 0; font-size: 9px; }
 .settings-team-section { padding: 13px 0 16px; margin: 2px 0 15px; border-top: 1px solid #eceef2; border-bottom: 1px solid #eceef2; }
 .settings-team-section > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
 .settings-team-section h3 { margin: 0; color: #404858; font-size: 12px; }
@@ -1401,6 +1411,11 @@ body.dark-theme .nav-group > summary i { border-color: #aeb8c8; }
 body.dark-theme .nav-group > summary:hover i { border-color: #c6d0ff; }
 body.dark-theme .team-settings-row { background: #222833; border-color: #3a4351; }
 body.dark-theme .settings-team-section h3, body.dark-theme .team-settings-identity strong { color: #e0e5f0; }
+body.dark-theme .backlog-import-defaults { color: #aab4c5; background: #252c38; border-color: #3b4452; }
+body.dark-theme .backlog-import-defaults strong, body.dark-theme .backlog-import-preview h3 { color: #e1e7f1; }
+body.dark-theme .backlog-import-preview { border-color: #3b4452; }
+body.dark-theme .backlog-import-preview li { color: #d2dae6; background: #252c38; }
+body.dark-theme .backlog-import-preview h3 small, body.dark-theme .backlog-import-preview li small { color: #9eaabd; }
 body.dark-theme .team-settings-avatar { color: #bac6ff; background: #303850; }
 body.dark-theme .team-settings-delete:hover { color: #ffb9b1; background: #4a3134; }
 body.dark-theme .asset-select-option:hover, body.dark-theme .asset-select-option.selected { background-color: #303850; }
