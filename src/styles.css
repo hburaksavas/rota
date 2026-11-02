@@ -1871,18 +1871,18 @@ summary:hover .menu-chevron .svg-icon, summary:hover .summary-chevron .svg-icon 
 /* Modal headers stay pinned while the body scrolls */
 :where(.modal) > .modal-header { position: sticky; top: 0; z-index: 5; background: inherit; }
 
-/* Backlog primary create action */
-.button.backlog-create-button { position: relative; overflow: hidden; isolation: isolate; height: 38px; gap: 10px; padding: 0 18px 0 6px; color: #fff; background: linear-gradient(120deg, #4f63e6 0%, #6a5af0 52%, #9a5cf0 100%); border: 1px solid #ffffff1f; border-radius: 12px; box-shadow: 0 8px 20px -8px #5b5cf0b3, 0 1px 2px #2b2f8a33, inset 0 1px 0 #ffffff40; font-weight: 650; letter-spacing: .1px; transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, filter .2s ease; }
-.button.backlog-create-button::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(105deg, transparent 30%, #ffffff40 48%, transparent 66%); transform: translateX(-120%); transition: transform .6s ease; }
-.button.backlog-create-button .action-leading-icon { width: 26px; height: 26px; background: #ffffff29; border-radius: 8px; box-shadow: inset 0 0 0 1px #ffffff33; transition: transform .25s cubic-bezier(.2,.8,.2,1), background .2s ease; }
-.button.backlog-create-button .action-leading-icon .svg-icon { width: 15px; height: 15px; stroke-width: 2.2; }
-.button.backlog-create-button:hover { background: linear-gradient(120deg, #4f63e6 0%, #6a5af0 52%, #9a5cf0 100%); filter: brightness(1.06) saturate(1.05); transform: translateY(-1px); box-shadow: 0 12px 26px -10px #5b5cf0cc, 0 2px 4px #2b2f8a33, inset 0 1px 0 #ffffff4d; }
-.button.backlog-create-button:hover::after { transform: translateX(120%); }
-.button.backlog-create-button:hover .action-leading-icon { background: #ffffff3d; transform: rotate(90deg); }
-.button.backlog-create-button:active { transform: translateY(0) scale(.98); box-shadow: 0 4px 12px -6px #5b5cf0b3, inset 0 1px 0 #ffffff33; }
-.button.backlog-create-button:focus-visible { outline: none; box-shadow: 0 0 0 3px #7b6cf259, 0 8px 20px -8px #5b5cf0b3; }
-body.dark-theme .button.backlog-create-button { color: #fff; background: linear-gradient(120deg, #5568ee 0%, #7160f2 52%, #a066f2 100%); border-color: #ffffff26; box-shadow: 0 10px 24px -10px #7b6cf2cc, inset 0 1px 0 #ffffff33; }
-@media (prefers-reduced-motion: reduce) { .button.backlog-create-button, .button.backlog-create-button::after, .button.backlog-create-button .action-leading-icon { transition: none; } }
+/* Ana oluşturma butonları: tüm sayfalardaki "+ oluştur/ekle" eylemleri */
+.button.create-button { position: relative; overflow: hidden; isolation: isolate; height: 38px; gap: 10px; padding: 0 18px 0 6px; color: #fff; background: linear-gradient(120deg, #4f63e6 0%, #6a5af0 52%, #9a5cf0 100%); border: 1px solid #ffffff1f; border-radius: 12px; box-shadow: 0 8px 20px -8px #5b5cf0b3, 0 1px 2px #2b2f8a33, inset 0 1px 0 #ffffff40; font-weight: 650; letter-spacing: .1px; transition: transform .18s cubic-bezier(.2,.8,.2,1), box-shadow .2s ease, filter .2s ease; }
+.button.create-button::after { content: ""; position: absolute; inset: 0; z-index: -1; background: linear-gradient(105deg, transparent 30%, #ffffff40 48%, transparent 66%); transform: translateX(-120%); transition: transform .6s ease; }
+.button.create-button .action-leading-icon { width: 26px; height: 26px; background: #ffffff29; border-radius: 8px; box-shadow: inset 0 0 0 1px #ffffff33; transition: transform .25s cubic-bezier(.2,.8,.2,1), background .2s ease; }
+.button.create-button .action-leading-icon .svg-icon { width: 15px; height: 15px; stroke-width: 2.2; }
+.button.create-button:hover { background: linear-gradient(120deg, #4f63e6 0%, #6a5af0 52%, #9a5cf0 100%); filter: brightness(1.06) saturate(1.05); transform: translateY(-1px); box-shadow: 0 12px 26px -10px #5b5cf0cc, 0 2px 4px #2b2f8a33, inset 0 1px 0 #ffffff4d; }
+.button.create-button:hover::after { transform: translateX(120%); }
+.button.create-button:hover .action-leading-icon { background: #ffffff3d; transform: rotate(90deg); }
+.button.create-button:active { transform: translateY(0) scale(.98); box-shadow: 0 4px 12px -6px #5b5cf0b3, inset 0 1px 0 #ffffff33; }
+.button.create-button:focus-visible { outline: none; box-shadow: 0 0 0 3px #7b6cf259, 0 8px 20px -8px #5b5cf0b3; }
+body.dark-theme .button.create-button { color: #fff; background: linear-gradient(120deg, #5568ee 0%, #7160f2 52%, #a066f2 100%); border-color: #ffffff26; box-shadow: 0 10px 24px -10px #7b6cf2cc, inset 0 1px 0 #ffffff33; }
+@media (prefers-reduced-motion: reduce) { .button.create-button, .button.create-button::after, .button.create-button .action-leading-icon { transition: none; } }
 
 /* ==========================================================================
    Rota tasarım yenilemesi: ortak tokenlar, yumuşak yüzeyler ve hareket dili.
@@ -2334,12 +2334,12 @@ body.dark-theme.custom-accent {
   --accent-ring: color-mix(in srgb, var(--user-accent) 30%, transparent);
 }
 /* Vurgu üzerindeki yazılar renk açıklığına göre beyaz ya da koyu olur */
-.button-primary, body.dark-theme .button-primary, .button.backlog-create-button, body.dark-theme .button.backlog-create-button, .workspace-avatar, .profile-avatar, body.dark-theme .workspace-avatar, body.dark-theme .profile-avatar, .filter-count, .sidebar-density button.selected { color: var(--accent-contrast); }
+.button-primary, body.dark-theme .button-primary, .button.create-button, body.dark-theme .button.create-button, .workspace-avatar, .profile-avatar, body.dark-theme .workspace-avatar, body.dark-theme .profile-avatar, .filter-count, .sidebar-density button.selected { color: var(--accent-contrast); }
 
 /* Eskiden sabit mor/indigo yazılmış vurgu alanları artık tokenları kullanır */
-.button.backlog-create-button, .button.backlog-create-button:hover, body.dark-theme .button.backlog-create-button { background: linear-gradient(120deg, var(--accent) 0%, color-mix(in oklab, var(--accent) 55%, var(--accent-2)) 52%, var(--accent-2) 100%); box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 1px 0 #ffffff40; }
-.button.backlog-create-button .action-leading-icon { background: color-mix(in srgb, var(--accent-contrast) 18%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-contrast) 22%, transparent); }
-.button.backlog-create-button:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring), 0 8px 20px -8px var(--accent); }
+.button.create-button, .button.create-button:hover, body.dark-theme .button.create-button { background: linear-gradient(120deg, var(--accent) 0%, color-mix(in oklab, var(--accent) 55%, var(--accent-2)) 52%, var(--accent-2) 100%); box-shadow: 0 8px 20px -8px color-mix(in srgb, var(--accent) 70%, transparent), inset 0 1px 0 #ffffff40; }
+.button.create-button .action-leading-icon { background: color-mix(in srgb, var(--accent-contrast) 18%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent-contrast) 22%, transparent); }
+.button.create-button:focus-visible { box-shadow: 0 0 0 3px var(--accent-ring), 0 8px 20px -8px var(--accent); }
 .backlog-insert-button span:first-child, .backlog-insert-form-icon { color: var(--accent-contrast); background: linear-gradient(145deg, var(--accent), var(--accent-strong)); }
 .backlog-insert-button span:last-child { color: var(--accent-strong); }
 .backlog-insert-button::before { background: linear-gradient(90deg, color-mix(in srgb, var(--accent) 45%, transparent) 0, var(--border-1) 38%, transparent 100%); }
