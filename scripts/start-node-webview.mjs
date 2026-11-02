@@ -8,8 +8,8 @@ import { randomUUID, createHash, timingSafeEqual } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createServer } from "node:http";
-import { mkdir, readFile, writeFile, rm, stat, rename } from "node:fs/promises";
-import { basename, extname, join, resolve } from "node:path";
+import { mkdir, readFile, writeFile, rm, stat, rename, readdir } from "node:fs/promises";
+import { basename, extname, isAbsolute, join, resolve } from "node:path";
 import { homedir } from "node:os";
 import { gzipSync, gunzipSync, inflateSync } from "node:zlib";
 
@@ -24,6 +24,8 @@ const app = new Application();
 const dataRoot = resolve(process.env.ROTA_USER_DATA_DIR || join(process.env.APPDATA || homedir(), "rota-po"));
 const profilePath = process.env.ROTA_WEBVIEW2_USER_DATA || join(dataRoot, "webview2");
 const attachmentRoot = join(dataRoot, "attachments");
+const automaticBackupDirectoryPreference = join(dataRoot, "backup-directory.txt");
+let automaticBackupDirectory = (await readFile(automaticBackupDirectoryPreference, "utf8").catch(() => "")).trim() || join(dataRoot, "backups");
 const root = resolve(process.cwd());
 const allowedExtensions = new Set("pdf png jpg jpeg gif webp doc docx xls xlsx ppt pptx csv txt md json msg eml".split(" "));
 const mailAttachmentSessions = new Map();
@@ -216,17 +218,32 @@ const pickBacklogExcelImport = async () => {
   if (!rows.length) throw new Error("Başlık sütununda aktarılacak iş bulunamadı.");
   return { filename: basename(path), rows };
 };
-const backupExport = async (workspace, format) => {
-  if (!["rota", "json"].includes(format)) throw new Error("Yedek biçimi seçimi geçersiz.");
-  const selected = await savePathDialog({ title: "Rota çalışma alanını yedekle", defaultPath: `Rota-yedek-${new Date().toISOString().slice(0, 10)}.${format}`, filters: [{ name: format === "rota" ? "Rota sıkıştırılmış yedek" : "JSON yedek", extensions: [format] }] });
-  if (!selected) return null;
+const buildBackup = async (workspace, format) => {
   const names = new Set(); const visit = (value) => { if (!value || typeof value !== "object") return; if (typeof value.storedName === "string") names.add(value.storedName); for (const child of Object.values(value)) Array.isArray(child) ? child.forEach(visit) : visit(child); }; visit(workspace);
   let total = 0; const attachments = [];
   for (const storedName of names) { const bytes = await readFile(checkedStoredPath(storedName)); total += bytes.length; if (bytes.length > 25 * 1024 * 1024 || total > 1024 ** 3) throw new Error("Yedek ekleri izin verilen 1 GB sınırını aşıyor."); attachments.push({ storedName, size: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), data: bytes.toString("base64") }); }
   const json = Buffer.from(JSON.stringify({ format: "rota-workspace-backup", version: 1, createdAt: new Date().toISOString(), workspace, attachments }));
   if (json.length > 1024 ** 3) throw new Error("Yedek dosyası 1 GB sınırını aşıyor.");
   const output = format === "rota" ? Buffer.concat([Buffer.from("ROTA1\n"), gzipSync(json)]) : json;
-  const temp = `${selected}.${randomUUID()}.tmp`; await writeFile(temp, output, { flag: "wx" }); await rename(temp, selected); return { path: selected, attachmentCount: attachments.length };
+  return { output, attachmentCount: attachments.length };
+};
+const backupExport = async (workspace, format) => {
+  if (!["rota", "json"].includes(format)) throw new Error("Yedek biçimi seçimi geçersiz.");
+  const selected = await savePathDialog({ title: "Rota çalışma alanını yedekle", defaultPath: `Rota-yedek-${new Date().toISOString().slice(0, 10)}.${format}`, filters: [{ name: format === "rota" ? "Rota sıkıştırılmış yedek" : "JSON yedek", extensions: [format] }] });
+  if (!selected) return null;
+  const { output, attachmentCount } = await buildBackup(workspace, format);
+  const temp = `${selected}.${randomUUID()}.tmp`; await writeFile(temp, output, { flag: "wx" }); await rename(temp, selected); return { path: selected, attachmentCount };
+};
+const automaticBackup = async (workspace) => {
+  const directory = automaticBackupDirectory;
+  await mkdir(directory, { recursive: true });
+  const { output, attachmentCount } = await buildBackup(workspace, "rota");
+  const path = join(directory, `Rota-otomatik-${new Date().toISOString().replace(/[:.]/g, "-")}-${randomUUID().slice(0, 8)}.rota`);
+  const temp = `${path}.tmp`;
+  await writeFile(temp, output, { flag: "wx" }); await rename(temp, path);
+  const previous = (await readdir(directory)).filter((name) => /^Rota-otomatik-.*\.rota$/.test(name)).sort().reverse().slice(7);
+  for (const name of previous) await rm(join(directory, name), { force: true });
+  return { path, attachmentCount };
 };
 const allowedAssets = new Set(["/", "/index.html", "/src/styles.css", "/dist/renderer/app.js"]);
 const assetServer = createServer(async (request, response) => {
@@ -274,9 +291,13 @@ webview.expose("rotaDesktop", {
   previewAttachment: async (storedName) => { const path = checkedStoredPath(storedName); const bytes = await readFile(path); if (bytes.length > 12 * 1024 * 1024) return null; const mimeType = ({ ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf" })[extname(path).toLowerCase()]; return mimeType ? { mimeType, dataUrl: `data:${mimeType};base64,${bytes.toString("base64")}` } : null; },
   removeAttachment: async (storedName) => { await rm(checkedStoredPath(storedName), { force: true }); return true; },
   exportWorkspaceBackup: backupExport,
+  createAutomaticBackup: automaticBackup,
+  getAutomaticBackupDirectory: async () => automaticBackupDirectory,
+  setAutomaticBackupDirectory: async (directory) => { if (typeof directory !== "string" || !isAbsolute(directory) || directory.length > 500) throw new Error("Mutlak bir yedek klasörü yolu girin."); const target = resolve(directory); await mkdir(target, { recursive: true }); await writeFile(automaticBackupDirectoryPreference, target, "utf8"); automaticBackupDirectory = target; return target; },
+  exportUnreadableWorkspace: async (raw) => { if (typeof raw !== "string" || Buffer.byteLength(raw, "utf8") > 100 * 1024 * 1024) throw new Error("Kurtarma verisi 100 MB sınırını aşıyor."); const path = await savePathDialog({ title: "Okunamayan Rota verisini kaydet", defaultPath: `Rota-kurtarma-${new Date().toISOString().slice(0, 10)}.txt`, filters: [{ name: "Metin dosyası", extensions: ["txt"] }] }); if (!path) return null; await writeFile(path, raw, "utf8"); return path; },
   exportBacklogExcel: sheetsExcel,
   pickBacklogExcelImport,
-  stageWorkspaceRestore: async () => { const paths = await appWindow.openFileDialog({ title: "Rota yedeğini geri yükle", filters: [{ name: "Rota yedeği", extensions: ["rota", "json"] }] }); if (!paths.length) return null; const bytes = await readFile(paths[0]); if (bytes.length > 1024 ** 3) throw new Error("Yedek dosyası 1 GB sınırını aşıyor."); let data; try { data = JSON.parse((bytes.subarray(0, 6).toString() === "ROTA1\n" ? gunzipSync(bytes.subarray(6)) : bytes).toString("utf8")); } catch { throw new Error("Yedek dosyası okunamadı. Dosya bozuk veya JSON değil."); } if (data.format !== "rota-workspace-backup" || data.version !== 1 || !Array.isArray(data.attachments)) throw new Error("Bu dosya desteklenen Rota yedeği değil."); const token = randomUUID(); restoreSessions.set(token, data); return { token, workspace: data.workspace, attachmentCount: data.attachments.length }; },
+  stageWorkspaceRestore: async () => { const paths = await appWindow.openFileDialog({ title: "Rota yedeğini geri yükle", filters: [{ name: "Rota yedeği", extensions: ["rota", "json"] }] }); if (!paths.length) return null; const bytes = await readFile(paths[0]); if (bytes.length > 1024 ** 3) throw new Error("Yedek dosyası 1 GB sınırını aşıyor."); let data; try { data = JSON.parse((bytes.subarray(0, 6).toString() === "ROTA1\n" ? gunzipSync(bytes.subarray(6)) : bytes).toString("utf8")); } catch { throw new Error("Yedek dosyası okunamadı. Dosya bozuk veya JSON değil."); } if (data.format !== "rota-workspace-backup" || data.version !== 1 || !Array.isArray(data.attachments)) throw new Error("Bu dosya desteklenen Rota yedeği değil."); for (const file of data.attachments) { checkedStoredPath(file.storedName); if (typeof file.data !== "string" || !Number.isSafeInteger(file.size) || file.size < 0 || !/^[a-f0-9]{64}$/.test(file.sha256 || "")) throw new Error("Yedek eki bilgisi geçersiz."); const content = Buffer.from(file.data, "base64"); const hash = createHash("sha256").update(content).digest("hex"); if (content.length !== file.size || !timingSafeEqual(Buffer.from(hash), Buffer.from(file.sha256))) throw new Error(`Yedek eki doğrulanamadı: ${file.storedName}`); } const token = randomUUID(); restoreSessions.set(token, data); return { token, workspace: data.workspace, attachmentCount: data.attachments.length }; },
   commitWorkspaceRestore: async (token) => { const data = restoreSessions.get(token); if (!data) throw new Error("Geri yükleme oturumunun süresi doldu."); for (const file of data.attachments) { const dest = checkedStoredPath(file.storedName); const bytes = Buffer.from(file.data, "base64"); const hash = createHash("sha256").update(bytes).digest("hex"); if (bytes.length !== file.size || !timingSafeEqual(Buffer.from(hash), Buffer.from(file.sha256))) throw new Error(`Yedek eki doğrulanamadı: ${file.storedName}`); await writeFile(dest, bytes); } restoreSessions.delete(token); return null; },
   cancelWorkspaceRestore: async (token) => { restoreSessions.delete(token); return null; },
   jiraHasToken: () => { try { return Boolean(keyring.getPassword()); } catch { return false; } },
@@ -290,7 +311,7 @@ webview.expose("rotaDesktop", {
   jiraListBoards: async (base) => (await jiraBoards(base)).map((x) => ({ id: String(x.id), name: x.name, type: x.type || "" })),
   jiraListBoardProjects: async (base, id) => (await jiraProjects(base, id)).map((x) => ({ id: String(x.id), key: x.key, name: x.name })),
   jiraListSprints: async (base, id) => { const r = await jiraRequest(base, `/rest/agile/1.0/board/${numeric(id)}/sprint?state=active,future,closed&startAt=0&maxResults=100`); return (r.values || []).map((x) => ({ id: String(x.id), name: x.name, state: x.state, startDate: x.startDate || "", endDate: x.endDate || "", goal: x.goal || "" })); },
-  jiraFetchBoardIssues: async (base, id, scope, sprintId) => { const board = numeric(id); const route = scope === "backlog" ? `/rest/agile/1.0/board/${board}/backlog` : scope === "board" ? `/rest/agile/1.0/board/${board}/issue` : scope === "sprint" ? `/rest/agile/1.0/board/${board}/sprint/${numeric(sprintId)}/issue` : null; if (!route) throw new Error("Jira kayıt kapsamı geçersiz."); return mapIssues(await jiraRequest(base, `${route}?startAt=0&maxResults=100&fields=${jiraFields}`), base); },
+  jiraFetchBoardIssues: async (base, id, scope, sprintId, startAt = 0) => { const board = numeric(id); const route = scope === "backlog" ? `/rest/agile/1.0/board/${board}/backlog` : scope === "board" ? `/rest/agile/1.0/board/${board}/issue` : scope === "sprint" ? `/rest/agile/1.0/board/${board}/sprint/${numeric(sprintId)}/issue` : null; if (!route) throw new Error("Jira kayıt kapsamı geçersiz."); if (!Number.isInteger(startAt) || startAt < 0 || startAt > 100000) throw new Error("Jira sayfa başlangıcı geçersiz."); const result = await jiraRequest(base, `${route}?startAt=${startAt}&maxResults=100&fields=${jiraFields}`); const issues = mapIssues(result, base); const total = Number.isInteger(result.total) ? result.total : undefined; return { issues, total, hasMore: result.isLast === false || (total !== undefined ? startAt + (result.issues || []).length < total : (result.issues || []).length === 100) }; },
   jiraListIssueTypes: async (base, projectKey) => { if (!/^[A-Z][A-Z0-9_]{0,29}$/.test(projectKey)) throw new Error("Jira proje anahtarı geçersiz."); const r = await jiraRequest(base, `/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&expand=projects.issuetypes`); const p = (r.projects || []).find((x) => x.key === projectKey); return (p?.issuetypes || []).map((x) => ({ id: String(x.id), name: x.name, subtask: Boolean(x.subtask) })); },
   jiraCreateIssue: async (base, boardId, projectKey, issueTypeId, summary, description) => { if (!/^[A-Z][A-Z0-9_]{0,29}$/.test(projectKey) || !String(summary).trim() || summary.length > 255 || description.length > 30000) throw new Error("Jira issue alanları geçersiz."); const [projects, types] = await Promise.all([jiraProjects(base, boardId), jiraRequest(base, `/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&expand=projects.issuetypes`)]); if (!projects.some((x) => x.key === projectKey)) throw new Error("Seçilen Jira projesi bu board kapsamı içinde değil."); const project = (types.projects || []).find((x) => x.key === projectKey); if (!(project?.issuetypes || []).some((x) => String(x.id) === String(issueTypeId) && !x.subtask)) throw new Error("Issue türü bu Jira projesinde oluşturulabilir değil."); return jiraRequest(base, "/rest/api/2/issue", "POST", { fields: { project: { key: projectKey }, issuetype: { id: String(issueTypeId) }, summary: summary.trim(), description: description.trim() } }); },
 });

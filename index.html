@@ -64,9 +64,10 @@
         <header class="topbar">
           <div class="breadcrumb"><span>Kuzey Finans</span><span class="crumb-separator">/</span><strong id="breadcrumb-current">Genel bakış</strong></div>
           <div class="topbar-actions">
-            <label class="global-search"><span>⌕</span><input id="global-search" type="search" placeholder="İşlerde ara…"><kbd>Ctrl K</kbd></label>
+            <label class="global-search"><span>⌕</span><input id="global-search" type="search" placeholder="Tüm kayıtlarda ara veya komut yaz…" aria-label="Kayıt ve komut ara" aria-controls="global-search-results" aria-expanded="false" autocomplete="off"><kbd>Ctrl K</kbd></label><div id="global-search-results" class="global-search-results" role="listbox" hidden></div>
             <button class="icon-button archive-search-button" data-view="archive-search" title="Arşivde ara" aria-label="Arşivde ara"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8.5h12.5a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-12a2 2 0 0 1-2-2v-7a2 2 0 0 1 1.5-1.94"/><path d="M2.5 8.5V5.75A1.75 1.75 0 0 1 4.25 4h8.5L16 7.25"/><circle cx="17" cy="15.5" r="3.25"/><path d="m19.4 17.9 2.1 2.1"/></svg></button>
             <div class="topbar-divider"></div>
+            <button type="button" class="zoom-indicator" id="zoom-indicator" data-action="reset-zoom" title="Yakınlaştırma %100 · Ctrl + tekerlek ile değiştir · Sıfırlamak için tıkla" aria-label="Yakınlaştırma %100. Varsayılan boyuta döndürmek için tıkla."><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.25"/><path d="m15.3 15.3 4.7 4.7"/><path d="M7.6 10.5h5.8M10.5 7.6v5.8"/></svg><span id="zoom-level">100%</span></button>
             <button class="help-button">?</button>
           </div>
         </header>

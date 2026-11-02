@@ -1,6 +1,7 @@
 import { Graph, type Edge, type Node } from "@antv/x6";
 
 const seed: WorkspaceState = {
+  schemaVersion: 4,
   items: [
     { id: "PAY-241", type: "Story", title: "Karttan karta transfer ücretinin hesaplanması", status: "Hazır", priority: "Yüksek", project: "Ödeme Platformu", area: "Kartlı Ödemeler", updated: "12 dk önce", description: "Karttan karta transfer işleminde ücretin, işlem onayından önce doğru hesaplanıp kullanıcıya gösterilmesi.", acceptance: ["Ücret, transfer tutarı ve kart tipine göre hesaplanır.", "Onay ekranında ücret ve toplam tutar ayrı gösterilir.", "İşlem reddedilirse ücret tahsil edilmez."], attachments: [], labels: ["Ücretleme", "Mobil"], assetIds: ["AST-TRANSFER-CHECKOUT"] },
     { id: "PAY-238", type: "Bug", title: "Bekleyen EFT işlemi hareketlerde iki kez görünüyor", status: "Analiz ediliyor", priority: "Kritik", project: "Ödeme Platformu", area: "Para Transferleri", updated: "1 sa önce", description: "EFT talimatı beklemede durumundayken hesap hareketlerinde mükerrer kayıt oluşuyor.", acceptance: ["Bekleyen talimat tek satır olarak görüntülenir.", "Kesinleşen işlem mevcut satırı günceller.", "Mükerrer kayıt için geriye dönük kontrol yapılır."], attachments: [], labels: ["Hesap Hareketleri", "İşlem"], assetIds: ["AST-EFT-BATCH", "AST-RECON-REPORT"] },
@@ -42,6 +43,7 @@ const seed: WorkspaceState = {
 };
 
 const STORAGE_KEY = "rota-po-workspace-v1";
+const AUTO_BACKUP_AT_KEY = "rota-auto-backup-at";
 const BACKLOG_PREVIEW_PREFERENCE_KEY = "rota-backlog-preview-enabled";
 const BACKLOG_COLUMNS_PREFERENCE_KEY = "rota-backlog-columns";
 const BACKLOG_DENSITY_PREFERENCE_KEY = "rota-backlog-density";
@@ -56,6 +58,12 @@ const BACKLOG_RECENT_FILTERS_KEY = "rota-backlog-recent-filters";
 const SIDEBAR_COLLAPSED_KEY = "rota-sidebar-collapsed";
 const SIDEBAR_NAV_GROUPS_KEY = "rota-sidebar-nav-groups";
 const FONT_SCALE_KEY = "rota-font-scale";
+const APP_ZOOM_KEY = "rota-app-zoom";
+const APP_ZOOM_MIN = 0.5;
+const APP_ZOOM_MAX = 2;
+const APP_ZOOM_STEP = 0.1;
+const APP_ZOOM_WHEEL_THRESHOLD = 50;
+const APP_ZOOM_WHEEL_NOTCH = 100;
 const HIGH_CONTRAST_KEY = "rota-high-contrast";
 const REDUCED_MOTION_KEY = "rota-reduced-motion";
 const THEME_KEY = "rota-theme";
@@ -78,18 +86,20 @@ interface BacklogSavedView {
   assignee: string;
   sprintId?: string;
   includeCompleted?: boolean;
+  overdueOnly?: boolean;
+  statusAgeMinDays?: number;
   columns: BacklogColumnId[];
   sort: BacklogSort;
   secondarySort?: BacklogSort;
   pinned?: boolean;
   searchScope?: "all" | "title" | "description" | "id" | "labels" | "components";
 }
-interface RecentBacklogFilter { query: string; searchScope: BacklogSearchScope; status: string; type: string; label: string; teamId: string; assignee: string; sprintId?: string; includeCompleted?: boolean; }
-type BacklogColumnId = "type" | "area" | "priority" | "status" | "updated" | "assignment" | "project" | "description" | "labels" | "startDate" | "targetDate" | "targetPeriod" | "estimate" | "productStage" | "release" | "sprint" | "assets" | "attachments" | "acceptance" | "dependencies" | "blocker" | "activity";
+interface RecentBacklogFilter { query: string; searchScope: BacklogSearchScope; status: string; type: string; label: string; teamId: string; assignee: string; sprintId?: string; includeCompleted?: boolean; overdueOnly?: boolean; statusAgeMinDays?: number; }
+type BacklogColumnId = "type" | "area" | "priority" | "status" | "statusAge" | "updated" | "assignment" | "project" | "description" | "labels" | "startDate" | "targetDate" | "targetPeriod" | "estimate" | "productStage" | "release" | "sprint" | "assets" | "attachments" | "acceptance" | "dependencies" | "blocker" | "activity";
 type BacklogSort = "manual" | "aging-desc" | "title-asc" | "title-desc" | "priority-desc" | "status-asc" | "target-asc" | "target-desc" | "updated-asc" | "updated-desc" | `column:${"title" | BacklogColumnId}:${"asc" | "desc"}`;
 const BACKLOG_COLUMN_CATALOG: { id: BacklogColumnId; label: string }[] = [
   { id: "area", label: "Ürün alanı" }, { id: "priority", label: "Öncelik" },
-  { id: "status", label: "Durum" }, { id: "updated", label: "Güncellendi" }, { id: "assignment", label: "Sorumlu" },
+  { id: "status", label: "Durum" }, { id: "statusAge", label: "Durumda süre" }, { id: "updated", label: "Güncellendi" }, { id: "assignment", label: "Sorumlu" },
   { id: "project", label: "Proje" }, { id: "description", label: "Açıklama" }, { id: "labels", label: "Etiketler" },
   { id: "startDate", label: "Başlangıç tarihi" }, { id: "targetDate", label: "Hedef bitiş" }, { id: "targetPeriod", label: "Planlanan dönem" },
   { id: "estimate", label: "Tahmini efor" }, { id: "productStage", label: "Ürün aşaması" }, { id: "release", label: "Release" },
@@ -107,7 +117,7 @@ function normalizeBacklogSort(value: unknown): BacklogSort {
   if (typeof value !== "string") return "manual";
   if (["manual", "aging-desc"].includes(value)) return value as BacklogSort;
   if (legacy[value]) return legacy[value];
-  const match = /^column:(title|type|area|priority|status|updated|assignment|project|description|labels|startDate|targetDate|targetPeriod|estimate|productStage|release|sprint|assets|attachments|acceptance|dependencies|blocker|activity):(asc|desc)$/.exec(value);
+  const match = /^column:(title|type|area|priority|status|statusAge|updated|assignment|project|description|labels|startDate|targetDate|targetPeriod|estimate|productStage|release|sprint|assets|attachments|acceptance|dependencies|blocker|activity):(asc|desc)$/.exec(value);
   return match ? value as BacklogSort : "manual";
 }
 
@@ -132,6 +142,8 @@ function loadSavedBacklogViews(): BacklogSavedView[] {
       mode: view.mode === "board" ? "board" : "list",
       query: view.query || "", status: view.status || "", type: view.type || "", label: view.label || "",
       teamId: view.teamId || "", assignee: view.assignee || "", sprintId: view.sprintId || "",
+      overdueOnly: Boolean(view.overdueOnly),
+      statusAgeMinDays: Number.isInteger(view.statusAgeMinDays) && (view.statusAgeMinDays || 0) >= 0 ? view.statusAgeMinDays : 0,
       columns: Array.isArray(view.columns) ? [...new Set(view.columns.filter((id) => knownColumns.has(id)))] : [...DEFAULT_BACKLOG_COLUMNS],
       sort: normalizeBacklogSort(view.sort === "manual" && view.secondarySort && view.secondarySort !== "manual" ? view.secondarySort : view.sort),
       secondarySort: "manual"
@@ -145,8 +157,56 @@ function workspaceRecords<T>(value: unknown, fallback: T[]): T[] {
     : structuredClone(fallback);
 }
 let state: WorkspaceState;
+let unreadableWorkspace: string | null = null;
+let pendingSaveFailureToast = false;
+let automaticBackupBusy = false;
+let automaticBackupError = "";
+function migrateWorkspace(value: Partial<WorkspaceState>): Partial<WorkspaceState> {
+  const migrated = structuredClone(value);
+  let version = migrated.schemaVersion ?? 0;
+  if (!Number.isInteger(version) || version < 0 || version > 4) throw new Error("Desteklenmeyen çalışma alanı sürümü");
+  if (version === 0) { migrated.decisions ||= []; migrated.diagrams ||= []; version = 1; }
+  if (version === 1) { migrated.sprints ||= []; migrated.openQuestions ||= []; migrated.risks ||= []; migrated.dailyPlans ||= []; version = 2; }
+  if (version === 2) { syncProjectIds(migrated); version = 3; }
+  if (version === 3) { syncMemberIds(migrated); version = 4; }
+  const projects = migrated.projects || [];
+  for (const records of [migrated.items || [], migrated.assets || [], migrated.roadmap || [], migrated.releases || []]) {
+    for (const record of records) {
+      if (!projects.some((project) => project.name === record.project) && record.projectId) {
+        const project = projects.find((entry) => entry.id === record.projectId);
+        if (project) record.project = project.name;
+      }
+    }
+  }
+  migrated.schemaVersion = version;
+  return migrated;
+}
+function syncProjectIds(workspace: Partial<WorkspaceState>): void {
+  const projects = workspace.projects || [];
+  for (const records of [workspace.items || [], workspace.assets || [], workspace.roadmap || [], workspace.releases || []]) {
+    for (const record of records) {
+      const project = projects.find((entry) => entry.name === record.project);
+      if (project) record.projectId = project.id;
+    }
+  }
+}
+function syncMemberIds(workspace: Partial<WorkspaceState>): void {
+  const teams = workspace.teams || [];
+  for (const team of teams) {
+    team.memberIds ||= {};
+    for (const member of team.members) team.memberIds[member] ||= "MEMBER-" + Math.random().toString(36).slice(2, 12).toUpperCase();
+  }
+  const assignments = [...(workspace.items || []).flatMap((item) => item.assignments || []), ...(workspace.projects || []).flatMap((project) => project.assignments || [])];
+  for (const assignment of assignments) {
+    const team = teams.find((entry) => entry.id === assignment.teamId);
+    if (team) assignment.memberId = team.memberIds?.[assignment.member] || assignment.memberId;
+  }
+}
 try {
-  const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null") as Partial<WorkspaceState> | null;
+  const rawWorkspace = localStorage.getItem(STORAGE_KEY);
+  const parsed = JSON.parse(rawWorkspace ?? "null") as Partial<WorkspaceState> | null;
+  const saved = parsed && typeof parsed === "object" ? migrateWorkspace(parsed) : parsed;
+  if (rawWorkspace !== null && (!saved || typeof saved !== "object" || !Array.isArray(saved.items) || !Array.isArray(saved.projects) || !saved.profile || typeof saved.profile !== "object")) throw new Error("Geçersiz çalışma alanı biçimi");
   const savedItems = workspaceRecords<WorkItem>(saved?.items, seed.items);
   const savedProjects = workspaceRecords<Project>(saved?.projects, seed.projects);
   const legacySampleWorkspace = Boolean(saved && !saved.assets && saved.profile?.organization === seed.profile.organization && saved.profile?.workspace === seed.profile.workspace && savedItems.some((item) => item.id === "PAY-241") && savedProjects.some((project) => project.name === "Ödeme Platformu"));
@@ -176,6 +236,7 @@ try {
     if (sampleItem?.assetIds?.length) item.assetIds = [...sampleItem.assetIds];
   });
 } catch {
+  unreadableWorkspace = localStorage.getItem(STORAGE_KEY);
   state = structuredClone(seed);
 }
 let activeView = "overview";
@@ -233,11 +294,15 @@ if (!localStorage.getItem(BACKLOG_SPRINT_COLUMN_MIGRATION_KEY)) {
 }
 let backlogColumnDraft: BacklogColumnId[] = [];
 let inlineBacklogEdit: { itemId: string; field: "title" | "status" | "assignment" | "type" } | null = null;
+let inlineInsertAfterId: string | null = null;
+let inlineFeedbackTimer = 0;
 let savedBacklogViews: BacklogSavedView[] = loadSavedBacklogViews();
 let activeBacklogViewId = "";
 let backlogSort: BacklogSort = "manual";
 let recentBacklogFilters: RecentBacklogFilter[] = (() => { try { const value = JSON.parse(localStorage.getItem(BACKLOG_RECENT_FILTERS_KEY) || "[]"); return Array.isArray(value) ? value.slice(0, 5) : []; } catch { return []; } })();
 let backlogStatus = "";
+let backlogOverdueOnly = false;
+let backlogStatusAgeMinDays = 0;
 let backlogIncludeCompleted = false;
 let backlogType = "";
 let backlogSprintId = "";
@@ -248,11 +313,16 @@ let questionFilter: "open" | "all" | "answered" = "open";
 let archiveQuery = "";
 let selectedDailyDate = (() => { const today = new Date(); return [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-"); })();
 let selectedWeeklyStart = "";
+let selectedWeeklyProjectId = "";
 let jiraBoards: JiraBoard[] = [];
 let jiraProjects: JiraProject[] = [];
 let jiraSprints: JiraSprint[] = [];
 let jiraIssueTypes: JiraIssueType[] = [];
 let jiraIssues: JiraIssue[] = [];
+let jiraIssueTotal: number | undefined;
+let jiraHasMoreIssues = false;
+let jiraLastSuccessAt = "";
+function clearJiraIssueResults(): void { jiraIssues = []; jiraIssueTotal = undefined; jiraHasMoreIssues = false; jiraLastSuccessAt = ""; }
 let jiraSelectedBoardId = "";
 let jiraSelectedProjectKey = "";
 let jiraSelectedSprintId = "";
@@ -273,6 +343,88 @@ state.acceptanceTemplates = [...defaultAcceptanceTemplates, ...(state.acceptance
 
 const root = document.getElementById("view-root") as HTMLElement;
 const modalRoot = document.getElementById("modal-root") as HTMLElement;
+type GlobalSearchResult = { kind: "item" | "asset" | "decision" | "view" | "command"; id: string; label: string; detail: string; search: string };
+let globalSearchResults: GlobalSearchResult[] = [];
+let globalSearchSelection = 0;
+let globalLastRecord: { kind: "item" | "asset" | "decision"; id: string } | null = null;
+function closeGlobalSearch(): void {
+  const panel = document.getElementById("global-search-results");
+  if (panel) panel.hidden = true;
+  document.getElementById("global-search")?.setAttribute("aria-expanded", "false");
+}
+function renderGlobalSearch(): void {
+  const input = document.getElementById("global-search") as HTMLInputElement | null;
+  const panel = document.getElementById("global-search-results");
+  if (!input || !panel) return;
+  const term = input.value.trim().toLocaleLowerCase("tr-TR");
+  const entries: GlobalSearchResult[] = [
+    ...state.items.filter((item) => !item.archived).map((item) => ({ kind: "item" as const, id: item.id, label: item.id + " · " + item.title, detail: "Backlog işi · " + item.project, search: [item.id, item.title, item.description, item.area, ...(item.labels || [])].join(" ") })),
+    ...state.assets.map((asset) => ({ kind: "asset" as const, id: asset.id, label: asset.code + " · " + asset.name, detail: "Ürün bileşeni · " + asset.project, search: [asset.code, asset.name, asset.description, asset.purpose, asset.area].join(" ") })),
+    ...(state.decisions || []).map((decision) => ({ kind: "decision" as const, id: decision.id, label: decision.title, detail: "Ürün kararı", search: [decision.title, decision.context, decision.rationale, ...(decision.options || [])].join(" ") })),
+    ...savedBacklogViews.map((view) => ({ kind: "view" as const, id: view.id, label: "Görünümü aç: " + view.name, detail: "Kayıtlı görünüm", search: "görünüm aç " + view.name })),
+    { kind: "command", id: "new-item", label: "Yeni backlog işi", detail: "Komut", search: "yeni backlog işi oluştur ekle" },
+    { kind: "command", id: "new-task", label: "Yeni kişisel görev", detail: "Komut", search: "yeni kişisel görev oluştur ekle" },
+    { kind: "command", id: "new-decision", label: "Yeni ürün kararı", detail: "Komut", search: "yeni ürün kararı oluştur ekle" },
+    { kind: "command", id: "screen-backlog", label: "Backlog ekranını aç", detail: "Ekran", search: "backlog ekran aç" },
+    { kind: "command", id: "screen-assets", label: "Ürün envanterini aç", detail: "Ekran", search: "ürün envanteri bileşen ekran aç" },
+    { kind: "command", id: "screen-decisions", label: "Ürün kararlarını aç", detail: "Ekran", search: "ürün kararları ekran aç" },
+    ...(globalLastRecord ? [{ kind: "command" as const, id: "last-record", label: "Son kayda dön", detail: "Komut", search: "son kayda dön aç" }] : []),
+  ];
+  globalSearchResults = entries.filter((entry) => !term ? entry.kind === "command" || entry.kind === "view" : entry.search.toLocaleLowerCase("tr-TR").includes(term)).slice(0, 12);
+  globalSearchSelection = 0;
+  panel.innerHTML = globalSearchResults.length ? globalSearchResults.map((entry, index) => '<button type="button" role="option" id="global-result-' + index + '" class="global-search-result' + (index === 0 ? ' selected' : '') + '" data-global-result="' + index + '" aria-selected="' + (index === 0) + '"><strong>' + esc(entry.label) + '</strong><small>' + esc(entry.detail) + '</small></button>').join("") : '<div class="global-search-empty">Eşleşen kayıt veya komut yok.</div>';
+  panel.hidden = false;
+  input.setAttribute("aria-expanded", "true");
+  input.setAttribute("aria-activedescendant", globalSearchResults.length ? "global-result-0" : "");
+}
+function chooseGlobalSearch(index: number): void {
+  const entry = globalSearchResults[index];
+  if (!entry) return;
+  closeGlobalSearch();
+  const input = document.getElementById("global-search") as HTMLInputElement;
+  input.value = "";
+  if (entry.kind === "item") { setView("backlog"); openItem(entry.id); }
+  else if (entry.kind === "asset") { setView("assets"); openAsset(entry.id); }
+  else if (entry.kind === "decision") { setView("decisions"); openDecisionDetail(entry.id); }
+  else if (entry.kind === "view") { const view = savedBacklogViews.find((item) => item.id === entry.id); if (view) applyBacklogView(view); }
+  else if (entry.id === "new-item") openNewModal("Backlog işi");
+  else if (entry.id === "new-task") openNewModal("Kişisel görev");
+  else if (entry.id === "new-decision") openDecisionEditor();
+  else if (entry.id === "screen-backlog") setView("backlog");
+  else if (entry.id === "screen-assets") setView("assets");
+  else if (entry.id === "screen-decisions") setView("decisions");
+  else if (entry.id === "last-record" && globalLastRecord) {
+    const last = globalLastRecord;
+    if (last.kind === "item") { setView("backlog"); openItem(last.id); }
+    else if (last.kind === "asset") { setView("assets"); openAsset(last.id); }
+    else { setView("decisions"); openDecisionDetail(last.id); }
+  }
+}
+let modalReturnFocus: HTMLElement | null = null;
+let activeModalDialog: HTMLElement | null = null;
+document.addEventListener("click", (event) => {
+  if (modalRoot.querySelector('[role="dialog"]')) return;
+  const target = event.target instanceof Element ? event.target.closest<HTMLElement>("button, [tabindex]") : null;
+  if (target) modalReturnFocus = target;
+}, true);
+const modalFocusSelector = 'button:not([disabled]):not([hidden]), input:not([disabled]):not([type="hidden"]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
+new MutationObserver(() => {
+  const dialog = modalRoot.querySelector<HTMLElement>('[role="dialog"]');
+  if (!dialog || dialog === activeModalDialog) return;
+  if (!modalReturnFocus) modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  activeModalDialog = dialog;
+  (dialog.querySelector<HTMLElement>('input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), select:not([disabled])') || dialog.querySelector<HTMLElement>(modalFocusSelector))?.focus();
+}).observe(modalRoot, { childList: true, subtree: true });
+modalRoot.addEventListener("keydown", (event) => {
+  if (event.key !== "Tab") return;
+  const dialog = modalRoot.querySelector<HTMLElement>('[role="dialog"]');
+  if (!dialog) return;
+  const focusable = [...dialog.querySelectorAll<HTMLElement>(modalFocusSelector)].filter((element) => element.getClientRects().length > 0);
+  if (!focusable.length) return;
+  const first = focusable[0]; const last = focusable[focusable.length - 1];
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+});
 const pageLayoutObserver = new MutationObserver(() => {
   const page = root.firstElementChild;
   if (!(page instanceof HTMLElement) || !page.classList.contains("page-content") || page.dataset.scrollLayout === "ready") return;
@@ -311,7 +463,70 @@ document.addEventListener("toggle", (event) => {
   if (!(event.target instanceof HTMLDetailsElement) || !event.target.matches(".nav-group[data-nav-group]")) return;
   if (!document.querySelector(".sidebar")?.classList.contains("collapsed")) saveSidebarNavGroupPreferences();
 }, true);
-document.body.style.zoom = localStorage.getItem(FONT_SCALE_KEY) || "1";
+// Yakınlaştırma: Ctrl + fare tekerleği ile ölçeklenir, tercih çalışma alanında saklanır.
+function clampAppZoom(value: number): number {
+  if (!Number.isFinite(value)) return 1;
+  return Math.min(APP_ZOOM_MAX, Math.max(APP_ZOOM_MIN, Math.round(value * 100) / 100));
+}
+function readStoredAppZoom(): number {
+  const stored = localStorage.getItem(APP_ZOOM_KEY);
+  if (stored !== null) { const parsed = Number(stored); if (Number.isFinite(parsed)) return clampAppZoom(parsed); }
+  const legacy = Number(localStorage.getItem(FONT_SCALE_KEY)); // Önceden kaydedilen yazı boyutu tercihi korunur.
+  return Number.isFinite(legacy) && legacy > 0 ? clampAppZoom(legacy) : 1;
+}
+let appZoom = readStoredAppZoom();
+function applyAppZoom(): void {
+  document.body.style.zoom = String(appZoom);
+  document.body.style.setProperty("--app-zoom", String(appZoom));
+  const percent = Math.round(appZoom * 100);
+  const label = document.getElementById("zoom-level");
+  if (label) label.textContent = percent + "%";
+  const indicator = document.getElementById("zoom-indicator");
+  if (indicator) {
+    indicator.title = "Yakınlaştırma %" + percent + " · Ctrl + tekerlek ile değiştir · Sıfırlamak için tıkla";
+    indicator.setAttribute("aria-label", "Yakınlaştırma %" + percent + ". Varsayılan boyuta döndürmek için tıkla.");
+    indicator.classList.toggle("is-zoomed", appZoom !== 1);
+  }
+  const settingsSelect = document.getElementById("workspace-app-zoom") as HTMLSelectElement | null;
+  if (settingsSelect) settingsSelect.value = String(appZoom);
+}
+function setAppZoom(value: number): void {
+  const next = clampAppZoom(value);
+  if (next !== appZoom) { appZoom = next; localStorage.setItem(APP_ZOOM_KEY, String(appZoom)); }
+  applyAppZoom();
+}
+function appZoomOptionsHtml(): string {
+  let html = "";
+  const options: number[] = [];
+  for (let value = APP_ZOOM_MIN; value <= APP_ZOOM_MAX + 0.001; value += APP_ZOOM_STEP) options.push(Math.round(value * 100) / 100);
+  options.push(1.25);
+  for (const rounded of options.sort((a, b) => a - b)) {
+    html += '<option value="' + rounded + '">' + Math.round(rounded * 100) + '%</option>';
+  }
+  return html;
+}
+applyAppZoom();
+let appZoomWheelDelta = 0;
+document.addEventListener("wheel", (event) => {
+  if (!event.ctrlKey) return;
+  const target = event.target instanceof Element ? event.target : null;
+  if (target?.closest(".x6-graph, .asset-diagram-canvas, .work-diagram-canvas")) return; // Diyagram tuvali kendi yakınlaştırmasını yönetir.
+  const delta = Math.abs(event.deltaY) >= Math.abs(event.deltaX) ? event.deltaY : event.deltaX;
+  if (!delta) return;
+  event.preventDefault();
+  appZoomWheelDelta += delta;
+  if (Math.abs(appZoomWheelDelta) < APP_ZOOM_WHEEL_THRESHOLD) return;
+  const direction = appZoomWheelDelta < 0 ? 1 : -1; // Tekerlek yukarı = yakınlaştır.
+  const steps = Math.max(1, Math.round(Math.abs(appZoomWheelDelta) / APP_ZOOM_WHEEL_NOTCH));
+  appZoomWheelDelta = 0;
+  setAppZoom(appZoom + direction * steps * APP_ZOOM_STEP);
+}, { passive: false });
+document.addEventListener("keydown", (event) => {
+  if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+  if (event.code === "Digit0" || event.code === "Numpad0") { event.preventDefault(); setAppZoom(1); return; }
+  if (event.code === "Equal" || event.code === "NumpadAdd") { event.preventDefault(); setAppZoom(appZoom + APP_ZOOM_STEP); return; }
+  if (event.code === "Minus" || event.code === "NumpadSubtract") { event.preventDefault(); setAppZoom(appZoom - APP_ZOOM_STEP); }
+});
 if (localStorage.getItem(HIGH_CONTRAST_KEY) === "true") document.body.classList.add("high-contrast");
 if (localStorage.getItem(REDUCED_MOTION_KEY) === "true") document.body.classList.add("reduced-motion");
 if ((localStorage.getItem(THEME_KEY) || "system") === "dark" || (localStorage.getItem(THEME_KEY) !== "light" && window.matchMedia("(prefers-color-scheme: dark)").matches)) document.body.classList.add("dark-theme");
@@ -337,7 +552,59 @@ function loadBacklogColumns(): BacklogColumnId[] {
     return [...new Set(valid)];
   } catch { return [...DEFAULT_BACKLOG_COLUMNS]; }
 }
-const save = () => { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); recordWorkDiagramSnapshot(); };
+const save = () => {
+  if (unreadableWorkspace !== null) { showWorkspaceRecovery(); return false; }
+  try {
+    syncProjectIds(state);
+    syncMemberIds(state);
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    recordWorkDiagramSnapshot();
+    document.getElementById("workspace-save-error")?.remove();
+    pendingSaveFailureToast = false;
+    return true;
+  } catch {
+    pendingSaveFailureToast = true;
+    showWorkspaceSaveError();
+    return false;
+  }
+};
+
+function showWorkspaceSaveError(): void {
+  if (document.getElementById("workspace-save-error")) return;
+  const banner = document.createElement("div");
+  banner.id = "workspace-save-error";
+  banner.setAttribute("role", "alert");
+  banner.innerHTML = '<strong>Çalışma alanı kaydedilemedi.</strong><p>Yeni değişiklikler uygulama kapanırsa kaybolabilir. Depolama alanını kontrol edin.</p><div><button type="button" class="button button-secondary" data-save-retry>Yeniden dene</button><button type="button" class="button button-secondary" data-save-backup>Yedek oluştur</button></div>';
+  banner.querySelector("[data-save-retry]")?.addEventListener("click", () => { if (save()) toast("Çalışma alanı kaydedildi."); });
+  banner.querySelector("[data-save-backup]")?.addEventListener("click", () => { void exportWorkspaceBackup(); });
+  document.body.append(banner);
+}
+
+function showWorkspaceRecovery(): void {
+  if (unreadableWorkspace === null || document.getElementById("workspace-recovery")) return;
+  const overlay = document.createElement("div");
+  overlay.id = "workspace-recovery";
+  overlay.setAttribute("role", "alertdialog");
+  overlay.setAttribute("aria-modal", "true");
+  overlay.setAttribute("aria-labelledby", "workspace-recovery-title");
+  overlay.innerHTML = '<section><h2 id="workspace-recovery-title">Çalışma alanı okunamadı</h2><p>Kayıtlı veri korunuyor. Aşağıdaki ham içeriği kaydedebilir veya geçerli bir Rota yedeği yükleyebilirsiniz.</p><label>Korunan veri<textarea readonly aria-label="Korunan çalışma alanı verisi"></textarea></label><button type="button" class="button button-secondary" data-action="recovery-copy">Veriyi kopyala</button><button type="button" class="button button-secondary" data-action="recovery-export">Ham veriyi dosyaya kaydet</button><button type="button" class="button button-primary" data-action="recovery-restore">Yedekten geri yükle</button><p id="workspace-recovery-message" role="status"></p></section>';
+  overlay.querySelector("textarea")!.value = unreadableWorkspace;
+  overlay.addEventListener("click", async (event) => {
+    const action = (event.target as Element).closest<HTMLElement>("[data-action]")?.dataset.action;
+    const message = overlay.querySelector<HTMLElement>("#workspace-recovery-message")!;
+    if (action === "recovery-copy") {
+      try { await navigator.clipboard.writeText(unreadableWorkspace || ""); message.textContent = "Veri panoya kopyalandı."; }
+      catch { overlay.querySelector("textarea")!.select(); message.textContent = "Metin seçildi; Ctrl+C ile kopyalayın."; }
+    } else if (action === "recovery-export") {
+      try { const path = await desktop.exportUnreadableWorkspace(unreadableWorkspace || ""); if (path) message.textContent = "Ham veri kaydedildi: " + path; }
+      catch (error) { message.textContent = error instanceof Error ? error.message : "Ham veri kaydedilemedi."; }
+    } else if (action === "recovery-restore") {
+      await restoreWorkspaceBackup();
+    }
+  });
+  document.body.append(overlay);
+  overlay.querySelector<HTMLButtonElement>("button")?.focus();
+}
 const itemById = (id: string): WorkItem | undefined => state.items.find((item) => item.id === id);
 const PRODUCT_STAGES: ProductStage[] = ["Fikirler", "Keşif", "Sırada", "Planlandı", "Teslimatta", "Tamamlandı"];
 function roadmapNodeOptions(selected = ""): string {
@@ -399,7 +666,15 @@ const isItemInActiveProject = (item: WorkItem): boolean => !state.projects.some(
 const nextId = (prefix: string): string => prefix + "-" + Math.random().toString(36).slice(2, 6).toUpperCase();
 function addWorkActivity(item: WorkItem, kind: WorkActivity["kind"], message: string): void {
   item.activity ||= [];
-  item.activity.unshift({ id: nextId("ACT"), kind, message, actor: state.profile.userName || "PO", occurredAt: new Date().toISOString() });
+  const occurredAt = new Date().toISOString();
+  if (kind === "created" && !item.statusEnteredAt) item.statusEnteredAt = occurredAt;
+  item.activity.unshift({ id: nextId("ACT"), kind, message, actor: state.profile.userName || "PO", occurredAt });
+}
+
+function statusAgeDays(item: WorkItem): number | null {
+  if (!item.statusEnteredAt) return null;
+  const entered = Date.parse(item.statusEnteredAt);
+  return Number.isFinite(entered) ? Math.max(0, Math.floor((Date.now() - entered) / 86400000)) : null;
 }
 
 function workItemLastTouched(item: WorkItem): number {
@@ -488,28 +763,37 @@ function dailyPlanEntryMarkup(row: { entry: DailyPlan["entries"][number]; item?:
 }
 
 function weekStartDate(value = new Date()): string {
-  const date = new Date(value); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - ((date.getDay() + 6) % 7)); return date.toISOString().slice(0, 10);
+  const date = new Date(value); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - ((date.getDay() + 6) % 7)); return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
 }
 
 function weeklySummaryText(): string {
   const start = selectedWeeklyStart || weekStartDate();
   const endDate = new Date(start + "T00:00:00"); endDate.setDate(endDate.getDate() + 7);
-  const end = endDate.toISOString().slice(0, 10);
-  const portfolio = state.items.filter((item) => !item.archived && isItemInActiveProject(item));
+  const end = [endDate.getFullYear(), String(endDate.getMonth() + 1).padStart(2, "0"), String(endDate.getDate()).padStart(2, "0")].join("-");
+  const selectedProject = state.projects.find((project) => project.id === selectedWeeklyProjectId);
+  const portfolio = state.items.filter((item) => !item.archived && isItemInActiveProject(item) && (!selectedProject || item.project === selectedProject.name));
   const completed = portfolio.filter((item) => item.completedAt && item.completedAt.slice(0, 10) >= start && item.completedAt.slice(0, 10) < end);
   const blockers = portfolio.filter((item) => item.blocker?.openedAt && item.blocker.openedAt.slice(0, 10) >= start && item.blocker.openedAt.slice(0, 10) < end);
   const due = portfolio.filter((item) => item.status !== "Tamamlandı" && item.targetDate && item.targetDate >= start && item.targetDate < end);
-  const releases = state.releases.filter((release) => !release.archived && release.plannedDate && release.plannedDate >= start && release.plannedDate < end);
-  const note = state.weeklySummaryNotes?.[start] || "";
-  return ["HAFTALIK ÜRÜN ÖZETİ · " + start + " – " + endDate.toISOString().slice(0, 10), "", "TAMAMLANANLAR", ...(completed.length ? completed.map((item) => "• " + item.id + " · " + item.title) : ["• Bu hafta tamamlanma kaydı yok."]), "", "YENİ BLOKAJLAR", ...(blockers.length ? blockers.map((item) => "• " + item.id + " · " + item.title + " — " + (item.blocker?.reason || "Neden girilmedi")) : ["• Yeni blokaj kaydı yok."]), "", "HEDEF TARİHİ BU HAFTA OLAN İŞLER", ...(due.length ? due.map((item) => "• " + item.id + " · " + item.title + " — " + item.targetDate) : ["• İş yok."]), "", "YAKLAŞAN RELEASE'LER", ...(releases.length ? releases.map((release) => "• " + release.name + " — " + release.plannedDate + " · " + release.status) : ["• Release yok."]), "", "PO NOTLARI", note || "(Not eklenmedi)"].join("\n");
+  const releases = state.releases.filter((release) => !release.archived && (!selectedProject || release.project === selectedProject.name) && release.plannedDate && release.plannedDate >= start && release.plannedDate < end);
+  const note = state.weeklySummaryNotes?.[start + (selectedProject ? "::" + selectedProject.id : "")] || "";
+  return ["HAFTALIK ÜRÜN ÖZETİ · " + (selectedProject?.name || "Tüm projeler") + " · " + start + " – " + end, "", "TAMAMLANANLAR", ...(completed.length ? completed.map((item) => "• " + item.id + " · " + item.title) : ["• Bu hafta tamamlanma kaydı yok."]), "", "YENİ BLOKAJLAR", ...(blockers.length ? blockers.map((item) => "• " + item.id + " · " + item.title + " — " + (item.blocker?.reason || "Neden girilmedi")) : ["• Yeni blokaj kaydı yok."]), "", "HEDEF TARİHİ BU HAFTA OLAN İŞLER", ...(due.length ? due.map((item) => "• " + item.id + " · " + item.title + " — " + item.targetDate) : ["• İş yok."]), "", "YAKLAŞAN RELEASE'LER", ...(releases.length ? releases.map((release) => "• " + release.name + " — " + release.plannedDate + " · " + release.status) : ["• Release yok."]), "", "PO NOTLARI", note || "(Not eklenmedi)"].join("\n");
+}
+
+function weeklySummaryLineMarkup(line: string): string {
+  const item = state.items.find((entry) => line.startsWith("• " + entry.id + " · "));
+  if (item) return '<button type="button" class="weekly-summary-source" data-open-item="' + esc(item.id) + '">' + esc(line) + '</button>';
+  const release = state.releases.find((entry) => line.startsWith("• " + entry.name + " — "));
+  if (release) return '<button type="button" class="weekly-summary-source" data-action="edit-release" data-id="' + esc(release.id) + '">' + esc(line) + '</button>';
+  return '<p>' + esc(line) + '</p>';
 }
 
 function renderWeeklySummary(): void {
   selectedWeeklyStart ||= weekStartDate();
   state.weeklySummaryNotes ||= {};
   const generated = weeklySummaryText();
-  const blocks = generated.split("\n\n").slice(1, -1).map((section) => { const [heading, ...lines] = section.split("\n"); return '<section class="weekly-summary-section"><h3>' + esc(heading) + '</h3>' + lines.map((line) => '<p>' + esc(line) + '</p>').join("") + '</section>'; }).join("");
-  root.innerHTML = '<div class="page-content planning-page"><section class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>ÜRÜN PORTFÖYÜ</div><h1>Haftalık ürün özeti</h1><p>Tamamlanan işler, yeni blokajlar ve yaklaşan tarihlerden düzenlenebilir özet.</p></div><label class="field-label">Hafta başlangıcı<input id="weekly-summary-start" class="field-input" type="date" value="' + esc(selectedWeeklyStart) + '"></label></section><section class="weekly-summary-card"><div class="weekly-summary-grid">' + blocks + '</div><label class="field-label">PO değerlendirmesi<textarea id="weekly-summary-note" class="field-input field-textarea" rows="5" maxlength="5000" placeholder="Ürün etkisi, karar ihtiyacı veya sonraki haftaya taşınan konu…">' + esc(state.weeklySummaryNotes[selectedWeeklyStart] || "") + '</textarea></label><footer><span>Özet, çalışma alanındaki tarih ve aktivite kayıtlarından üretilir.</span><div><button class="button button-secondary" data-action="copy-weekly-summary">Özeti kopyala</button><button class="button button-primary" data-action="save-weekly-summary">Notu kaydet</button></div></footer></section></div>';
+  const blocks = generated.split("\n\n").slice(1, -1).map((section) => { const [heading, ...lines] = section.split("\n"); return '<section class="weekly-summary-section"><h3>' + esc(heading) + '</h3>' + lines.map((line) => weeklySummaryLineMarkup(line)).join("") + '</section>'; }).join("");
+  root.innerHTML = '<div class="page-content planning-page"><section class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>ÜRÜN PORTFÖYÜ</div><h1>Haftalık ürün özeti</h1><p>Tamamlanan işler, yeni blokajlar ve yaklaşan tarihlerden düzenlenebilir özet.</p></div><label class="field-label">Proje<select id="weekly-summary-project" class="field-input"><option value="">Tüm projeler</option>' + state.projects.filter((project) => !project.archived).map((project) => '<option value="' + esc(project.id) + '" ' + (project.id === selectedWeeklyProjectId ? 'selected' : '') + '>' + esc(project.name) + '</option>').join('') + '</select></label><label class="field-label">Hafta başlangıcı<input id="weekly-summary-start" class="field-input" type="date" value="' + esc(selectedWeeklyStart) + '"></label></section><section class="weekly-summary-card"><div class="weekly-summary-grid">' + blocks + '</div><label class="field-label">PO değerlendirmesi<textarea id="weekly-summary-note" class="field-input field-textarea" rows="5" maxlength="5000" placeholder="Ürün etkisi, karar ihtiyacı veya sonraki haftaya taşınan konu…">' + esc(state.weeklySummaryNotes[selectedWeeklyStart + (selectedWeeklyProjectId ? "::" + selectedWeeklyProjectId : "")] || "") + '</textarea></label><footer><span>Özet, çalışma alanındaki tarih ve aktivite kayıtlarından üretilir.</span><div><button class="button button-secondary" data-action="copy-weekly-summary">Özeti kopyala</button><button class="button button-primary" data-action="save-weekly-summary">Notu kaydet</button></div></footer></section></div>';
 }
 
 function archiveMatches(value: string): boolean { const terms = archiveQuery.trim().toLocaleLowerCase("tr-TR").split(/\s+/).filter(Boolean); const normalized = value.toLocaleLowerCase("tr-TR"); return !terms.length || terms.every((term) => normalized.includes(term)); }
@@ -602,6 +886,8 @@ function applyWorkStatus(item: WorkItem, status: WorkItem["status"], blocker?: P
   item.status = status;
   logWorkChange(item, "Durum", previous, status);
   const now = new Date().toISOString();
+  if (item.statusEnteredAt) (item.statusHistory ||= []).push({ status: previous, enteredAt: item.statusEnteredAt, leftAt: now });
+  item.statusEnteredAt = now;
   if (status === "Devam ediyor" && !item.actualStartDate) { item.actualStartDate = now; addWorkActivity(item, "change", "Gerçek başlangıç zamanı kaydedildi."); }
   if (status === "Tamamlandı") { item.completedAt = now; addWorkActivity(item, "change", "Geliştirme tamamlandı. Release/yayın durumu ayrıca takip edilir."); }
   if (status === "Bloke" && blocker) {
@@ -655,6 +941,7 @@ const priorityMark = (priority: string): string => priority === "Kritik" ? "•�
 const field = (id: string): HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement => document.getElementById(id) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement;
 
 function toast(message: string): void {
+  if (pendingSaveFailureToast) { message = "Çalışma alanı kaydedilemedi. Yeniden deneyin veya yedek oluşturun."; pendingSaveFailureToast = false; }
   toastRoot.textContent = message;
   toastRoot.classList.add("show");
   window.clearTimeout(toastTimer);
@@ -872,9 +1159,9 @@ function renderJira(): void {
     '<section class="panel jira-connection-card"><div class="jira-connection-top"><div><div class="panel-kicker">BAĞLANTI</div><strong class="jira-url-label">' + esc(baseUrl) + '</strong><p>Kimlik doğrulama, Jira’da kendi hesabın için oluşturduğun PAT ile yapılır.</p></div><span class="jira-connection-pill ' + (jiraHasSavedToken ? "is-connected" : "") + '">' + (jiraHasSavedToken ? "PAT kayıtlı · şifreli" : "PAT gerekli") + '</span></div><div class="jira-token-actions">' + (jiraHasSavedToken
       ? '<button class="button button-secondary" data-action="jira-open-token-page">Jira’da tokenları yönet</button><button class="button button-quiet" data-action="jira-replace-token">PAT değiştir</button><button class="button button-quiet jira-remove-token" data-action="jira-remove-token">Bağlantıyı kaldır</button>'
       : '<button class="button button-secondary" data-action="jira-open-token-page">Jira’da PAT oluştur</button><label class="jira-pat-field"><span>Jira Personal Access Token</span><input id="jira-pat-input" class="field-input" type="password" autocomplete="off" placeholder="Jira’dan oluşturduğun PAT’i buraya yapıştır"></label><button class="button button-primary" data-action="jira-save-token">PAT’i güvenle kaydet</button>') + '</div><p class="jira-security-note">Token bu bilgisayarda işletim sistemi şifrelemesiyle saklanır; çalışma alanı yedeğine ve tarayıcı depolamasına yazılmaz.</p></section>' +
-    (jiraHasSavedToken ? '<section class="panel jira-query-card"><div class="panel-heading"><div><div class="panel-kicker">JIRA VERİSİ</div><h2>Board kayıtları</h2><p>Agile board, backlog veya sprint kayıtlarını canlı sorgula.</p></div></div><div class="jira-query-controls"><label class="field-label">Agile board<select id="jira-board-select" class="field-input" ' + (jiraLoading ? "disabled" : "") + '>' + boardOptions + '</select></label><label class="field-label">Kapsam<select id="jira-scope-select" class="field-input" ' + (jiraLoading ? "disabled" : "") + '><option value="backlog" ' + (jiraIssueScope === "backlog" ? "selected" : "") + '>Backlog</option><option value="board" ' + (jiraIssueScope === "board" ? "selected" : "") + '>Board işleri</option><option value="sprint" ' + (jiraIssueScope === "sprint" ? "selected" : "") + '>Sprint</option></select></label>' + (jiraIssueScope === "sprint" ? '<label class="field-label">Sprint<select id="jira-sprint-select" class="field-input" ' + (jiraLoading ? "disabled" : "") + '>' + sprintOptions + '</select></label>' : '') + '<button class="button button-primary" data-action="jira-fetch-issues" ' + (jiraLoading || !jiraSelectedBoardId || (jiraIssueScope === "sprint" && !jiraSelectedSprintId) ? "disabled" : "") + '>Kayıtları getir</button></div><p class="jira-hint">İlk 100 kayıt gösterilir. Sprint listesinde aktif, gelecek ve tamamlanmış sprintler bulunur.</p>' +
+    (jiraHasSavedToken ? '<section class="panel jira-query-card"><div class="panel-heading"><div><div class="panel-kicker">JIRA VERİSİ</div><h2>Board kayıtları</h2><p>Agile board, backlog veya sprint kayıtlarını canlı sorgula.</p></div></div><div class="jira-query-controls"><label class="field-label">Agile board<select id="jira-board-select" class="field-input" ' + (jiraLoading ? "disabled" : "") + '>' + boardOptions + '</select></label><label class="field-label">Kapsam<select id="jira-scope-select" class="field-input" ' + (jiraLoading ? "disabled" : "") + '><option value="backlog" ' + (jiraIssueScope === "backlog" ? "selected" : "") + '>Backlog</option><option value="board" ' + (jiraIssueScope === "board" ? "selected" : "") + '>Board işleri</option><option value="sprint" ' + (jiraIssueScope === "sprint" ? "selected" : "") + '>Sprint</option></select></label>' + (jiraIssueScope === "sprint" ? '<label class="field-label">Sprint<select id="jira-sprint-select" class="field-input" ' + (jiraLoading ? "disabled" : "") + '>' + sprintOptions + '</select></label>' : '') + '<button class="button button-primary" data-action="jira-fetch-issues" ' + (jiraLoading || !jiraSelectedBoardId || (jiraIssueScope === "sprint" && !jiraSelectedSprintId) ? "disabled" : "") + '>Kayıtları getir</button></div><p class="jira-hint">Kayıtlar 100 kayıtlık sayfalar halinde yüklenir. Sprint listesinde aktif, gelecek ve tamamlanmış sprintler bulunur.</p>' +
       (jiraError ? '<div class="jira-error" role="alert">' + esc(jiraError) + '</div>' : "") +
-      '<div class="jira-results-heading"><strong>' + (jiraIssues.length ? jiraIssues.length + " kayıt" : "Kayıt listesi") + '</strong><span>' + (jiraIssues.length ? "Son Jira yanıtı · canlı sorgu" : "Henüz Jira kaydı getirilmedi") + '</span></div><div class="jira-table-wrap"><table class="jira-table"><thead><tr><th>ANAHTAR</th><th>BAŞLIK</th><th>TÜR</th><th>DURUM</th><th>ÖNCELİK</th><th>ATANAN</th><th>GÜNCELLENDİ</th></tr></thead><tbody>' + (rows || '<tr><td colspan="7" class="jira-table-empty">' + (jiraLoading ? "Jira’dan kayıtlar alınıyor…" : "Bir board ve kayıt kapsamı seçip getir.") + '</td></tr>') + '</tbody></table></div></section>' +
+      '<div class="jira-results-heading"><strong>' + (jiraIssues.length ? jiraIssues.length + (jiraIssueTotal !== undefined ? ' / ' + jiraIssueTotal : '') + " kayıt" : "Kayıt listesi") + '</strong><span>' + (jiraLastSuccessAt ? "Son başarılı sorgu: " + new Date(jiraLastSuccessAt).toLocaleString("tr-TR") : "Henüz Jira kaydı getirilmedi") + '</span></div><div class="jira-table-wrap"><table class="jira-table"><thead><tr><th>ANAHTAR</th><th>BAŞLIK</th><th>TÜR</th><th>DURUM</th><th>ÖNCELİK</th><th>ATANAN</th><th>GÜNCELLENDİ</th></tr></thead><tbody>' + (rows || '<tr><td colspan="7" class="jira-table-empty">' + (jiraLoading ? "Jira’dan kayıtlar alınıyor…" : "Bir board ve kayıt kapsamı seçip getir.") + '</td></tr>') + '</tbody></table></div>' + (jiraHasMoreIssues ? '<button type="button" class="button button-secondary jira-load-more" data-action="jira-load-more" ' + (jiraLoading ? 'disabled' : '') + '>Sonraki 100 kaydı getir</button>' : '') + '</section>' +
       '<section class="panel jira-query-card jira-create-card"><div class="panel-heading"><div><div class="panel-kicker">ROTA → JIRA</div><h2>Rota işinden Jira issue oluştur</h2><p>Yeni issue seçili Agile board ile ilişkili Jira projesinde açılır. Oluşturulan issue anahtarı Rota işine bağlanır.</p></div></div>' + (jiraError ? '<div class="jira-error" role="alert">' + esc(jiraError) + '</div>' : '') + '<div class="jira-create-grid"><label class="field-label">Rota backlog işi<select id="jira-rota-item-select" class="field-input" ' + (jiraLoading ? "disabled" : "") + '>' + rotaItemOptions + '</select></label><label class="field-label">Jira projesi<select id="jira-project-select" class="field-input" ' + (jiraLoading || !jiraSelectedBoardId ? "disabled" : "") + '>' + projectOptions + '</select></label><label class="field-label">Issue türü<select id="jira-issue-type-select" class="field-input" ' + (jiraLoading || !jiraSelectedProjectKey ? "disabled" : "") + '>' + issueTypeOptions + '</select></label><label class="field-label jira-create-summary">Issue başlığı<input id="jira-create-summary" class="field-input" maxlength="255" value="' + esc(selectedRotaItem?.title || "") + '" ' + (!selectedRotaItem || Boolean(selectedRotaItem.jiraIssueKey) ? "disabled" : "") + '></label><label class="field-label jira-create-description">Açıklama<textarea id="jira-create-description" class="field-input field-textarea" rows="5" ' + (!selectedRotaItem || Boolean(selectedRotaItem.jiraIssueKey) ? "disabled" : "") + '>' + esc(selectedRotaItem ? [selectedRotaItem.description, selectedRotaItem.acceptance.length ? "Kabul kriterleri:\n" + selectedRotaItem.acceptance.map((criterion) => "• " + criterion).join("\n") : "", "Rota backlog ID: " + selectedRotaItem.id].filter(Boolean).join("\n\n") : "") + '</textarea></label></div>' + (selectedRotaItem?.jiraIssueKey ? '<div class="jira-linked-item">Bu Rota işi zaten <button class="jira-issue-key" data-action="jira-open-issue" data-issue-key="' + esc(selectedRotaItem.jiraIssueKey) + '">' + esc(selectedRotaItem.jiraIssueKey) + '</button> ile ilişkilendirilmiş.</div>' : '') + '<div class="jira-create-footer"><span class="jira-hint">' + (jiraSelectedBoardId ? (jiraProjects.length ? "Yalnızca seçili board’un proje kapsamındaki projeler listelenir." : "Bu board için Jira proje kapsamı alınamadı; issue oluşturma kapalı.") : "Önce Agile board seç.") + '</span><button class="button button-primary" data-action="jira-create-issue" ' + (jiraLoading || !jiraSelectedBoardId || !jiraSelectedProjectKey || !jiraSelectedIssueTypeId || !selectedRotaItem || Boolean(selectedRotaItem.jiraIssueKey) ? "disabled" : "") + '>Jira’da issue oluştur</button></div></section>' : '<section class="panel jira-query-card"><h2>Önce Jira PAT’ini kaydet</h2><p>Jira hesabında token oluştur, Rota’da güvenle sakla; ardından Agile board seçerek issue oluşturabilirsin.</p>' + (jiraError ? '<div class="jira-error" role="alert">' + esc(jiraError) + '</div>' : "") + '</section>') + '</div>';
 }
 
@@ -902,20 +1189,27 @@ async function loadJiraCatalog(): Promise<void> {
 }
 
 async function refreshJiraCatalog(): Promise<void> {
-  jiraCatalogLoadedFor = ""; jiraIssues = []; jiraProjects = []; jiraSprints = []; jiraIssueTypes = []; await loadJiraCatalog();
+  jiraCatalogLoadedFor = ""; clearJiraIssueResults(); jiraProjects = []; jiraSprints = []; jiraIssueTypes = []; await loadJiraCatalog();
 }
 
-async function fetchJiraIssues(): Promise<void> {
+async function fetchJiraIssues(reset = true): Promise<void> {
   if (!state.profile.jiraBaseUrl || !jiraSelectedBoardId || (jiraIssueScope === "sprint" && !jiraSelectedSprintId)) return;
+  const startAt = reset ? 0 : jiraIssues.length;
   jiraLoading = true; jiraError = ""; renderJira();
-  try { jiraIssues = await desktop.jiraFetchBoardIssues(state.profile.jiraBaseUrl, jiraSelectedBoardId, jiraIssueScope, jiraSelectedSprintId || undefined); }
+  try {
+    const page = await desktop.jiraFetchBoardIssues(state.profile.jiraBaseUrl, jiraSelectedBoardId, jiraIssueScope, jiraSelectedSprintId || undefined, startAt);
+    jiraIssues = startAt ? [...jiraIssues, ...page.issues.filter((issue) => !jiraIssues.some((old) => old.key === issue.key))] : page.issues;
+    jiraIssueTotal = page.total;
+    jiraHasMoreIssues = page.hasMore && page.issues.length > 0;
+    jiraLastSuccessAt = new Date().toISOString();
+  }
   catch (error) { jiraError = error instanceof Error ? error.message : "Jira kayıtları alınamadı."; }
   finally { jiraLoading = false; renderJira(); }
 }
 
 async function loadJiraBoardDetails(): Promise<void> {
   if (!state.profile.jiraBaseUrl || !jiraSelectedBoardId) return;
-  jiraLoading = true; jiraError = ""; jiraIssues = []; renderJira();
+  jiraLoading = true; jiraError = ""; clearJiraIssueResults(); renderJira();
   try {
     const [projects, sprints] = await Promise.all([desktop.jiraListBoardProjects(state.profile.jiraBaseUrl, jiraSelectedBoardId), desktop.jiraListSprints(state.profile.jiraBaseUrl, jiraSelectedBoardId)]);
     jiraProjects = projects; jiraSprints = sprints;
@@ -949,7 +1243,8 @@ async function createJiraIssueFromRota(): Promise<void> {
     const created = await desktop.jiraCreateIssue(state.profile.jiraBaseUrl, jiraSelectedBoardId, project.key, issueType.id, summary, description);
     item.jiraIssueKey = created.key; item.updated = "Az önce"; addWorkActivity(item, "change", "Jira issue oluşturuldu ve bağlandı: " + created.key + " · " + project.key);
     save(); toast("Jira issue oluşturuldu: " + created.key);
-    jiraIssues = await desktop.jiraFetchBoardIssues(state.profile.jiraBaseUrl, jiraSelectedBoardId, jiraIssueScope, jiraSelectedSprintId || undefined).catch(() => jiraIssues);
+    const page = await desktop.jiraFetchBoardIssues(state.profile.jiraBaseUrl, jiraSelectedBoardId, jiraIssueScope, jiraSelectedSprintId || undefined).catch(() => null);
+    if (page) { jiraIssues = page.issues; jiraIssueTotal = page.total; jiraHasMoreIssues = page.hasMore; jiraLastSuccessAt = new Date().toISOString(); }
   } catch (error) { jiraError = error instanceof Error ? error.message : "Jira issue oluşturulamadı."; }
   finally { jiraLoading = false; renderJira(); }
 }
@@ -967,7 +1262,7 @@ async function removeJiraPat(): Promise<void> {
 }
 
 function renderOverview(): void {
-  const portfolio = state.items.filter((item) => isItemInActiveProject(item));
+  const portfolio = state.items.filter((item) => !item.archived && isItemInActiveProject(item));
   const open = portfolio.filter((item) => item.status !== "Tamamlandı");
   const ready = open.filter((item) => item.status === "Hazır").slice(0, 4);
   const primaryProject = state.projects.find((project) => !project.archived);
@@ -988,10 +1283,12 @@ function renderOverview(): void {
     '<div class="page-content">' +
       '<section class="welcome-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>ÇALIŞMA ALANI</div><h1>Merhaba ' + esc(state.profile.userName.split(/\\s+/)[0] || "").replace(/[<>]/g, "") + ' <span class="wave">✳</span></h1><p>' + esc(state.profile.workspace) + ' · Bugünkü çalışmalarına buradan bak.</p></div><button class="button button-primary" data-action="new"><span class="button-plus">+</span> Yeni iş oluştur</button></section>' +
       '<section class="stat-grid">' +
-        '<article class="stat-card"><div class="stat-top"><span>Aktif backlog</span><span class="stat-icon icon-indigo">☷</span></div><div class="stat-number">' + open.length + '<span class="stat-change">iş</span></div><div class="stat-foot"><span class="mini-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> ' + portfolio.filter((item) => item.activity?.[0] && Date.now() - new Date(item.activity[0].occurredAt).getTime() < 7 * 86400000).length + ' iş son 7 günde güncellendi</div></article>' +
-        '<article class="stat-card"><div class="stat-top"><span>Analize hazır</span><span class="stat-icon icon-green">✓</span></div><div class="stat-number">' + portfolio.filter((item) => item.status === "Hazır").length + '<span class="stat-change">iş</span></div><div class="stat-foot"><span class="progress-track"><i style="width:' + (portfolio.length ? Math.round(portfolio.filter((item) => item.status === "Hazır").length / portfolio.length * 100) : 0) + '%"></i></span> Aktif backlog içindeki oran</div></article>' +
-        '<article class="stat-card"><div class="stat-top"><span>Takip edeceğim</span><span class="stat-icon icon-amber">◷</span></div><div class="stat-number">' + state.tasks.filter((task) => !task.done).length + '<span class="stat-change">kişisel görev</span></div><div class="stat-foot"><span class="stat-subtle">Bugün tamamlanması gereken</span><strong>' + state.tasks.filter((task) => !task.done && task.due === "Bugün").length + '</strong></div></article>' +
-        '<article class="stat-card"><div class="stat-top"><span>Bloke işler</span><span class="stat-icon icon-rose">!</span></div><div class="stat-number">' + portfolio.filter((item) => item.status === "Bloke").length + '<span class="stat-change">iş</span></div><div class="stat-foot"><span class="risk-pulse"></span><span class="stat-subtle">Gözden geçirme gerekli</span></div></article>' +
+        '<button type="button" class="stat-card" data-overview-filter="open"><div class="stat-top"><span>Aktif backlog</span><span class="stat-icon icon-indigo">☷</span></div><div class="stat-number">' + open.length + '<span class="stat-change">iş</span></div><div class="stat-foot"><span class="mini-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> ' + portfolio.filter((item) => item.activity?.[0] && Date.now() - new Date(item.activity[0].occurredAt).getTime() < 7 * 86400000).length + ' iş son 7 günde güncellendi</div></button>' +
+        '<button type="button" class="stat-card" data-overview-filter="ready"><div class="stat-top"><span>Analize hazır</span><span class="stat-icon icon-green">✓</span></div><div class="stat-number">' + portfolio.filter((item) => item.status === "Hazır").length + '<span class="stat-change">iş</span></div><div class="stat-foot"><span class="progress-track"><i style="width:' + (portfolio.length ? Math.round(portfolio.filter((item) => item.status === "Hazır").length / portfolio.length * 100) : 0) + '%"></i></span> Aktif backlog içindeki oran</div></button>' +
+        '<button type="button" class="stat-card" data-overview-filter="tasks"><div class="stat-top"><span>Takip edeceğim</span><span class="stat-icon icon-amber">◷</span></div><div class="stat-number">' + state.tasks.filter((task) => !task.done).length + '<span class="stat-change">kişisel görev</span></div><div class="stat-foot"><span class="stat-subtle">Bugün tamamlanması gereken</span><strong>' + state.tasks.filter((task) => !task.done && task.due === "Bugün").length + '</strong></div></button>' +
+        '<button type="button" class="stat-card" data-overview-filter="blocked"><div class="stat-top"><span>Bloke işler</span><span class="stat-icon icon-rose">!</span></div><div class="stat-number">' + portfolio.filter((item) => item.status === "Bloke").length + '<span class="stat-change">iş</span></div><div class="stat-foot"><span class="risk-pulse"></span><span class="stat-subtle">Gözden geçirme gerekli</span></div></button>' +
+        '<button type="button" class="stat-card" data-overview-filter="overdue"><div class="stat-top"><span>Geciken işler</span><span class="stat-icon icon-rose">◷</span></div><div class="stat-number">' + open.filter((item) => overdueDays(item) > 0).length + '<span class="stat-change">iş</span></div><div class="stat-foot">Hedef tarihi geçmiş açık işler</div></button>' +
+        '<button type="button" class="stat-card" data-overview-filter="unassigned"><div class="stat-top"><span>Atanmamış işler</span><span class="stat-icon icon-amber">◇</span></div><div class="stat-number">' + open.filter((item) => !getWorkAssignments(item).length).length + '<span class="stat-change">iş</span></div><div class="stat-foot">Takım üyesi bekleyen açık işler</div></button>' +
       '</section>' +
       dashboardTracking +
       '<section class="content-grid">' +
@@ -1104,6 +1401,16 @@ function openSprintCarryover(sprintId: string): void {
   modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">SPRINT KAPANIŞI</div><h2>' + esc(sprint.name) + ' · Kalan işler</h2></div><button class="modal-close" data-close-modal>×</button></header><div class="settings-form"><p class="settings-intro">Tamamlanmayan her iş için yeni sprint seç veya Backlog’a dön.</p><div class="sprint-carryover-list">' + remaining.map((item) => '<label class="sprint-carryover-row"><span><strong>' + esc(item.id) + '</strong> ' + esc(item.title) + '<small>' + esc(item.status) + '</small></span><select class="field-input" data-carryover-item="' + esc(item.id) + '"><option value="">Backlog’a çıkar</option>' + state.sprints.filter((candidate) => candidate.id !== sprintId).map((candidate) => '<option value="' + esc(candidate.id) + '">' + esc(candidate.name) + '</option>').join("") + '</select></label>').join("") + '</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="button" class="button button-primary" data-action="save-sprint-carryover" data-sprint-id="' + esc(sprintId) + '">Kapanışı uygula</button></footer></div></section></div>';
 }
 
+function lastBacklogActivityLabel(items: WorkItem[]): string {
+  const latest = items.flatMap((item) => item.activity || [])
+    .map((entry) => Date.parse(entry.occurredAt))
+    .filter(Number.isFinite)
+    .reduce((max, timestamp) => Math.max(max, timestamp), 0);
+  if (!latest) return "Son iş işlemi: bilinmiyor";
+  const date = new Date(latest);
+  return "Son iş işlemi: " + new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" }).format(date);
+}
+
 function renderBacklog(): void {
   const project = state.projects.find((entry) => entry.id === activeProjectId);
   const scopedItems = getBacklogScopeItems();
@@ -1114,12 +1421,13 @@ function renderBacklog(): void {
   const savedViewOptions = '<option value="">Geçerli görünüm</option>' + [...scopedViews].sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned))).map((view) => '<option value="' + esc(view.id) + '" ' + (activeBacklogViewId === view.id ? "selected" : "") + '>' + (view.pinned ? "★ " : "") + esc(view.name) + '</option>').join("");
   const activeSavedView = scopedViews.find((view) => view.id === activeBacklogViewId);
   const currentViewState = JSON.stringify({ mode: backlogMode, query, status: backlogStatus, type: backlogType, label: labelFilter, teamId: teamFilterId, assignee: assigneeFilter, sprintId: backlogSprintId, includeCompleted: backlogIncludeCompleted, searchScope: backlogSearchScope, columns: backlogColumns, sort: backlogSort });
-  const savedViewState = activeSavedView ? JSON.stringify({ mode: activeSavedView.mode, query: activeSavedView.query, status: activeSavedView.status, type: activeSavedView.type, label: activeSavedView.label, teamId: activeSavedView.teamId, assignee: activeSavedView.assignee, sprintId: activeSavedView.sprintId || "", includeCompleted: activeSavedView.includeCompleted || false, searchScope: activeSavedView.searchScope || "all", columns: activeSavedView.columns, sort: normalizeBacklogSort(activeSavedView.sort === "manual" && activeSavedView.secondarySort && activeSavedView.secondarySort !== "manual" ? activeSavedView.secondarySort : activeSavedView.sort) }) : "";
+  const savedViewState = activeSavedView ? JSON.stringify({ mode: activeSavedView.mode, query: activeSavedView.query, status: activeSavedView.status, type: activeSavedView.type, label: activeSavedView.label, teamId: activeSavedView.teamId, assignee: activeSavedView.assignee, sprintId: activeSavedView.sprintId || "", includeCompleted: activeSavedView.includeCompleted || false, overdueOnly: activeSavedView.overdueOnly || false, statusAgeMinDays: activeSavedView.statusAgeMinDays || 0, searchScope: activeSavedView.searchScope || "all", columns: activeSavedView.columns, sort: normalizeBacklogSort(activeSavedView.sort === "manual" && activeSavedView.secondarySort && activeSavedView.secondarySort !== "manual" ? activeSavedView.secondarySort : activeSavedView.sort) }) : "";
   const viewDirty = Boolean(activeSavedView && currentViewState !== savedViewState);
   const activeFilterCount = [backlogStatus, backlogType, labelFilter, teamFilterId, assigneeFilter, backlogSprintId, backlogIncludeCompleted ? "completed" : ""].filter(Boolean).length;
   root.innerHTML = '<div class="page-content backlog-page backlog-density-' + backlogDensity + (backlogTitleWrap ? ' backlog-wrap-titles' : '') + '"><section class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>' + esc(project?.name || "Genel") + '</div><div class="backlog-heading-line"><h1>' + esc(project ? project.name : "Backlog") + '</h1><p>' + (project ? "Bu projeye ait backlog işleri ve ürün kararları." : "İşlerini önceliklendir.") + '</p></div></div><div class="button-row">' + (project ? '<button class="button button-secondary" data-action="edit-project" data-project-id="' + esc(project.id) + '">Proje ayarları</button>' : "") + '<button class="button button-primary" data-action="new"><span class="button-plus">+</span> Yeni iş oluştur</button></div></section>' +
     '<div class="backlog-toolbar"><div class="backlog-toolbar-main"><div class="filter-group"><label class="filter-search"><span>⌕</span><input id="backlog-search" type="search" placeholder="Başlık, ID, açıklama veya bileşende ara…" value="' + esc(query) + '"></label><details class="backlog-filter-menu" name="backlog-menus"><summary aria-label="Filtreleri göster"><span class="filter-glyph">☷</span><span>Filtreler</span><b class="filter-count" ' + (activeFilterCount ? "" : "hidden") + '>' + activeFilterCount + '</b><span class="menu-chevron">⌄</span></summary><div class="backlog-filter-popover"><div class="filter-popover-heading"><strong>Hızlı filtreleme</strong><small>Sonuçları daralt</small></div><div class="backlog-filter-fields"><label class="backlog-filter-field"><span>Durum</span><select id="status-filter" aria-label="Duruma göre filtrele"><option value="">Tüm durumlar</option><option>Yeni</option><option>Analiz ediliyor</option><option>Hazır</option><option>Devam ediyor</option><option>Bloke</option><option>Tamamlandı</option></select></label><label class="backlog-filter-field"><span>Tür</span><select id="type-filter" aria-label="Türe göre filtrele"><option value="">Tüm türler</option><option>Story</option><option>Bug</option><option>Task</option></select></label><label class="backlog-filter-field"><span>Etiket</span>' + labelFilterOptions + '</label><label class="backlog-filter-field"><span>Takım</span><select id="team-filter" aria-label="Takıma göre filtrele"><option value="">Tüm takımlar</option><option value="__unassigned">Takım atanmamış</option>' + state.teams.map((team) => '<option value="' + esc(team.id) + '" ' + (teamFilterId === team.id ? "selected" : "") + '>' + esc(team.name) + '</option>').join("") + '</select></label><label class="backlog-filter-field"><span>Sorumlu</span><select id="assignee-filter" aria-label="Sorumluya göre filtrele"></select></label><label class="backlog-filter-field"><span>Sprint</span><select id="sprint-filter" aria-label="Sprinte göre filtrele"><option value="">Tüm sprintler</option><option value="__unassigned" ' + (backlogSprintId === "__unassigned" ? "selected" : "") + '>Sprint atanmamış</option>' + (state.sprints || []).map((sprint) => '<option value="' + esc(sprint.id) + '" ' + (backlogSprintId === sprint.id ? "selected" : "") + '>' + esc(sprint.name) + '</option>').join("") + '</select></label><label class="completed-filter"><input id="include-completed" type="checkbox" ' + (backlogIncludeCompleted ? "checked" : "") + '> Tamamlananları göster</label></div></div></details></div></div></div>' +
-    '<div class="backlog-filter-chips" hidden></div><div class="backlog-table-shell"><div class="backlog-table-topbar"><div class="backlog-table-topbar-left"><div class="view-tabs"><button class="view-tab selected" data-action="list">☷ Liste</button><button class="view-tab" data-action="kanban">▥ Board</button></div><div class="backlog-view-recents"></div></div><div class="backlog-table-topbar-right">' + (backlogMode === "list" ? '<button class="button ' + (readyWorkPool ? 'button-primary' : 'button-secondary') + ' button-small" data-action="toggle-ready-pool" aria-pressed="' + readyWorkPool + '">' + (readyWorkPool ? "✓ Hazır iş havuzu" : "Hazır iş havuzu") + '</button><details class="backlog-display-menu" name="backlog-menus"><summary class="button button-secondary button-small"><span aria-hidden="true">⚙</span> Görünüm <span aria-hidden="true">⌄</span></summary><div class="backlog-display-popover"><div class="backlog-view-saved"><select id="backlog-saved-view" aria-label="Kaydedilmiş backlog görünümü">' + savedViewOptions + '</select><button class="button button-secondary button-small" data-action="save-backlog-view">Kaydet</button>' + (activeBacklogViewId ? '<button class="button button-quiet button-small" data-action="update-backlog-view" data-view-id="' + esc(activeBacklogViewId) + '">' + (viewDirty ? 'Güncelle · Değişiklik var' : 'Güncelle') + '</button>' : '') + '<button class="button button-quiet button-small" data-action="manage-backlog-views">Yönet</button></div><div class="backlog-menu-divider"></div><label class="backlog-density-control"><span>Satır</span><select id="backlog-density" aria-label="Tablo satır yoğunluğu"><option value="compact">Kompakt</option><option value="standard">Standart</option><option value="comfortable">Rahat</option></select></label><label class="backlog-density-control"><span>Alt bilgi</span><select id="backlog-secondary-info" aria-label="Satır ikincil bilgisi"><option value="id">İş ID</option><option value="updated">Son güncelleme</option><option value="assignment">Atama</option><option value="none">Kapalı</option></select></label><button class="button button-quiet button-small" data-action="toggle-title-wrap" aria-pressed="' + backlogTitleWrap + '">' + (backlogTitleWrap ? "Başlıkları tek satır yap" : "Başlıkları kaydır") + '</button><button class="button button-quiet button-small" data-action="manage-backlog-columns">Kolonlar</button><button class="button button-quiet button-small" data-action="toggle-backlog-preview" aria-pressed="' + backlogPreviewEnabled + '" title="Başlık önizlemesini aç veya kapat">' + (backlogPreviewEnabled ? "Önizleme açık" : "Önizleme kapalı") + '</button><button class="button button-quiet button-small" data-action="autofit-columns">Kolonları sığdır</button></div></details><details class="backlog-actions-menu" name="backlog-menus"><summary class="button button-secondary button-small"><span aria-hidden="true">⋯</span> Tablo işlemleri <span aria-hidden="true">⌄</span></summary><div class="backlog-action-popover"><button class="button button-secondary button-small" data-action="backlog-export-excel">Excel’e aktar</button><button class="button button-secondary button-small" data-action="backlog-import-excel">Excel’den içe aktar</button><button class="button button-primary button-small" data-action="create-sprint" ' + (getSelectedBacklogItems().length ? "" : "disabled") + '>Sprint oluştur' + (getSelectedBacklogItems().length ? ' · ' + getSelectedBacklogItems().length : '') + '</button><button class="button button-danger button-small" data-action="delete-selected-backlog" ' + (getSelectedBacklogItems().length ? "" : "disabled") + '>Seçilileri sil' + (getSelectedBacklogItems().length ? ' · ' + getSelectedBacklogItems().length : '') + '</button></div></details>' : '') + '</div></div><div class="backlog-table-wrap"><table class="backlog-table"><thead><tr><th>İŞ</th><th>TÜR</th><th>ALAN</th><th>ÖNCELİK</th><th>DURUM</th><th>GÜNCELLENDİ</th><th></th></tr></thead><tbody id="backlog-rows"></tbody></table></div><div class="backlog-summary backlog-summary-footer"><span><strong id="visible-count">' + scopedItems.length + '</strong> / <strong id="total-count">' + state.items.filter((item) => !project || item.project === project.name).length + '</strong> iş</span><span class="summary-dot">·</span><span><i class="legend-dot indigo"></i>' + scopedItems.filter((item) => item.status === "Hazır").length + ' hazır</span><span><i class="legend-dot rose"></i>' + scopedItems.filter((item) => item.status === "Bloke").length + ' bloke</span><span class="summary-right">Son güncelleme: bugün 10:42</span></div></div><div class="backlog-bottom"><span>Gösterilen işler PO çalışma alanında saklanır.</span><div class="backlog-inline-add"><input id="backlog-quick-title" maxlength="120" placeholder="Başlık yaz ve hızlıca ekle…" aria-label="Yeni backlog işi başlığı"><button type="button" class="button button-secondary button-small" data-action="quick-add-backlog">＋ Ekle</button><button type="button" class="button button-quiet button-small" data-action="new">Form</button></div></div></div>';
+    '<div class="backlog-filter-chips" hidden></div><div class="backlog-table-shell"><div class="backlog-table-topbar"><div class="backlog-table-topbar-left"><div class="view-tabs"><button class="view-tab selected" data-action="list">☷ Liste</button><button class="view-tab" data-action="kanban">▥ Board</button></div><div class="backlog-view-recents"></div></div><div class="backlog-table-topbar-right">' + (backlogMode === "list" ? '<button class="button ' + (readyWorkPool ? 'button-primary' : 'button-secondary') + ' button-small" data-action="toggle-ready-pool" aria-pressed="' + readyWorkPool + '">' + (readyWorkPool ? "✓ Hazır iş havuzu" : "Hazır iş havuzu") + '</button><details class="backlog-display-menu" name="backlog-menus"><summary class="button button-secondary button-small"><span aria-hidden="true">⚙</span> Görünüm <span aria-hidden="true">⌄</span></summary><div class="backlog-display-popover"><div class="backlog-view-saved"><select id="backlog-saved-view" aria-label="Kaydedilmiş backlog görünümü">' + savedViewOptions + '</select><button class="button button-secondary button-small" data-action="save-backlog-view">Kaydet</button>' + (activeBacklogViewId ? '<button class="button button-quiet button-small" data-action="update-backlog-view" data-view-id="' + esc(activeBacklogViewId) + '">' + (viewDirty ? 'Güncelle · Değişiklik var' : 'Güncelle') + '</button>' : '') + '<button class="button button-quiet button-small" data-action="manage-backlog-views">Yönet</button></div><div class="backlog-menu-divider"></div><label class="backlog-density-control"><span>Satır</span><select id="backlog-density" aria-label="Tablo satır yoğunluğu"><option value="compact">Kompakt</option><option value="standard">Standart</option><option value="comfortable">Rahat</option></select></label><label class="backlog-density-control"><span>Alt bilgi</span><select id="backlog-secondary-info" aria-label="Satır ikincil bilgisi"><option value="id">İş ID</option><option value="updated">Son güncelleme</option><option value="assignment">Atama</option><option value="none">Kapalı</option></select></label><button class="button button-quiet button-small" data-action="toggle-title-wrap" aria-pressed="' + backlogTitleWrap + '">' + (backlogTitleWrap ? "Başlıkları tek satır yap" : "Başlıkları kaydır") + '</button><button class="button button-quiet button-small" data-action="manage-backlog-columns">Kolonlar</button><button class="button button-quiet button-small" data-action="toggle-backlog-preview" aria-pressed="' + backlogPreviewEnabled + '" title="Başlık önizlemesini aç veya kapat">' + (backlogPreviewEnabled ? "Önizleme açık" : "Önizleme kapalı") + '</button><button class="button button-quiet button-small" data-action="autofit-columns">Kolonları sığdır</button></div></details><details class="backlog-actions-menu" name="backlog-menus"><summary class="button button-secondary button-small"><span aria-hidden="true">⋯</span> Tablo işlemleri <span aria-hidden="true">⌄</span></summary><div class="backlog-action-popover"><button class="button button-secondary button-small" data-action="backlog-export-excel">Excel’e aktar</button><button class="button button-secondary button-small" data-action="backlog-import-excel">Excel’den içe aktar</button><button class="button button-primary button-small" data-action="create-sprint" ' + (getSelectedBacklogItems().length ? "" : "disabled") + '>Sprint oluştur' + (getSelectedBacklogItems().length ? ' · ' + getSelectedBacklogItems().length : '') + '</button><button class="button button-danger button-small" data-action="delete-selected-backlog" ' + (getSelectedBacklogItems().length ? "" : "disabled") + '>Seçilileri sil' + (getSelectedBacklogItems().length ? ' · ' + getSelectedBacklogItems().length : '') + '</button></div></details>' : '') + '</div></div><div class="backlog-table-wrap"><table class="backlog-table"><thead><tr><th>İŞ</th><th>TÜR</th><th>ALAN</th><th>ÖNCELİK</th><th>DURUM</th><th>GÜNCELLENDİ</th><th></th></tr></thead><tbody id="backlog-rows"></tbody></table></div><div class="backlog-summary backlog-summary-footer"><span><strong id="visible-count">' + scopedItems.length + '</strong> / <strong id="total-count">' + state.items.filter((item) => !project || item.project === project.name).length + '</strong> iş</span><span class="summary-dot">·</span><span><i class="legend-dot indigo"></i>' + scopedItems.filter((item) => item.status === "Hazır").length + ' hazır</span><span><i class="legend-dot rose"></i>' + scopedItems.filter((item) => item.status === "Bloke").length + ' bloke</span><span class="summary-right">' + esc(lastBacklogActivityLabel(scopedItems)) + '</span></div></div><div class="backlog-bottom"><span>Gösterilen işler PO çalışma alanında saklanır.</span><div class="backlog-inline-add"><input id="backlog-quick-title" maxlength="120" placeholder="Başlık yaz ve hızlıca ekle…" aria-label="Yeni backlog işi başlığı"><button type="button" class="button button-secondary button-small" data-action="quick-add-backlog">＋ Ekle</button><button type="button" class="button button-quiet button-small" data-action="new">Form</button></div></div></div>';
+  root.querySelector(".backlog-bottom")?.remove();
   if (project) {
     const assignedMembers = (project.assignments || []).map((assignment) => {
       const teamName = state.teams.find((team) => team.id === assignment.teamId)?.name || "Takım";
@@ -1128,7 +1436,7 @@ function renderBacklog(): void {
     root.querySelector(".backlog-toolbar")?.insertAdjacentHTML("beforebegin", '<div class="project-team-strip"><div><strong>Proje ekibi</strong><small>' + (assignedMembers ? "Bu projeye atanmış kişiler" : "Henüz proje üyesi atanmadı") + '</small></div><div class="project-member-chips">' + (assignedMembers || '<span class="project-member-empty">Projeye kişi atamak için Proje ayarları’nı aç.</span>') + '</div></div>');
   }
   const selectedBacklogItems = getSelectedBacklogItems();
-  if (recentBacklogFilters.length) root.querySelector(".backlog-view-recents")?.insertAdjacentHTML("beforeend", '<select id="backlog-recent-filter" aria-label="Son kullanılan filtreler"><option value="">Son filtreler</option>' + recentBacklogFilters.map((filter, index) => { const label = [filter.query ? '“' + filter.query + '”' : "", filter.status, filter.type, filter.label, filter.teamId ? state.teams.find((team) => team.id === filter.teamId)?.name || "Takım" : "", filter.assignee.split("::")[1] || "", filter.sprintId ? filter.sprintId === "__unassigned" ? "Sprint atanmamış" : state.sprints.find((sprint) => sprint.id === filter.sprintId)?.name || "Sprint" : "", filter.includeCompleted ? "Tamamlananlar dahil" : ""].filter(Boolean).join(" · ") || "Filtre"; return '<option value="' + index + '">' + esc(label) + '</option>'; }).join("") + '</select>');
+  if (recentBacklogFilters.length) root.querySelector(".backlog-view-recents")?.insertAdjacentHTML("beforeend", '<select id="backlog-recent-filter" aria-label="Son kullanılan filtreler"><option value="">Son filtreler</option>' + recentBacklogFilters.map((filter, index) => { const label = [filter.query ? '“' + filter.query + '”' : "", filter.status, filter.type, filter.label, filter.teamId ? state.teams.find((team) => team.id === filter.teamId)?.name || "Takım" : "", filter.assignee.split("::")[1] || "", filter.sprintId ? filter.sprintId === "__unassigned" ? "Sprint atanmamış" : state.sprints.find((sprint) => sprint.id === filter.sprintId)?.name || "Sprint" : "", filter.includeCompleted ? "Tamamlananlar dahil" : "", filter.overdueOnly ? "Geciken işler" : ""].filter(Boolean).join(" · ") || "Filtre"; return '<option value="' + index + '">' + esc(label) + '</option>'; }).join("") + '</select>');
   const recentItems = recentItemIds.map((id) => itemById(id)).filter((item): item is WorkItem => Boolean(item));
   if (recentItems.length) root.querySelector(".backlog-view-recents")?.insertAdjacentHTML("beforeend", '<select id="backlog-recent-item" aria-label="Son açılan işler"><option value="">Son açılan işler</option>' + recentItems.map((item) => '<option value="' + esc(item.id) + '">' + esc(item.id + " · " + item.title) + '</option>').join("") + '</select>');
   const bulkStatusOptions = '<option value="">Seçililere durum ata</option>' + ["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Tamamlandı"].map((status) => '<option value="' + status + '">' + status + '</option>').join("");
@@ -1139,7 +1447,7 @@ function renderBacklog(): void {
   if (densitySelect) densitySelect.value = backlogDensity;
   const secondaryInfoSelect = root.querySelector<HTMLSelectElement>("#backlog-secondary-info");
   if (secondaryInfoSelect) secondaryInfoSelect.value = backlogSecondaryInfo;
-  root.querySelector(".backlog-filter-popover")?.insertAdjacentHTML("beforeend", '<label class="backlog-filter-field"><span>Arama kapsamı</span><select id="backlog-search-scope" aria-label="Arama kapsamı"><option value="all">Tüm alanlarda ara</option><option value="title">Başlıkta ara</option><option value="description">Açıklamada ara</option><option value="id">İş ID’sinde ara</option><option value="labels">Etiketlerde ara</option><option value="components">Bileşenlerde ara</option></select></label>');
+  root.querySelector(".backlog-filter-popover")?.insertAdjacentHTML("beforeend", '<label class="backlog-filter-field"><span>Arama kapsamı</span><select id="backlog-search-scope" aria-label="Arama kapsamı"><option value="all">Tüm alanlarda ara</option><option value="title">Başlıkta ara</option><option value="description">Açıklamada ara</option><option value="id">İş ID’sinde ara</option><option value="labels">Etiketlerde ara</option><option value="components">Bileşenlerde ara</option></select></label><label class="backlog-filter-field"><span>Durumda en az (gün)</span><input id="backlog-status-age-min" type="number" min="0" max="3650" value="' + (backlogStatusAgeMinDays || "") + '" placeholder="Tümü" aria-label="Durumda en az gün"></label>');
   (document.getElementById("backlog-search-scope") as HTMLSelectElement).value = backlogSearchScope;
   (document.getElementById("status-filter") as HTMLSelectElement).value = backlogStatus;
   (document.getElementById("type-filter") as HTMLSelectElement).value = backlogType;
@@ -1180,14 +1488,69 @@ function applyBacklogColumnWidths(): void {
     const width = backlogColumnWidths[keys[index]];
     if (!width) return;
     header.style.width = width + "px";
-    table.querySelectorAll<HTMLTableRowElement>("tbody tr").forEach((row) => { const cell = row.cells[index]; if (cell) cell.style.width = width + "px"; });
+    table.querySelectorAll<HTMLTableRowElement>("tbody tr:not(.backlog-insert-row)").forEach((row) => { const cell = row.cells[index]; if (cell) cell.style.width = width + "px"; });
   });
+}
+
+function fitBacklogColumnsToWindow(): void {
+  const table = root.querySelector<HTMLTableElement>(".backlog-table");
+  const wrap = root.querySelector<HTMLElement>(".backlog-table-wrap");
+  if (!table || !wrap || backlogMode !== "list") return;
+  table.querySelectorAll<HTMLElement>(".backlog-auto-hidden").forEach((cell) => cell.classList.remove("backlog-auto-hidden"));
+  const hidden: BacklogColumnId[] = [];
+  const candidates = [...backlogColumns].reverse().filter((id) => !["status", "priority"].includes(id) && !(inlineBacklogEdit?.field === "assignment" && id === "assignment"));
+  for (const id of candidates) {
+    if (table.scrollWidth <= wrap.clientWidth + 2) break;
+    const index = backlogColumns.indexOf(id) + 2;
+    table.querySelectorAll<HTMLTableRowElement>("tr").forEach((row) => row.cells[index]?.classList.add("backlog-auto-hidden"));
+    hidden.push(id);
+  }
+  let indicator = root.querySelector<HTMLElement>(".backlog-hidden-columns");
+  if (!indicator) {
+    indicator = document.createElement("span");
+    indicator.className = "backlog-hidden-columns";
+    root.querySelector(".backlog-table-topbar-left")?.append(indicator);
+  }
+  indicator.textContent = hidden.length ? hidden.length + " kolon sığdırmak için gizlendi: " + hidden.map((id) => BACKLOG_COLUMN_CATALOG.find((column) => column.id === id)?.label || id).join(", ") : "";
+  indicator.hidden = hidden.length === 0;
+}
+
+function wipScope(): { key: string; label: string } {
+  const team = state.teams.find((entry) => entry.id === teamFilterId);
+  return team ? { key: team.id, label: team.name } : { key: "all", label: "Tüm takımlar" };
+}
+
+function wipCount(status: WorkStatus, teamId: string): number {
+  return state.items.filter((item) => !item.archived && item.status === status && (!activeProjectId || item.projectId === activeProjectId || item.project === state.projects.find((project) => project.id === activeProjectId)?.name) && (teamId === "all" || getWorkAssignments(item).some((assignment) => assignment.teamId === teamId))).length;
+}
+
+let pendingWipException: { itemId: string; status: WorkStatus; reason: string } | null = null;
+
+function checkWipBeforeBoardMove(item: WorkItem, nextStatus: WorkStatus): boolean {
+  const scope = wipScope();
+  const limit = state.wipLimits?.[scope.key + "::" + nextStatus];
+  if (limit === undefined || wipCount(nextStatus, scope.key) < limit) { pendingWipException = null; return true; }
+  const reason = window.prompt(scope.label + " · " + nextStatus + " WIP sınırı " + limit + ". Taşıma sınırı aşacak. İstisna gerekçesi yazın:", "")?.trim();
+  if (!reason) { toast("WIP sınırı nedeniyle taşıma iptal edildi."); return false; }
+  pendingWipException = { itemId: item.id, status: nextStatus, reason };
+  return true;
+}
+
+function logWipException(item: WorkItem, status: WorkStatus): void {
+  if (pendingWipException?.itemId === item.id && pendingWipException.status === status) addWorkActivity(item, "change", "WIP sınırı istisnası (" + status + "): " + pendingWipException.reason);
+  pendingWipException = null;
+}
+
+function inlineInsertRow(afterId: string): string {
+  const colspan = backlogColumns.length + 5;
+  if (inlineInsertAfterId === afterId) return '<tr class="backlog-insert-row is-editing"><td colspan="' + colspan + '"><div class="backlog-insert-form"><span aria-hidden="true">＋</span><input class="field-input" data-inline-insert-title="' + esc(afterId) + '" maxlength="120" placeholder="Yeni task başlığı…" aria-label="Yeni task başlığı"><button type="button" class="inline-icon-action inline-icon-confirm" data-action="save-inline-insert" data-after-id="' + esc(afterId) + '" aria-label="Yeni taskı kaydet" title="Kaydet">✓</button><button type="button" class="inline-icon-action inline-icon-dismiss" data-action="cancel-inline-insert" aria-label="Yeni taskı iptal et" title="İptal">×</button></div></td></tr>';
+  return '<tr class="backlog-insert-row"><td colspan="' + colspan + '"><button type="button" class="backlog-insert-button" data-action="start-inline-insert" data-after-id="' + esc(afterId) + '" aria-label="' + (afterId ? esc(afterId + ' işinden sonra yeni task ekle') : 'İlk taskı ekle') + '" title="Bu satırdan sonra yeni task ekle"><span aria-hidden="true">＋</span><span>Buraya task ekle</span></button></td></tr>';
 }
 
 function updateBacklogRows(): void {
   for (const id of selectedBacklogItemIds) if (!state.items.some((item) => item.id === id)) selectedBacklogItemIds.delete(id);
   const status = backlogStatus;
-  const filterCount = [backlogStatus, backlogType, labelFilter, teamFilterId, assigneeFilter, backlogSprintId, backlogIncludeCompleted ? "completed" : ""].filter(Boolean).length;
+  const filterCount = [backlogStatus, backlogType, labelFilter, teamFilterId, assigneeFilter, backlogSprintId, backlogIncludeCompleted ? "completed" : "", backlogOverdueOnly ? "overdue" : "", backlogStatusAgeMinDays ? "statusAge" : ""].filter(Boolean).length;
   const filterCountBadge = root.querySelector<HTMLElement>(".filter-count");
   if (filterCountBadge) { filterCountBadge.textContent = String(filterCount); filterCountBadge.hidden = filterCount === 0; }
   const type = backlogType;
@@ -1205,15 +1568,49 @@ function updateBacklogRows(): void {
     const matchesQuery = !normalizedQuery || queryFields[backlogSearchScope].toLocaleLowerCase("tr-TR").includes(normalizedQuery);
     const ready = item.status !== "Tamamlandı" && item.status !== "Bloke" && (item.acceptance || []).some((criterion) => criterion.trim()) && !(item.dependsOnIds || []).some((id) => { const dependency = itemById(id); return Boolean(dependency && dependency.status !== "Tamamlandı"); });
     const completedIsVisible = backlogIncludeCompleted || status === "Tamamlandı" || item.status !== "Tamamlandı";
-    return (!project || item.project === project.name) && completedIsVisible && (!status || item.status === status) && (!type || item.type === type) && (!label || (item.labels || []).includes(label)) && matchesTeam && matchesAssignee && matchesSprint && matchesQuery && (!readyWorkPool || ready);
+    return !item.archived && isItemInActiveProject(item) && (!project || item.project === project.name) && completedIsVisible && (!status || item.status === status) && (!type || item.type === type) && (!label || (item.labels || []).includes(label)) && matchesTeam && matchesAssignee && matchesSprint && matchesQuery && (!readyWorkPool || ready) && (!backlogOverdueOnly || overdueDays(item) > 0) && (!backlogStatusAgeMinDays || (statusAgeDays(item) ?? -1) >= backlogStatusAgeMinDays);
   }));
   const board = document.getElementById("board-wrap");
   if (board) {
     const columns = ["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Bloke", "Tamamlandı"];
     board.innerHTML = columns.map((column) => {
       const cards = items.filter((item) => item.status === column);
-      return '<section class="board-column" data-board-status="' + esc(column) + '"><header><span><i class="board-status-dot ' + statusClass(column) + '"></i>' + esc(column) + '</span><b>' + cards.length + '</b></header><div class="board-cards">' + (cards.length ? cards.map((item) => '<button class="board-card" draggable="true" data-board-card="' + esc(item.id) + '" data-open-item="' + esc(item.id) + '" aria-label="' + esc(item.id + " · " + item.title + " · " + item.status + ". Durumu değiştirmek için başka bir sütuna sürükleyin.") + '"><span class="board-card-id"><span class="board-card-key">' + esc(item.id) + '</span><span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span></span><strong class="backlog-preview-trigger" data-preview-item="' + esc(item.id) + '" tabindex="0" aria-haspopup="dialog">' + esc(item.title) + '</strong><span class="board-card-footer"><span>' + esc(item.area) + '</span><span class="board-assignment">' + (getWorkAssignments(item).length ? esc(assignmentSummary(item)) : "") + '</span><span class="table-type ' + (item.type === "Bug" ? "bug-type" : item.type === "Task" ? "task-type" : "story-type") + '">' + itemIcon(item.type) + '</span></span></button>').join("") : '<div class="board-empty">Henüz iş yok</div>') + '</div></section>';
+      return '<section class="board-column" data-board-status="' + esc(column) + '"><header><span><i class="board-status-dot ' + statusClass(column) + '"></i>' + esc(column) + '</span><b>' + cards.length + '</b></header><div class="board-cards">' + (cards.length ? cards.map((item) => '<button class="board-card" draggable="true" data-board-card="' + esc(item.id) + '" data-open-item="' + esc(item.id) + '" aria-label="' + esc(item.id + " · " + item.title + " · " + item.status + ". Durumu değiştirmek için başka bir sütuna sürükleyin.") + '"><span class="board-card-id"><span class="board-card-key">' + esc(item.id) + '</span><span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span></span><strong class="backlog-preview-trigger" data-preview-item="' + esc(item.id) + '" tabindex="0" aria-haspopup="dialog">' + esc(item.title) + '</strong><span class="board-card-footer"><span>' + esc(item.area) + '</span><span title="Durumda geçen süre">' + (statusAgeDays(item) === null ? 'Süre bilinmiyor' : statusAgeDays(item) + ' gün') + '</span><span class="board-assignment">' + (getWorkAssignments(item).length ? esc(assignmentSummary(item)) : "") + '</span><span class="table-type ' + (item.type === "Bug" ? "bug-type" : item.type === "Task" ? "task-type" : "story-type") + '">' + itemIcon(item.type) + '</span></span></button>').join("") : '<div class="board-empty">Henüz iş yok</div>') + '</div></section>';
     }).join("");
+    const scope = wipScope();
+    board.querySelectorAll<HTMLElement>(".board-column[data-board-status]").forEach((column) => {
+      const status = column.dataset.boardStatus as WorkStatus;
+      const limit = state.wipLimits?.[scope.key + "::" + status];
+      const count = wipCount(status, scope.key);
+      const label = document.createElement("label");
+      label.className = "board-wip-control" + (limit !== undefined && count > limit ? " board-wip-exceeded" : "");
+      label.textContent = "WIP ";
+      const input = document.createElement("input");
+      input.type = "number"; input.min = "0"; input.max = "999"; input.placeholder = "∞";
+      input.value = limit === undefined ? "" : String(limit);
+      input.dataset.wipStatus = status;
+      input.setAttribute("aria-label", scope.label + " · " + status + " WIP sınırı");
+      input.title = "Boş bırakılırsa sınır yok";
+      label.append(input);
+      if (limit !== undefined && count > limit) label.append(document.createTextNode(" · Sınır aşıldı"));
+      column.querySelector("header")?.append(label);
+    });
+    board.querySelectorAll<HTMLButtonElement>(".board-card[data-board-card]").forEach((card) => {
+      const item = itemById(card.dataset.boardCard || "");
+      if (!item) return;
+      const wrapper = document.createElement("div");
+      wrapper.className = "board-card-wrap";
+      card.replaceWith(wrapper);
+      wrapper.append(card);
+      const select = document.createElement("select");
+      select.className = "board-card-move";
+      select.dataset.boardMove = item.id;
+      select.setAttribute("aria-label", item.id + " işini başka duruma taşı");
+      select.title = "Durumu değiştir";
+      select.innerHTML = '<option value="">Duruma taşı…</option>' + columns.filter((status) => status !== item.status).map((status) => '<option value="' + esc(status) + '">' + esc(status) + '</option>').join("");
+      wrapper.append(select);
+      card.setAttribute("aria-label", item.id + " · " + item.title + ". Ayrıntıyı aç; Shift+Sol/Sağ ile durumu değiştir.");
+    });
     (document.getElementById("visible-count") as HTMLElement).textContent = String(items.length);
     (document.getElementById("total-count") as HTMLElement).textContent = String(state.items.filter((item) => !project || item.project === project.name).length);
     renderActiveBacklogFilterChips();
@@ -1226,8 +1623,9 @@ function updateBacklogRows(): void {
   (document.getElementById("total-count") as HTMLElement).textContent = String(state.items.filter((item) => !project || item.project === project.name).length);
   renderActiveBacklogFilterChips();
   closeBacklogPreview();
-  tbody.innerHTML = items.map((item) => '<tr data-open-item="' + esc(item.id) + '" ' + (backlogSort === "manual" ? 'draggable="true" class="backlog-reorder-row"' : '') + '>' + renderBacklogSelectionCell(item) + renderBacklogTitleCell(item) + backlogColumns.map((column) => renderBacklogCell(item, column)).join("") + backlogActionColumns(item.id) + '</tr>').join("") || '<tr><td colspan="' + (backlogColumns.length + 5) + '" class="empty-table">Bu filtrelerle eşleşen iş yok.</td></tr>';
+  tbody.innerHTML = items.map((item) => '<tr data-open-item="' + esc(item.id) + '" ' + (backlogSort === "manual" ? 'draggable="true" class="backlog-reorder-row"' : '') + '>' + renderBacklogSelectionCell(item) + renderBacklogTitleCell(item) + backlogColumns.map((column) => renderBacklogCell(item, column)).join("") + backlogActionColumns(item.id) + '</tr>' + inlineInsertRow(item.id)).join("") || '<tr><td colspan="' + (backlogColumns.length + 5) + '" class="empty-table">Bu filtrelerle eşleşen iş yok.</td></tr>' + inlineInsertRow("");
   applyBacklogColumnWidths();
+  fitBacklogColumnsToWindow();
   if (!items.length) { const empty = tbody.querySelector(".empty-table"); if (empty) empty.innerHTML = 'Bu filtrelerle eşleşen iş yok.<br><button type="button" class="button button-quiet button-small" data-action="clear-backlog-filters">Filtreleri temizle</button>'; }
   const visibleSelector = root.querySelector<HTMLInputElement>("[data-select-visible-backlog]");
   const selectedVisible = items.filter((item) => selectedBacklogItemIds.has(item.id)).length;
@@ -1253,6 +1651,8 @@ function renderActiveBacklogFilterChips(): void {
   if (assigneeFilter) { const [, member] = assigneeFilter.split("::"); chips.push(["assignee", "Üye: " + (assigneeFilter === "__unassigned" ? "Atanmamış" : member || "Seçili")]); }
   if (backlogSprintId) chips.push(["sprint", "Sprint: " + (backlogSprintId === "__unassigned" ? "Atanmamış" : state.sprints.find((sprint) => sprint.id === backlogSprintId)?.name || "Silinmiş sprint")]);
   if (backlogIncludeCompleted) chips.push(["completed", "Tamamlananlar dahil"]);
+  if (backlogOverdueOnly) chips.push(["overdue", "Geciken işler"]);
+  if (backlogStatusAgeMinDays) chips.push(["statusAge", "Durumda en az " + backlogStatusAgeMinDays + " gün"]);
   host.innerHTML = chips.length ? '<span class="backlog-filter-chips-label">Etkin filtreler</span>' + chips.map(([key, label]) => '<button type="button" class="backlog-filter-chip" data-remove-backlog-filter="' + key + '">' + esc(label) + ' <span aria-hidden="true">×</span></button>').join("") : "";
   host.hidden = chips.length === 0;
 }
@@ -1262,8 +1662,8 @@ function updateSavedBacklogViewDirtyIndicator(): void {
   const view = savedBacklogViews.find((entry) => entry.id === activeBacklogViewId && entry.projectId === activeProjectId);
   const button = root.querySelector<HTMLButtonElement>('[data-action="update-backlog-view"]');
   if (!view || !button) return;
-  const current = JSON.stringify({ mode: backlogMode, query, status: backlogStatus, type: backlogType, label: labelFilter, teamId: teamFilterId, assignee: assigneeFilter, sprintId: backlogSprintId, includeCompleted: backlogIncludeCompleted, searchScope: backlogSearchScope, columns: backlogColumns, sort: backlogSort });
-  const saved = JSON.stringify({ mode: view.mode, query: view.query, status: view.status, type: view.type, label: view.label, teamId: view.teamId, assignee: view.assignee, sprintId: view.sprintId || "", includeCompleted: view.includeCompleted || false, searchScope: view.searchScope || "all", columns: view.columns, sort: normalizeBacklogSort(view.sort === "manual" && view.secondarySort && view.secondarySort !== "manual" ? view.secondarySort : view.sort) });
+  const current = JSON.stringify({ mode: backlogMode, query, status: backlogStatus, type: backlogType, label: labelFilter, teamId: teamFilterId, assignee: assigneeFilter, sprintId: backlogSprintId, includeCompleted: backlogIncludeCompleted, overdueOnly: backlogOverdueOnly, statusAgeMinDays: backlogStatusAgeMinDays, searchScope: backlogSearchScope, columns: backlogColumns, sort: backlogSort });
+  const saved = JSON.stringify({ mode: view.mode, query: view.query, status: view.status, type: view.type, label: view.label, teamId: view.teamId, assignee: view.assignee, sprintId: view.sprintId || "", includeCompleted: view.includeCompleted || false, overdueOnly: view.overdueOnly || false, statusAgeMinDays: view.statusAgeMinDays || 0, searchScope: view.searchScope || "all", columns: view.columns, sort: normalizeBacklogSort(view.sort === "manual" && view.secondarySort && view.secondarySort !== "manual" ? view.secondarySort : view.sort) });
   button.textContent = "Görünümü güncelle" + (current === saved ? "" : " · Değişiklik var");
 }
 
@@ -1315,21 +1715,39 @@ function openInlineBacklogEdit(itemId: string, field: "title" | "status" | "assi
   } else if (field === "type") root.querySelector<HTMLSelectElement>('[data-inline-type="' + CSS.escape(itemId) + '"]')?.focus();
 }
 
+function showInlineFeedback(itemId: string, field: "title" | "status" | "assignment" | "type", message: string, error = false): void {
+  window.clearTimeout(inlineFeedbackTimer);
+  root.querySelectorAll(".inline-save-feedback").forEach((element) => element.remove());
+  const row = [...root.querySelectorAll<HTMLTableRowElement>(".backlog-table tbody tr")].find((entry) => entry.dataset.openItem === itemId);
+  const selector = field === "title" ? '[data-inline-title], [data-inline-action="edit-title"]' : field === "status" ? '[data-inline-status], [data-inline-action="edit-status"]' : field === "type" ? '[data-inline-type], [data-inline-action="edit-type"]' : '[data-inline-member], [data-inline-action="edit-assignment"]';
+  const control = row?.querySelector<HTMLElement>(selector);
+  const host = control?.closest("[data-inline-zone]") || control?.parentElement;
+  if (!host) return;
+  const feedback = document.createElement("span");
+  feedback.className = "inline-save-feedback " + (error ? "inline-save-error" : "inline-save-success");
+  feedback.setAttribute("role", error ? "alert" : "status");
+  feedback.textContent = (error ? "⚠ " : "✓ ") + message;
+  host.append(feedback);
+  if (error) control?.setAttribute("aria-invalid", "true");
+  else inlineFeedbackTimer = window.setTimeout(() => feedback.remove(), 3000);
+}
+
 function commitInlineTitle(itemId: string): void {
   const item = itemById(itemId);
   const input = root.querySelector<HTMLInputElement>('[data-inline-title="' + CSS.escape(itemId) + '"]');
   const title = input?.value.trim() || "";
-  if (!item || !title) { toast("Başlık boş olamaz."); input?.focus(); return; }
+  if (!item || !title) { showInlineFeedback(itemId, "title", "Başlık boş olamaz.", true); input?.focus(); return; }
   if (title !== item.title) {
     const previous = item.title;
     item.title = title;
     item.updated = "Az önce";
     logWorkChange(item, "Başlık", previous, title);
-    save();
+    if (!save()) { showInlineFeedback(itemId, "title", "Kaydedilemedi. Üstteki uyarıdan yeniden deneyin.", true); input?.focus(); return; }
   }
   inlineBacklogEdit = null;
   updateBacklogRows();
-  toast("Başlık güncellendi.");
+  showInlineFeedback(itemId, "title", "Kaydedildi");
+  root.querySelector<HTMLElement>('[data-inline-action="edit-title"][data-item-id="' + CSS.escape(itemId) + '"]')?.focus();
 }
 
 function commitInlineStatus(itemId: string): void {
@@ -1342,9 +1760,10 @@ function commitInlineStatus(itemId: string): void {
   if (nextStatus === "Bloke") { updateBacklogRows(); openStatusUpdateModal(item.id, nextStatus, true); return; }
   applyWorkStatus(item, nextStatus, item.blocker);
   item.updated = "Az önce";
-  save();
+  if (!save()) { showInlineFeedback(itemId, "status", "Kaydedilemedi. Üstteki uyarıdan yeniden deneyin.", true); return; }
   updateBacklogRows();
-  toast("İşin durumu güncellendi.");
+  showInlineFeedback(itemId, "status", "Kaydedildi");
+  root.querySelector<HTMLElement>('[data-inline-action="edit-status"][data-item-id="' + CSS.escape(itemId) + '"]')?.focus();
 }
 
 function commitInlineType(itemId: string): void {
@@ -1357,21 +1776,22 @@ function commitInlineType(itemId: string): void {
     item.type = nextType;
     item.updated = "Az önce";
     logWorkChange(item, "Tür", previous, nextType);
-    save();
+    if (!save()) { showInlineFeedback(itemId, "type", "Kaydedilemedi. Üstteki uyarıdan yeniden deneyin.", true); select.focus(); return; }
   }
   inlineBacklogEdit = null;
   updateBacklogRows();
-  toast("İş türü güncellendi.");
+  showInlineFeedback(itemId, "type", "Kaydedildi");
+  root.querySelector<HTMLElement>('[data-inline-action="edit-type"][data-item-id="' + CSS.escape(itemId) + '"]')?.focus();
 }
 
-function commitInlineAssignment(itemId: string, change: { removeIndex?: number; add?: WorkAssignment }): void {
+function commitInlineAssignment(itemId: string, change: { removeIndex?: number; add?: WorkAssignment }): boolean {
   const item = itemById(itemId);
-  if (!item) return;
+  if (!item) return false;
   const before = getWorkAssignments(item).map((assignment) => ({ ...assignment }));
   let next = [...before];
   if (change.removeIndex != null) next.splice(change.removeIndex, 1);
   if (change.add) {
-    if (next.some((entry) => entry.teamId === change.add?.teamId && entry.member === change.add.member)) { toast("Bu kişi işe zaten atanmış."); return; }
+    if (next.some((entry) => entry.teamId === change.add?.teamId && entry.member === change.add.member)) { showInlineFeedback(itemId, "assignment", "Bu kişi işe zaten atanmış.", true); return false; }
     next.push(change.add);
   }
   next = validAssignments(next);
@@ -1380,9 +1800,11 @@ function commitInlineAssignment(itemId: string, change: { removeIndex?: number; 
   item.updated = "Az önce";
   const describe = (assignments: WorkAssignment[]) => assignments.map((assignment) => (state.teams.find((team) => team.id === assignment.teamId)?.name || "Takım") + " · " + assignment.member + (assignment.scope ? " (" + assignment.scope + ")" : "")).join("; ") || "Atama yok";
   addWorkActivity(item, "change", "Atama: " + describe(before) + " → " + describe(next));
-  save();
+  if (!save()) { showInlineFeedback(itemId, "assignment", "Kaydedilemedi. Üstteki uyarıdan yeniden deneyin.", true); return false; }
   updateBacklogRows();
-  toast(change.add ? "Atama eklendi." : "Atama kaldırıldı.");
+  showInlineFeedback(itemId, "assignment", change.add ? "Atama kaydedildi" : "Atama kaldırıldı");
+  root.querySelector<HTMLInputElement>('[data-inline-member="' + CSS.escape(itemId) + '"]')?.focus();
+  return true;
 }
 
 function commitActiveInlineEditOnOutsideClick(): boolean {
@@ -1417,11 +1839,11 @@ function commitActiveInlineEditOnOutsideClick(): boolean {
   }
   const teamId = assignmentTeamForMember(member, teamInput?.value || "");
   if (!member || !teamId) {
-    toast("Atamak için takım üyesini arayıp seç.");
+    showInlineFeedback(edit.itemId, "assignment", "Atamak için geçerli bir takım üyesi seçin.", true);
     memberInput?.focus();
     return false;
   }
-  commitInlineAssignment(edit.itemId, { add: { teamId, member, ...(scope ? { scope } : {}) } });
+  if (!commitInlineAssignment(edit.itemId, { add: { teamId, member, ...(scope ? { scope } : {}) } })) return false;
   inlineBacklogEdit = null;
   updateBacklogRows();
   return true;
@@ -1438,6 +1860,7 @@ function renderBacklogCell(item: WorkItem, column: BacklogColumnId): string {
     area: '<span class="area-label">' + esc(item.area || "—") + '</span>',
     priority: '<span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span>',
     status: renderInlineStatusCell(item),
+    statusAge: '<span title="' + esc(item.statusEnteredAt ? new Date(item.statusEnteredAt).toLocaleString("tr-TR") : "Bu durumun başlangıcı kayıtlı değil") + '">' + (statusAgeDays(item) === null ? "Bilinmiyor" : statusAgeDays(item) + " gün") + '</span>',
     updated: '<span class="updated-label">' + esc(item.updated || "—") + '</span>',
     assignment: renderInlineAssignmentCell(item),
     project: '<span>' + esc(item.project || "—") + '</span>',
@@ -1481,7 +1904,7 @@ function openBacklogColumnManager(): void {
 function captureBacklogView(name: string, id = nextId("VIEW")): BacklogSavedView {
   return {
     id, name, projectId: activeProjectId, mode: backlogMode === "board" ? "board" : "list", query,
-    status: backlogStatus, type: backlogType, label: labelFilter, teamId: teamFilterId, assignee: assigneeFilter, sprintId: backlogSprintId, includeCompleted: backlogIncludeCompleted, searchScope: backlogSearchScope,
+    status: backlogStatus, type: backlogType, label: labelFilter, teamId: teamFilterId, assignee: assigneeFilter, sprintId: backlogSprintId, includeCompleted: backlogIncludeCompleted, overdueOnly: backlogOverdueOnly, statusAgeMinDays: backlogStatusAgeMinDays, searchScope: backlogSearchScope,
     columns: [...backlogColumns], sort: backlogSort
   };
 }
@@ -1491,8 +1914,8 @@ function persistBacklogViews(): void {
 }
 
 function rememberRecentBacklogFilter(): void {
-  const filter: RecentBacklogFilter = { query: query.trim(), searchScope: backlogSearchScope, status: backlogStatus, type: backlogType, label: labelFilter, teamId: teamFilterId, assignee: assigneeFilter, sprintId: backlogSprintId, includeCompleted: backlogIncludeCompleted };
-  if (!filter.query && !filter.status && !filter.type && !filter.label && !filter.teamId && !filter.assignee && !filter.sprintId && !filter.includeCompleted) return;
+  const filter: RecentBacklogFilter = { query: query.trim(), searchScope: backlogSearchScope, status: backlogStatus, type: backlogType, label: labelFilter, teamId: teamFilterId, assignee: assigneeFilter, sprintId: backlogSprintId, includeCompleted: backlogIncludeCompleted, overdueOnly: backlogOverdueOnly, statusAgeMinDays: backlogStatusAgeMinDays };
+  if (!filter.query && !filter.status && !filter.type && !filter.label && !filter.teamId && !filter.assignee && !filter.sprintId && !filter.includeCompleted && !filter.overdueOnly) return;
   const key = JSON.stringify(filter);
   recentBacklogFilters = [filter, ...recentBacklogFilters.filter((entry) => JSON.stringify(entry) !== key)].slice(0, 5);
   localStorage.setItem(BACKLOG_RECENT_FILTERS_KEY, JSON.stringify(recentBacklogFilters));
@@ -1502,7 +1925,7 @@ function rememberRecentBacklogFilter(): void {
     host = root.querySelector<HTMLElement>(".backlog-view-recents");
   }
   if (host) {
-    const options = recentBacklogFilters.map((entry, index) => { const label = [entry.query ? '“' + entry.query + '”' : "", entry.status, entry.type, entry.label, entry.teamId ? state.teams.find((team) => team.id === entry.teamId)?.name || "Takım" : "", entry.assignee.split("::")[1] || "", entry.sprintId ? entry.sprintId === "__unassigned" ? "Sprint atanmamış" : state.sprints.find((sprint) => sprint.id === entry.sprintId)?.name || "Sprint" : "", entry.includeCompleted ? "Tamamlananlar dahil" : ""].filter(Boolean).join(" · ") || "Filtre"; return '<option value="' + index + '">' + esc(label) + '</option>'; }).join("");
+    const options = recentBacklogFilters.map((entry, index) => { const label = [entry.query ? '“' + entry.query + '”' : "", entry.status, entry.type, entry.label, entry.teamId ? state.teams.find((team) => team.id === entry.teamId)?.name || "Takım" : "", entry.assignee.split("::")[1] || "", entry.sprintId ? entry.sprintId === "__unassigned" ? "Sprint atanmamış" : state.sprints.find((sprint) => sprint.id === entry.sprintId)?.name || "Sprint" : "", entry.includeCompleted ? "Tamamlananlar dahil" : "", entry.overdueOnly ? "Geciken işler" : ""].filter(Boolean).join(" · ") || "Filtre"; return '<option value="' + index + '">' + esc(label) + '</option>'; }).join("");
     const existing = host.querySelector("#backlog-recent-filter");
     if (existing) existing.innerHTML = '<option value="">Son filtreler</option>' + options;
     else host.insertAdjacentHTML("beforeend", '<select id="backlog-recent-filter" aria-label="Son kullanılan filtreler"><option value="">Son filtreler</option>' + options + '</select>');
@@ -1519,6 +1942,7 @@ function applyBacklogView(view: BacklogSavedView): void {
   query = view.query;
   backlogStatus = view.status;
   backlogIncludeCompleted = view.includeCompleted || false;
+  backlogOverdueOnly = view.overdueOnly || false; backlogStatusAgeMinDays = view.statusAgeMinDays || 0;
   backlogType = view.type;
   labelFilter = view.label;
   teamFilterId = view.teamId;
@@ -1579,6 +2003,7 @@ function sortBacklogItems(items: WorkItem[]): WorkItem[] {
       case "area": return item.area;
       case "priority": return priorityRank[item.priority];
       case "status": return statusRank[item.status];
+      case "statusAge": return statusAgeDays(item);
       case "updated": return workItemLastTouched(item) || null;
       case "assignment": return assignments || null;
       case "project": return item.project;
@@ -2099,8 +2524,8 @@ function updateNewForm(): void {
   document.getElementById("note-fields")?.classList.toggle("hidden", kind !== "Not");
 }
 
-function teamMemberRowMarkup(member = "", index = 0): string {
-  return '<div class="team-member-row"><span class="team-member-index">' + String(index + 1).padStart(2, "0") + '</span><input class="field-input" name="members" maxlength="80" autocomplete="off" value="' + esc(member) + '" placeholder="Üye adı soyadı"><button type="button" class="team-member-remove" data-remove-team-member aria-label="Üyeyi kaldır" title="Üyeyi kaldır">×</button></div>';
+function teamMemberRowMarkup(member = "", index = 0, memberId = ""): string {
+  return '<div class="team-member-row" data-member-id="' + esc(memberId) + '"><span class="team-member-index">' + String(index + 1).padStart(2, "0") + '</span><input class="field-input" name="members" maxlength="80" autocomplete="off" value="' + esc(member) + '" placeholder="Üye adı soyadı"><button type="button" class="team-member-remove" data-remove-team-member aria-label="Üyeyi kaldır" title="Üyeyi kaldır">×</button></div>';
 }
 
 function updateTeamMemberRows(): void {
@@ -2119,7 +2544,7 @@ function openTeamEditor(teamId?: string): void {
   teamEditorReturnToSettings = Boolean(modalRoot.querySelector("#settings-title"));
   const team = teamId ? state.teams.find((entry) => entry.id === teamId) : undefined;
   const members = team?.members.length ? team.members : [""];
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal team-editor-modal" role="dialog" aria-modal="true" aria-labelledby="team-title"><header class="modal-header"><div><div class="panel-kicker">ÇALIŞMA EKİPLERİ</div><h2 id="team-title">' + (team ? "Takımı düzenle" : "Yeni takım oluştur") + '</h2><p class="team-editor-subtitle">Takım adını ve görevlere atanabilecek üyeleri belirle.</p></div><button class="modal-close" data-close-modal>×</button></header><form id="team-form" class="settings-form"><label class="field-label">Takım adı<input class="field-input" name="name" maxlength="60" required value="' + esc(team?.name || "") + '" placeholder="Örn. Ödeme Servisleri"></label><div class="team-members-section"><div class="team-members-heading"><div><strong>Takım üyeleri</strong><small>Görev atamalarında bu listeden seçim yapılır.</small></div><span class="team-member-count" id="team-member-count">' + (team?.members.length || 0) + '</span></div><div id="team-member-list" class="team-member-list">' + members.map((member, index) => teamMemberRowMarkup(member, index)).join("") + '</div><button type="button" class="button button-secondary team-add-member" data-add-team-member>＋ Üye ekle</button></div><input type="hidden" name="id" value="' + esc(team?.id || "") + '"><div class="settings-note">En az bir üye ekle. Üye adlarını daha sonra istediğin zaman düzenleyebilirsin.</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-action="back-to-teams">Vazgeç</button><button type="submit" class="button button-primary">' + (team ? "Değişiklikleri kaydet" : "Takımı oluştur") + '</button></footer></form></section></div>';
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal team-editor-modal" role="dialog" aria-modal="true" aria-labelledby="team-title"><header class="modal-header"><div><div class="panel-kicker">ÇALIŞMA EKİPLERİ</div><h2 id="team-title">' + (team ? "Takımı düzenle" : "Yeni takım oluştur") + '</h2><p class="team-editor-subtitle">Takım adını ve görevlere atanabilecek üyeleri belirle.</p></div><button class="modal-close" data-close-modal>×</button></header><form id="team-form" class="settings-form"><label class="field-label">Takım adı<input class="field-input" name="name" maxlength="60" required value="' + esc(team?.name || "") + '" placeholder="Örn. Ödeme Servisleri"></label><div class="team-members-section"><div class="team-members-heading"><div><strong>Takım üyeleri</strong><small>Görev atamalarında bu listeden seçim yapılır.</small></div><span class="team-member-count" id="team-member-count">' + (team?.members.length || 0) + '</span></div><div id="team-member-list" class="team-member-list">' + members.map((member, index) => teamMemberRowMarkup(member, index, team?.memberIds?.[member] || "")).join("") + '</div><button type="button" class="button button-secondary team-add-member" data-add-team-member>＋ Üye ekle</button></div><input type="hidden" name="id" value="' + esc(team?.id || "") + '"><div class="settings-note">En az bir üye ekle. Üye adlarını daha sonra istediğin zaman düzenleyebilirsin.</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-action="back-to-teams">Vazgeç</button><button type="submit" class="button button-primary">' + (team ? "Değişiklikleri kaydet" : "Takımı oluştur") + '</button></footer></form></section></div>';
 }
 
 function saveTeam(event: SubmitEvent): void {
@@ -2128,15 +2553,25 @@ function saveTeam(event: SubmitEvent): void {
   const id = String(values.get("id") || "");
   const name = String(values.get("name") || "").trim();
   const members = [...new Set(values.getAll("members").map((member) => String(member).trim()).filter(Boolean))];
+  const memberRows = [...(event.target as HTMLFormElement).querySelectorAll<HTMLElement>(".team-member-row")].map((row) => ({ name: row.querySelector<HTMLInputElement>('input[name="members"]')?.value.trim() || "", id: row.dataset.memberId || "" })).filter((row) => row.name);
+  const memberIds = Object.fromEntries(memberRows.map((row) => [row.name, row.id || "MEMBER-" + Math.random().toString(36).slice(2, 12).toUpperCase()]));
   if (!members.length) { toast("Takıma en az bir üye ekle."); return; }
   if (state.teams.some((team) => team.name.toLocaleLowerCase("tr-TR") === name.toLocaleLowerCase("tr-TR") && team.id !== id)) { toast("Bu takım adı zaten kullanılıyor."); return; }
   if (id) {
     const team = state.teams.find((entry) => entry.id === id);
     if (!team) return;
-    team.name = name; team.members = members;
+    const previousNames = new Map(Object.entries(team.memberIds || {}).map(([member, memberId]) => [memberId, member]));
+    team.name = name; team.members = members; team.memberIds = memberIds;
+    const updateAssignments = (assignments: WorkAssignment[]) => assignments.forEach((assignment) => {
+      if (assignment.teamId !== team.id) return;
+      const renamed = memberRows.find((row) => row.id && (row.id === assignment.memberId || previousNames.get(row.id) === assignment.member));
+      if (renamed) { assignment.member = renamed.name; assignment.memberId = memberIds[renamed.name]; }
+    });
+    state.items.forEach((item) => updateAssignments(item.assignments || []));
+    state.projects.forEach((project) => updateAssignments(project.assignments || []));
     state.items.forEach((item) => { item.assignments = validAssignments(getWorkAssignments(item)); syncLegacyAssignmentFields(item); });
     state.projects.forEach((project) => { project.assignments = validAssignments(project.assignments || []); });
-  } else state.teams.push({ id: nextId("TEAM"), name, members });
+  } else state.teams.push({ id: nextId("TEAM"), name, members, memberIds });
   save();
   const returnToSettings = teamEditorReturnToSettings;
   teamEditorReturnToSettings = false;
@@ -2271,6 +2706,7 @@ function openDecisionDetail(id: string): void {
   const decisions = state.decisions || [];
   const decision = decisions.find((entry) => entry.id === id);
   if (!decision) return;
+  globalLastRecord = { kind: "decision", id };
   const status = decisionEffectiveStatus(decision);
   const links: string[] = [];
   decision.workItemIds.forEach((itemId) => { const item = itemById(itemId); links.push(item ? '<button class="linked-badge" data-open-item="' + esc(item.id) + '">İş · ' + esc(item.id + ' · ' + item.title) + '</button>' : '<span class="linked-badge">Silinmiş iş · ' + esc(itemId) + '</span>'); });
@@ -2281,6 +2717,37 @@ function openDecisionDetail(id: string): void {
   const successor = decision.supersededById ? decisions.find((entry) => entry.id === decision.supersededById) : undefined;
   const history = decision.history.map((entry) => '<article class="decision-history-entry"><header><strong>v' + entry.version + ' · ' + esc(entry.snapshot.title) + '</strong><span>' + esc(new Date(entry.changedAt).toLocaleString('tr-TR')) + ' · ' + esc(entry.changedBy) + '</span></header><p>' + esc(entry.summary) + '</p><div><small>Bağlam</small><p>' + esc(entry.snapshot.context) + '</p></div><div><small>Karar ve gerekçe</small><p>' + esc(entry.snapshot.rationale) + '</p></div><details><summary>Bu sürümün seçenekleri ve bağlantıları</summary><p>' + esc(entry.snapshot.options.join(' · ') || 'Seçenek kaydı yok') + '</p><small>' + entry.snapshot.workItemIds.length + ' iş · ' + entry.snapshot.assetIds.length + ' bileşen · ' + entry.snapshot.projectIds.length + ' proje · ' + entry.snapshot.releaseIds.length + ' release</small></details></article>').join('');
   modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal decision-detail-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">ÜRÜN KARARI · ' + esc(decision.id) + '</div><h2>' + esc(decision.title) + '</h2></div><button class="modal-close" data-close-modal aria-label="Pencereyi kapat">×</button></header><div class="decision-detail-content"><div class="decision-detail-meta"><span class="decision-status decision-status-' + esc(status.toLocaleLowerCase('tr-TR').replaceAll(' ', '-')) + '">' + esc(status) + '</span><span>Sahip: <strong>' + esc(decision.owner) + '</strong></span><span>Karar tarihi: <strong>' + esc(decision.decidedAt) + '</strong></span><span>Gözden geçirme: <strong>' + esc(decision.reviewAt || 'Planlanmadı') + '</strong></span></div><section class="decision-detail-section"><h3>Bağlam / ihtiyaç</h3><p>' + esc(decision.context) + '</p></section><section class="decision-detail-section"><h3>Değerlendirilen seçenekler</h3>' + (decision.options.length ? '<ol>' + decision.options.map((option) => '<li>' + esc(option) + '</li>').join('') + '</ol>' : '<p>Seçenek kaydı yok.</p>') + '</section><section class="decision-detail-section"><h3>Karar ve gerekçe</h3><p>' + esc(decision.rationale) + '</p></section>' + (prior || successor ? '<section class="decision-detail-section"><h3>Karar zinciri</h3>' + (prior ? '<button class="linked-badge" data-action="open-decision" data-id="' + esc(prior.id) + '">Yerine geçtiği karar · ' + esc(prior.title) + '</button>' : '') + (successor ? '<button class="linked-badge" data-action="open-decision" data-id="' + esc(successor.id) + '">Bu kararın yerine gelen · ' + esc(successor.title) + '</button>' : '') + '</section>' : '') + '<section class="decision-detail-section"><h3>İlişkili kayıtlar <span class="count-chip">' + links.length + '</span></h3><div class="relationship-chip-list">' + (links.join('') || '<p class="asset-muted">Bu karara henüz kayıt bağlanmadı.</p>') + '</div></section><section class="decision-detail-section"><h3>Karar geçmişi <span class="count-chip">' + decision.history.length + '</span></h3>' + (history || '<p class="asset-muted">Düzenleme geçmişi henüz oluşmadı.</p>') + '</section><small class="decision-updated">Son güncelleme · ' + esc(new Date(decision.updatedAt).toLocaleString('tr-TR')) + '</small></div><footer class="modal-footer"><button class="button button-quiet" data-close-modal>Kapat</button><button class="button button-primary" data-action="edit-decision" data-id="' + esc(decision.id) + '">Kararı düzenle</button></footer></section></div>';
+  if (decision.history.length) renderDecisionVersionComparison(decision);
+}
+
+function renderDecisionVersionComparison(decision: ProductDecision): void {
+  const versions = [...decision.history].sort((a, b) => a.version - b.version).map((entry) => ({ label: "v" + entry.version, snapshot: entry.snapshot }));
+  versions.push({ label: "Güncel", snapshot: decisionSnapshot(decision) });
+  const section = document.createElement("section");
+  section.className = "decision-detail-section decision-version-comparison";
+  section.innerHTML = '<h3>Sürümleri karşılaştır</h3><div class="decision-compare-controls"><label>Önceki sürüm<select data-decision-compare="before"></select></label><label>Sonraki sürüm<select data-decision-compare="after"></select></label></div><div class="decision-compare-result" aria-live="polite"></div>';
+  const selects = section.querySelectorAll<HTMLSelectElement>("select");
+  selects.forEach((select, index) => {
+    select.innerHTML = versions.map((version, versionIndex) => '<option value="' + versionIndex + '">' + esc(version.label) + '</option>').join("");
+    select.value = String(index === 0 ? Math.max(0, versions.length - 2) : versions.length - 1);
+  });
+  const update = () => {
+    const before = versions[Number(selects[0].value)].snapshot;
+    const after = versions[Number(selects[1].value)].snapshot;
+    const fields: [keyof ProductDecisionSnapshot, string][] = [["title", "Başlık"], ["context", "Bağlam"], ["options", "Seçenekler"], ["rationale", "Gerekçe"], ["owner", "Sahip"], ["decidedAt", "Karar tarihi"], ["reviewAt", "Gözden geçirme"], ["status", "Durum"], ["workItemIds", "İşler"], ["assetIds", "Bileşenler"], ["projectIds", "Projeler"], ["releaseIds", "Release kayıtları"]];
+    const rows = fields.flatMap(([key, label]) => {
+      const oldValue = before[key]; const newValue = after[key];
+      const oldText = Array.isArray(oldValue) ? oldValue.join(" · ") : String(oldValue || "");
+      const newText = Array.isArray(newValue) ? newValue.join(" · ") : String(newValue || "");
+      if (oldText === newText) return [];
+      const formattingOnly = oldText.replace(/\s+/g, " ").trim() === newText.replace(/\s+/g, " ").trim();
+      return ['<article class="decision-compare-row"><h4>' + esc(label) + (formattingOnly ? ' · yalnızca boşluk düzeni' : '') + '</h4><div><p><small>Önce</small>' + esc(oldText || "—") + '</p><p><small>Sonra</small>' + esc(newText || "—") + '</p></div></article>'];
+    });
+    section.querySelector<HTMLElement>(".decision-compare-result")!.innerHTML = rows.join("") || '<p>Seçilen sürümlerde değişiklik yok.</p>';
+  };
+  selects.forEach((select) => select.addEventListener("change", update));
+  update();
+  modalRoot.querySelector(".decision-updated")?.before(section);
 }
 
 function saveDecision(event: SubmitEvent): void {
@@ -2469,12 +2936,34 @@ function renderTeamSettingsSection(): string {
   return '<section class="settings-team-section"><header><div><h3>Takımlar ve üyeler</h3><p>Görev atamalarında kullanılacak ekipleri ve üyeleri düzenle.</p></div><button type="button" class="button button-secondary button-small" data-action="new-team">＋ Takım ekle</button></header><div class="team-settings-list">' + (rows || '<p class="empty-inline">Henüz takım yok. Üye ve atama tanımlamak için ilk takımı ekle.</p>') + '</div></section>';
 }
 
+function workspaceLinkIssues(): string[] {
+  const issues: string[] = [];
+  const projectNames = new Set(state.projects.map((project) => project.name));
+  const itemIds = new Set(state.items.map((item) => item.id));
+  const assetIds = new Set(state.assets.map((asset) => asset.id));
+  const releaseIds = new Set(state.releases.map((release) => release.id));
+  const sprintIds = new Set(state.sprints.map((sprint) => sprint.id));
+  for (const item of state.items) {
+    if (!projectNames.has(item.project)) issues.push(item.id + ": proje bulunamadı (" + item.project + ")");
+    for (const id of item.dependsOnIds || []) if (!itemIds.has(id)) issues.push(item.id + ": bağımlı iş bulunamadı (" + id + ")");
+    for (const id of item.assetIds || []) if (!assetIds.has(id)) issues.push(item.id + ": bileşen bulunamadı (" + id + ")");
+    if (item.releaseId && !releaseIds.has(item.releaseId)) issues.push(item.id + ": release bulunamadı (" + item.releaseId + ")");
+    if (item.sprintId && !sprintIds.has(item.sprintId)) issues.push(item.id + ": sprint bulunamadı (" + item.sprintId + ")");
+  }
+  return issues;
+}
+
 function openWorkspaceSettings(): void {
   modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header class="modal-header"><div><div class="panel-kicker">ÇALIŞMA ORTAMI</div><h2 id="settings-title">Çalışma alanını ayarla</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="workspace-form" class="settings-form"><p class="settings-intro">Takip edeceğin projeleri ve çalışma alanında görünecek kullanıcı bilgilerini düzenle. Ayarlar bu cihazda saklanır.</p><div class="form-two-col"><label class="field-label">Kurum / ekip<input class="field-input" name="organization" maxlength="60" required value="' + esc(state.profile.organization) + '"></label><label class="field-label">Çalışma alanı adı<input class="field-input" name="workspace" maxlength="60" required value="' + esc(state.profile.workspace) + '"></label><label class="field-label">Adın<input class="field-input" name="userName" maxlength="60" required value="' + esc(state.profile.userName) + '"></label><label class="field-label">Rolün<input class="field-input" name="userRole" maxlength="60" required value="' + esc(state.profile.userRole) + '"></label></div><section class="jira-settings-block"><h3>Jira Server / Data Center</h3><p>Base URL girilmezse Jira menüsü devre dışı kalır. PAT’i Jira panelinde kendi hesabından oluşturup ekleyebilirsin.</p><label class="field-label">Jira Base URL<input class="field-input" name="jiraBaseUrl" type="url" placeholder="https://jira.kurum.local" value="' + esc(state.profile.jiraBaseUrl || "") + '"></label></section><div class="settings-note">Bu bilgiler yalnızca masaüstündeki yerel görünümü kişiselleştirir. Henüz kullanıcı hesabı veya kurum bağlantısı oluşturmaz.</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Kapat</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
   modalRoot.querySelector(".jira-settings-block")?.insertAdjacentHTML("afterend", '<div class="settings-actions"><button type="button" class="button button-secondary" data-action="open-setup">Projeleri ve kurulum bilgilerini düzenle</button></div>' + renderTeamSettingsSection() + '<section class="backup-settings"><h3>Veri yedekleme</h3><p>Yedekleme dosya türünü ve kaydedileceği konumu seç. Ekler de yedeğe eklenir; dosyayı güvenli bir yerde sakla.</p><div class="backup-actions"><label class="field-label">Dosya biçimi<select id="backup-format" class="field-input"><option value="rota">Rota sıkıştırılmış yedek (.rota)</option><option value="json">JSON (.json)</option></select></label><button type="button" class="button button-secondary" data-action="backup-export">Yedek oluştur</button><button type="button" class="button button-secondary" data-action="backup-restore">Yedekten geri yükle</button></div></section>');
-  document.querySelector(".backup-settings")?.insertAdjacentHTML("beforebegin", '<section class="appearance-settings"><h3>Görünüm ve erişilebilirlik</h3><div class="form-two-col"><label class="field-label">Tema<select id="workspace-theme" class="field-input"><option value="system">Sistem</option><option value="light">Açık</option><option value="dark">Koyu</option></select></label><label class="field-label">Yazı boyutu<select id="workspace-font-scale" class="field-input"><option value="0.9">Küçük</option><option value="1">Standart</option><option value="1.1">Büyük</option><option value="1.2">Çok büyük</option></select></label><label class="field-label">Yüksek kontrast<select id="workspace-high-contrast" class="field-input"><option value="false">Kapalı</option><option value="true">Açık</option></select></label><label class="field-label">Animasyonları azalt<select id="workspace-reduced-motion" class="field-input"><option value="false">Kapalı</option><option value="true">Açık</option></select></label></div><button type="button" class="button button-secondary button-small" data-action="reset-backlog-preferences">Backlog görünüm ve kolon tercihlerini sıfırla</button></section>');
+  const linkIssues = workspaceLinkIssues();
+  document.querySelector(".backup-settings")?.insertAdjacentHTML("beforebegin", '<section class="workspace-link-report"><h3>Veri bağlantıları · ' + linkIssues.length + ' sorun</h3>' + (linkIssues.length ? '<ul>' + linkIssues.slice(0, 100).map((issue) => '<li>' + esc(issue) + '</li>').join('') + '</ul>' + (linkIssues.length > 100 ? '<p>İlk 100 sorun gösteriliyor.</p>' : '') : '<p>Eksik proje, iş, bileşen, release veya sprint bağlantısı bulunmadı.</p>') + '</section>');
+  document.querySelector(".backup-settings")?.insertAdjacentHTML("beforebegin", '<section class="appearance-settings"><h3>Görünüm ve erişilebilirlik</h3><div class="form-two-col"><label class="field-label">Tema<select id="workspace-theme" class="field-input"><option value="system">Sistem</option><option value="light">Açık</option><option value="dark">Koyu</option></select></label><label class="field-label">Yakınlaştırma<select id="workspace-app-zoom" class="field-input">' + appZoomOptionsHtml() + '</select></label><label class="field-label">Yüksek kontrast<select id="workspace-high-contrast" class="field-input"><option value="false">Kapalı</option><option value="true">Açık</option></select></label><label class="field-label">Animasyonları azalt<select id="workspace-reduced-motion" class="field-input"><option value="false">Kapalı</option><option value="true">Açık</option></select></label></div><button type="button" class="button button-secondary button-small" data-action="reset-backlog-preferences">Backlog görünüm ve kolon tercihlerini sıfırla</button></section>');
+  const lastAutomaticBackup = localStorage.getItem(AUTO_BACKUP_AT_KEY);
+  document.querySelector(".backup-settings")?.insertAdjacentHTML("afterend", '<section class="backup-settings"><h3>Otomatik yedekler</h3><p>Uygulama açıkken 24 saatte bir ekleriyle birlikte seçilen klasöre yedek alınır. Son 7 kopya saklanır.</p><p>Son başarılı yedek: ' + esc(lastAutomaticBackup ? new Date(lastAutomaticBackup).toLocaleString("tr-TR") : "Henüz yok") + '</p>' + (automaticBackupError ? '<p class="jira-error">' + esc(automaticBackupError) + '</p>' : '') + '<label class="field-label">Yedek klasörü<input id="automatic-backup-directory" class="field-input" placeholder="C:\\Yedekler"></label><button type="button" class="button button-secondary" data-action="backup-auto-folder-save">Klasörü kaydet</button><button type="button" class="button button-secondary" data-action="backup-auto-now">Şimdi otomatik yedek oluştur</button></section>');
+  if (desktop?.getAutomaticBackupDirectory) void desktop.getAutomaticBackupDirectory().then((directory) => { const input = document.getElementById("automatic-backup-directory") as HTMLInputElement | null; if (input) input.value = directory; }).catch(() => undefined);
   (document.getElementById("workspace-theme") as HTMLSelectElement).value = localStorage.getItem(THEME_KEY) || "system";
-  (document.getElementById("workspace-font-scale") as HTMLSelectElement).value = localStorage.getItem(FONT_SCALE_KEY) || "1";
+  (document.getElementById("workspace-app-zoom") as HTMLSelectElement).value = String(appZoom);
   (document.getElementById("workspace-high-contrast") as HTMLSelectElement).value = localStorage.getItem(HIGH_CONTRAST_KEY) || "false";
   (document.getElementById("workspace-reduced-motion") as HTMLSelectElement).value = localStorage.getItem(REDUCED_MOTION_KEY) || "false";
 }
@@ -2485,6 +2974,22 @@ async function exportWorkspaceBackup(): Promise<void> {
     const result = await desktop.exportWorkspaceBackup(state, format);
     if (result) toast("Yedek oluşturuldu · " + result.attachmentCount + " ek · " + result.path);
   } catch (error) { toast(error instanceof Error ? error.message : "Yedek oluşturulamadı."); }
+}
+
+async function createAutomaticBackup(force = false): Promise<void> {
+  if (!desktop?.createAutomaticBackup || unreadableWorkspace !== null || automaticBackupBusy || !hasStoredWorkspace) return;
+  const previous = Date.parse(localStorage.getItem(AUTO_BACKUP_AT_KEY) || "");
+  if (!force && Number.isFinite(previous) && Date.now() - previous < 24 * 3600000) return;
+  automaticBackupBusy = true;
+  try {
+    await desktop.createAutomaticBackup(state);
+    localStorage.setItem(AUTO_BACKUP_AT_KEY, new Date().toISOString());
+    automaticBackupError = "";
+    if (force) { openWorkspaceSettings(); toast("Otomatik yedek oluşturuldu."); }
+  } catch (error) {
+    automaticBackupError = error instanceof Error ? error.message : "Otomatik yedek oluşturulamadı.";
+    if (force) { openWorkspaceSettings(); toast(automaticBackupError); }
+  } finally { automaticBackupBusy = false; }
 }
 
 async function openBacklogExcelImport(): Promise<void> {
@@ -2586,21 +3091,27 @@ async function restoreWorkspaceBackup(): Promise<void> {
       await desktop.cancelWorkspaceRestore(restoreToken);
       return;
     }
+    if (unreadableWorkspace === null && hasStoredWorkspace) await desktop.createAutomaticBackup(state);
     const previousState = state;
     const previousStorage = localStorage.getItem(STORAGE_KEY);
+    const previousUnreadable = unreadableWorkspace;
     try {
-      const restored = { ...candidate, decisions: candidate.decisions || [], diagrams: candidate.diagrams || [], sprints: candidate.sprints || [] } as WorkspaceState;
+      const restored = { ...migrateWorkspace(candidate), decisions: candidate.decisions || [], diagrams: candidate.diagrams || [], sprints: candidate.sprints || [] } as WorkspaceState;
       localStorage.setItem(STORAGE_KEY, JSON.stringify(restored));
       await desktop.commitWorkspaceRestore(restoreToken);
       staged = null;
       state = restored;
+      unreadableWorkspace = null;
+      document.getElementById("workspace-recovery")?.remove();
       if (activeView === "assets") disposeAssetDiagram();
       activeView = "overview"; activeProjectId = null; activeItemId = null;
       save(); render(); closeModal();
       toast("Yedek geri yüklendi · " + attachmentCount + " ek.");
     } catch (error) {
       state = previousState;
+      unreadableWorkspace = previousUnreadable;
       if (previousStorage === null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, previousStorage);
+      showWorkspaceRecovery();
       if (staged) await desktop.cancelWorkspaceRestore(restoreToken).catch(() => undefined);
       throw error;
     }
@@ -2831,6 +3342,9 @@ function renderEmailAttachmentChoices(): void {
 function closeModal(preserveDraftAttachments = false): void {
   disposeWorkDiagramGraph();
   modalRoot.innerHTML = "";
+  activeModalDialog = null;
+  if (modalReturnFocus?.isConnected) modalReturnFocus.focus();
+  modalReturnFocus = null;
   activeItemId = null;
   statusUpdateReturnToBoard = false;
   attachmentTarget = null;
@@ -2993,6 +3507,7 @@ function openItem(id: string): void {
   disposeWorkDiagramGraph();
   const item = itemById(id);
   if (!item) return;
+  globalLastRecord = { kind: "item", id };
   recentItemIds = [id, ...recentItemIds.filter((entry) => entry !== id)].slice(0, 8);
   localStorage.setItem(RECENT_ITEMS_KEY, JSON.stringify(recentItemIds));
   if (activeItemId !== id) progressAttachments = [];
@@ -3543,6 +4058,7 @@ function saveEditedRecord(event: SubmitEvent, kind: "item" | "task" | "note"): v
 function openAsset(id: string): void {
   const asset = state.assets.find((entry) => entry.id === id);
   if (!asset) return;
+  globalLastRecord = { kind: "asset", id };
   const relatedAssets = (asset.relatedAssetIds || []).map((relatedId) => state.assets.find((entry) => entry.id === relatedId)).filter((entry): entry is ProductAsset => Boolean(entry));
   const linkedItems = state.items.filter((item) => (item.assetIds || []).includes(id));
   const ownerTeam = state.teams.find((team) => team.id === asset.ownerTeamId);
@@ -3590,6 +4106,20 @@ function toggleAssetActive(id: string): void {
   asset.active = nextActive;
   asset.updated = "Az önce";
   save(); render(); openAsset(id); toast(nextActive ? "Bileşen yeniden etkinleştirildi." : "Bileşen pasife alındı.");
+}
+
+function moveBoardItem(itemId: string, nextStatus: WorkStatus): void {
+  const item = itemById(itemId);
+  if (!item || item.status === nextStatus) return;
+  if (!checkWipBeforeBoardMove(item, nextStatus)) return;
+  if (nextStatus === "Bloke") { openStatusUpdateModal(item.id, nextStatus, true); return; }
+  applyWorkStatus(item, nextStatus, item.blocker);
+  logWipException(item, nextStatus);
+  item.updated = "Az önce";
+  if (!save()) return;
+  render();
+  root.querySelector<HTMLElement>('[data-board-card="' + CSS.escape(itemId) + '"]')?.focus();
+  toast("İş " + nextStatus + " durumuna taşındı.");
 }
 
 document.addEventListener("dragstart", (event) => {
@@ -3640,18 +4170,8 @@ document.addEventListener("drop", (event) => {
   event.stopPropagation();
   document.querySelectorAll(".board-column.drop-target").forEach((column) => column.classList.remove("drop-target"));
   suppressBoardClickUntil = Date.now() + 400;
-  const item = itemById(itemId);
   const nextStatus = target.dataset.boardStatus as WorkItem["status"] | undefined;
-  if (!item || !nextStatus || item.status === nextStatus) return;
-  if (nextStatus === "Bloke") {
-    openStatusUpdateModal(item.id, nextStatus, true);
-    return;
-  }
-  applyWorkStatus(item, nextStatus, item.blocker);
-  item.updated = "Az önce";
-  save();
-  render();
-  toast("İş " + nextStatus + " durumuna taşındı.");
+  if (nextStatus) moveBoardItem(itemId, nextStatus);
 });
 
 document.addEventListener("pointerdown", (event) => {
@@ -3865,11 +4385,15 @@ document.addEventListener("keydown", (event) => {
 });
 window.addEventListener("blur", closeContextMenu);
 window.addEventListener("resize", closeContextMenu);
+window.addEventListener("resize", fitBacklogColumnsToWindow);
 window.addEventListener("scroll", closeContextMenu, true);
 
 document.addEventListener("click", async (event) => {
   const target = event.target instanceof Element ? event.target : null;
   if (!target) return;
+  const globalResult = target.closest<HTMLElement>("[data-global-result]");
+  if (globalResult) { chooseGlobalSearch(Number(globalResult.dataset.globalResult)); return; }
+  if (!target.closest(".global-search, #global-search-results")) closeGlobalSearch();
   if (inlineBacklogEdit && !target.closest("[data-inline-zone]") && !commitActiveInlineEditOnOutsideClick()) return;
   const clickedBacklogMenu = target.closest<HTMLDetailsElement>('details[name="backlog-menus"]');
   document.querySelectorAll<HTMLDetailsElement>('details[name="backlog-menus"][open]').forEach((menu) => { if (menu !== clickedBacklogMenu) menu.open = false; });
@@ -3952,6 +4476,8 @@ document.addEventListener("click", async (event) => {
     else if (key === "assignee") assigneeFilter = "";
     else if (key === "sprint") backlogSprintId = "";
     else if (key === "completed") backlogIncludeCompleted = false;
+    else if (key === "overdue") backlogOverdueOnly = false;
+    else if (key === "statusAge") backlogStatusAgeMinDays = 0;
     renderBacklog(); return;
   }
   if (target.closest(".help-button")) { openKeyboardHelp(); return; }
@@ -3969,7 +4495,7 @@ document.addEventListener("click", async (event) => {
       const teamId = root.querySelector<HTMLInputElement>('[data-inline-team="' + CSS.escape(itemId) + '"]')?.value || "";
       const member = root.querySelector<HTMLInputElement>('[data-inline-member="' + CSS.escape(itemId) + '"]')?.value.trim() || "";
       const scope = root.querySelector<HTMLInputElement>('[data-inline-scope="' + CSS.escape(itemId) + '"]')?.value.trim() || "";
-      if (!teamId || !member) { toast("Atamak için takım üyesini arayıp seç."); return; }
+      if (!member || !assignmentTeamForMember(member, teamId)) { showInlineFeedback(itemId, "assignment", "Atamak için geçerli bir takım üyesi seçin.", true); root.querySelector<HTMLInputElement>('[data-inline-member="' + CSS.escape(itemId) + '"]')?.focus(); return; }
       commitInlineAssignment(itemId, { add: { teamId, member, ...(scope ? { scope } : {}) } });
     } else if (inlineAction.dataset.inlineAction === "remove-assignment") {
       const index = Number(inlineAction.dataset.assignmentIndex);
@@ -4021,6 +4547,7 @@ document.addEventListener("click", async (event) => {
     const updateNote = (document.getElementById("status-update-note") as HTMLTextAreaElement | null)?.value.trim() || "";
     if (!item || (status === "Bloke" && (!reason || !nextStep || !expectedAction || !owner))) { toast("Bloke iş için neden, beklenen karar/iş, sonraki adım ve takip sahibini doldur."); return; }
     applyWorkStatus(item, status, status === "Bloke" ? { reason, nextStep, expectedAction, owner, followUpAt } : item.blocker, updateNote);
+    logWipException(item, status);
     item.updated = "Az önce";
     const returnToBoard = statusUpdateReturnToBoard;
     statusUpdateReturnToBoard = false;
@@ -4029,7 +4556,7 @@ document.addEventListener("click", async (event) => {
     toast("İşin durumu güncellendi.");
     return;
   }
-  if (target.closest("[data-cancel-status-update]")) { const returnToBoard = statusUpdateReturnToBoard; statusUpdateReturnToBoard = false; if (returnToBoard) closeModal(); else if (activeItemId) openItem(activeItemId); else closeModal(); return; }
+  if (target.closest("[data-cancel-status-update]")) { pendingWipException = null; const returnToBoard = statusUpdateReturnToBoard; statusUpdateReturnToBoard = false; if (returnToBoard) closeModal(); else if (activeItemId) openItem(activeItemId); else closeModal(); return; }
   const picker = document.getElementById("new-assets-picker");
   if (picker && !picker.contains(target)) {
     picker.classList.remove("open");
@@ -4113,11 +4640,49 @@ document.addEventListener("click", async (event) => {
     if (filesRoot) filesRoot.innerHTML = progressAttachments.map((entry, index) => '<span class="progress-note-file">' + esc(entry.name) + '<button type="button" data-remove-progress-file="' + index + '" aria-label="Eki kaldır">×</button></span>').join("");
     return;
   }
+  const overviewFilter = target.closest<HTMLElement>("[data-overview-filter]");
+  if (overviewFilter?.dataset.overviewFilter) {
+    if (overviewFilter.dataset.overviewFilter === "tasks") { setView("focus"); return; }
+    activeProjectId = null;
+    backlogMode = "list";
+    query = "";
+    backlogStatus = overviewFilter.dataset.overviewFilter === "ready" ? "Hazır" : overviewFilter.dataset.overviewFilter === "blocked" ? "Bloke" : "";
+    backlogType = ""; labelFilter = ""; teamFilterId = overviewFilter.dataset.overviewFilter === "unassigned" ? "__unassigned" : ""; assigneeFilter = ""; backlogSprintId = "";
+    backlogOverdueOnly = overviewFilter.dataset.overviewFilter === "overdue"; backlogStatusAgeMinDays = 0;
+    backlogIncludeCompleted = false; readyWorkPool = false; activeBacklogViewId = "";
+    setView("backlog");
+    return;
+  }
   const view = target.closest<HTMLElement>("[data-view]");
   if (view?.dataset.view) { setView(view.dataset.view); return; }
   const action = target.closest<HTMLElement>("[data-action]");
   if (action) {
-    if (action.dataset.action === "open-workspace-settings") openWorkspaceSettings();
+    if (action.dataset.action === "start-inline-insert") {
+      inlineInsertAfterId = action.dataset.afterId || "";
+      updateBacklogRows();
+      root.querySelector<HTMLInputElement>('[data-inline-insert-title="' + CSS.escape(inlineInsertAfterId) + '"]')?.focus();
+    }
+    else if (action.dataset.action === "cancel-inline-insert") { inlineInsertAfterId = null; updateBacklogRows(); }
+    else if (action.dataset.action === "save-inline-insert") {
+      const afterId = action.dataset.afterId || "";
+      const input = root.querySelector<HTMLInputElement>('[data-inline-insert-title="' + CSS.escape(afterId) + '"]');
+      const title = input?.value.trim() || "";
+      if (!title) { input?.setCustomValidity("Task başlığı boş olamaz."); input?.reportValidity(); input?.focus(); return; }
+      const project = state.projects.find((entry) => entry.id === activeProjectId && !entry.archived) || state.projects.find((entry) => !entry.archived);
+      let id = nextId("PAY"); while (state.items.some((item) => item.id === id)) id = nextId("PAY");
+      const item: WorkItem = { id, type: "Task", title, status: "Yeni", priority: "Orta", project: project?.name || "Genel", area: "Genel", updated: "Az önce", description: "", acceptance: [], attachments: [], labels: [], dependsOnIds: [], activity: [] };
+      addWorkActivity(item, "created", "Task listede oluşturuldu.");
+      const previousIndex = state.items.findIndex((entry) => entry.id === afterId);
+      state.items.splice(previousIndex < 0 ? state.items.length : previousIndex + 1, 0, item);
+      if (!save()) { state.items = state.items.filter((entry) => entry !== item); input?.focus(); return; }
+      const scrollTop = root.querySelector<HTMLElement>(".backlog-table-wrap")?.scrollTop || 0;
+      inlineInsertAfterId = null; backlogSort = "manual"; renderBacklog();
+      const wrap = root.querySelector<HTMLElement>(".backlog-table-wrap"); if (wrap) wrap.scrollTop = scrollTop;
+      const created = root.querySelector<HTMLElement>('[data-open-item="' + CSS.escape(id) + '"] .backlog-title-open');
+      created?.focus();
+      toast(created ? "Task araya eklendi." : "Task eklendi; mevcut filtreler nedeniyle listede görünmüyor.");
+    }
+    else if (action.dataset.action === "open-workspace-settings") openWorkspaceSettings();
     else if (action.dataset.action === "jira-refresh") await refreshJiraCatalog();
     else if (action.dataset.action === "jira-save-token") await saveJiraPat();
     else if (action.dataset.action === "jira-replace-token") { jiraHasSavedToken = false; jiraError = "Yeni tokenı kaydettiğinde mevcut PAT değiştirilir."; renderJira(); }
@@ -4127,6 +4692,7 @@ document.addEventListener("click", async (event) => {
       catch (error) { toast(error instanceof Error ? error.message : "Jira token sayfası açılamadı."); }
     }
     else if (action.dataset.action === "jira-fetch-issues") await fetchJiraIssues();
+    else if (action.dataset.action === "jira-load-more") await fetchJiraIssues(false);
     else if (action.dataset.action === "jira-create-issue") await createJiraIssueFromRota();
     else if (action.dataset.action === "jira-open-issue" && action.dataset.issueKey && state.profile.jiraBaseUrl) {
       try { await desktop.jiraOpenIssue(state.profile.jiraBaseUrl, action.dataset.issueKey); } catch (error) { toast(error instanceof Error ? error.message : "Jira işi açılamadı."); }
@@ -4160,8 +4726,8 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
       const today = new Date(); selectedDailyDate = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-"); renderDailyPlan();
     }
     else if (action.dataset.action === "save-daily-plan") { getDailyPlan().note = root.querySelector<HTMLTextAreaElement>("#daily-plan-note")?.value.trim() || ""; save(); toast("Günlük PO planı kaydedildi."); }
-    else if (action.dataset.action === "save-weekly-summary") { state.weeklySummaryNotes ||= {}; state.weeklySummaryNotes[selectedWeeklyStart] = root.querySelector<HTMLTextAreaElement>("#weekly-summary-note")?.value.trim() || ""; save(); renderWeeklySummary(); toast("Haftalık değerlendirme kaydedildi."); }
-    else if (action.dataset.action === "copy-weekly-summary") { state.weeklySummaryNotes ||= {}; state.weeklySummaryNotes[selectedWeeklyStart] = root.querySelector<HTMLTextAreaElement>("#weekly-summary-note")?.value.trim() || ""; save(); void navigator.clipboard.writeText(weeklySummaryText()).then(() => toast("Haftalık özet panoya kopyalandı.")).catch(() => toast("Panoya kopyalanamadı; metni seçerek kopyalayabilirsin.")); }
+    else if (action.dataset.action === "save-weekly-summary") { state.weeklySummaryNotes ||= {}; state.weeklySummaryNotes[selectedWeeklyStart + (selectedWeeklyProjectId ? "::" + selectedWeeklyProjectId : "")] = root.querySelector<HTMLTextAreaElement>("#weekly-summary-note")?.value.trim() || ""; save(); renderWeeklySummary(); toast("Haftalık değerlendirme kaydedildi."); }
+    else if (action.dataset.action === "copy-weekly-summary") { state.weeklySummaryNotes ||= {}; state.weeklySummaryNotes[selectedWeeklyStart + (selectedWeeklyProjectId ? "::" + selectedWeeklyProjectId : "")] = root.querySelector<HTMLTextAreaElement>("#weekly-summary-note")?.value.trim() || ""; save(); void navigator.clipboard.writeText(weeklySummaryText()).then(() => toast("Haftalık özet panoya kopyalandı.")).catch(() => toast("Panoya kopyalanamadı; metni seçerek kopyalayabilirsin.")); }
     else if (action.dataset.action === "restore-item" && action.dataset.id) { const item = itemById(action.dataset.id); if (item) { item.archived = false; save(); renderArchiveSearch(); toast("İş arşivden çıkarıldı."); } }
     else if (action.dataset.action === "restore-project" && action.dataset.id) { archiveProject(action.dataset.id, false); renderArchiveSearch(); }
     else if (action.dataset.action === "restore-release" && action.dataset.id) { const release = state.releases.find((entry) => entry.id === action.dataset.id); if (release) { release.archived = false; save(); renderArchiveSearch(); toast("Release arşivden çıkarıldı."); } }
@@ -4233,6 +4799,9 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
       pinnedProjectIds = pinnedProjectIds.includes(id) ? pinnedProjectIds.filter((entry) => entry !== id) : [id, ...pinnedProjectIds];
       localStorage.setItem(PINNED_PROJECTS_KEY, JSON.stringify(pinnedProjectIds)); renderProjectNav();
     }
+    else if (action.dataset.action === "reset-zoom") {
+      if (appZoom !== 1) { setAppZoom(1); toast("Yakınlaştırma %100'e döndü."); }
+    }
     else if (action.dataset.action === "toggle-sidebar") {
       const sidebar = document.querySelector(".sidebar");
       const collapsing = !sidebar?.classList.contains("collapsed");
@@ -4264,16 +4833,6 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
       lastUndoWorkItems = null; window.clearTimeout(lastUndoTimer); save(); renderBacklog(); toast("Son backlog değişikliği geri alındı.");
     }
     else if (action.dataset.action === "quick-related-task" && action.dataset.id) { closeModal(); openQuickCreateModal("Kişisel görev", action.dataset.id); }
-    else if (action.dataset.action === "quick-add-backlog") {
-      const input = root.querySelector<HTMLInputElement>("#backlog-quick-title");
-      const title = input?.value.trim() || "";
-      if (!title) { input?.focus(); return; }
-      const project = state.projects.find((entry) => entry.id === activeProjectId && !entry.archived) || state.projects.find((entry) => !entry.archived);
-      let id = nextId("PAY"); while (state.items.some((item) => item.id === id)) id = nextId("PAY");
-      const item: WorkItem = { id, type: "Story", title, status: "Yeni", priority: "Orta", project: project?.name || "Genel", area: "Genel", updated: "Az önce", description: "", acceptance: [], attachments: [], labels: [], dependsOnIds: [], activity: [] };
-      addWorkActivity(item, "created", "İş oluşturuldu."); state.items.unshift(item); save(); renderBacklog(); toast("Backlog işi hızlıca eklendi.");
-      root.querySelector<HTMLInputElement>("#backlog-quick-title")?.focus();
-    }
     else if (action.dataset.action === "note-to-task" && action.dataset.id) {
       const note = state.notes.find((entry) => entry.id === action.dataset.id);
       if (!note) return;
@@ -4281,7 +4840,7 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
       save(); renderFocus(); toast("Not içeriği ve bağlantısı korunarak görev oluşturuldu.");
     }
     else if (action.dataset.action === "clear-backlog-filters") {
-      query = ""; backlogStatus = ""; backlogType = ""; labelFilter = ""; teamFilterId = ""; assigneeFilter = ""; backlogSprintId = ""; backlogIncludeCompleted = false;
+      query = ""; backlogStatus = ""; backlogType = ""; labelFilter = ""; teamFilterId = ""; assigneeFilter = ""; backlogSprintId = ""; backlogIncludeCompleted = false; backlogOverdueOnly = false; backlogStatusAgeMinDays = 0;
       renderBacklog();
     }
     else if (action.dataset.action === "toggle-title-wrap") {
@@ -4427,6 +4986,11 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
       save(); renderBacklog(); toastUndo(assigned.length + " iş sprintten çıkarıldı.", before);
     }
     else if (action.dataset.action === "backup-export") await exportWorkspaceBackup();
+    else if (action.dataset.action === "backup-auto-now") await createAutomaticBackup(true);
+    else if (action.dataset.action === "backup-auto-folder-save") {
+      try { const input = document.getElementById("automatic-backup-directory") as HTMLInputElement | null; const directory = await desktop.setAutomaticBackupDirectory(input?.value.trim() || ""); if (input) input.value = directory; toast("Yedek klasörü kaydedildi."); }
+      catch (error) { toast(error instanceof Error ? error.message : "Yedek klasörü kaydedilemedi."); }
+    }
     else if (action.dataset.action === "backup-restore") await restoreWorkspaceBackup();
     else if (action.dataset.action === "create-roadmap") openRoadmapEditor();
     else if (action.dataset.action === "new-decision") openDecisionEditor();
@@ -4588,6 +5152,14 @@ document.addEventListener("focusout", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const target = event.target instanceof HTMLElement ? event.target : null;
+  if (target?.matches(".board-card[data-board-card]") && event.shiftKey && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+    const statuses: WorkStatus[] = ["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Bloke", "Tamamlandı"];
+    const item = itemById(target.dataset.boardCard || "");
+    const index = item ? statuses.indexOf(item.status) : -1;
+    const next = statuses[index + (event.key === "ArrowRight" ? 1 : -1)];
+    if (next) { event.preventDefault(); moveBoardItem(item!.id, next); }
+    return;
+  }
   if (target?.dataset.inlineTitle) {
     if (event.key === "Enter") { event.preventDefault(); commitInlineTitle(target.dataset.inlineTitle); return; }
     if (event.key === "Escape") { inlineBacklogEdit = null; updateBacklogRows(); return; }
@@ -4642,20 +5214,37 @@ window.addEventListener("resize", () => {
 });
 
 document.addEventListener("change", (event) => {
+  if (event.target instanceof HTMLInputElement && event.target.dataset.wipStatus) {
+    const status = event.target.dataset.wipStatus as WorkStatus;
+    const key = wipScope().key + "::" + status;
+    state.wipLimits ||= {};
+    if (event.target.value.trim() === "") delete state.wipLimits[key];
+    else {
+      const value = Number(event.target.value);
+      if (!Number.isInteger(value) || value < 0 || value > 999) { event.target.setCustomValidity("0 ile 999 arasında bir tam sayı girin."); event.target.reportValidity(); return; }
+      state.wipLimits[key] = value;
+    }
+    event.target.setCustomValidity("");
+    if (save()) updateBacklogRows();
+    return;
+  }
+  if (event.target instanceof HTMLSelectElement && event.target.dataset.boardMove && event.target.value) { moveBoardItem(event.target.dataset.boardMove, event.target.value as WorkStatus); return; }
+  if (event.target instanceof HTMLInputElement && event.target.id === "backlog-status-age-min") { backlogStatusAgeMinDays = Math.min(3650, Math.max(0, Number(event.target.value) || 0)); updateBacklogRows(); return; }
   if (event.target instanceof HTMLTextAreaElement && event.target.id === "daily-plan-note") { getDailyPlan().note = event.target.value.trim(); save(); return; }
   if (event.target instanceof HTMLSelectElement) {
+    if (event.target.id === "weekly-summary-project") { selectedWeeklyProjectId = event.target.value; renderWeeklySummary(); return; }
     if (event.target.id === "decision-filter") { decisionFilter = event.target.value as typeof decisionFilter; renderDecisions(); return; }
     if (event.target.id === "jira-board-select") { jiraSelectedBoardId = event.target.value; void loadJiraBoardDetails(); return; }
     if (event.target.id === "jira-project-select") { jiraSelectedProjectKey = event.target.value; void loadJiraProjectIssueTypes(); return; }
-    if (event.target.id === "jira-scope-select") { jiraIssueScope = event.target.value as typeof jiraIssueScope; jiraIssues = []; renderJira(); return; }
-    if (event.target.id === "jira-sprint-select") { jiraSelectedSprintId = event.target.value; jiraIssues = []; renderJira(); return; }
+    if (event.target.id === "jira-scope-select") { jiraIssueScope = event.target.value as typeof jiraIssueScope; clearJiraIssueResults(); renderJira(); return; }
+    if (event.target.id === "jira-sprint-select") { jiraSelectedSprintId = event.target.value; clearJiraIssueResults(); renderJira(); return; }
     if (event.target.id === "jira-issue-type-select") { jiraSelectedIssueTypeId = event.target.value; return; }
     if (event.target.id === "jira-rota-item-select") { jiraSelectedRotaItemId = event.target.value; renderJira(); return; }
   }
   if (event.target instanceof HTMLInputElement && event.target.id === "daily-plan-date" && event.target.value) { selectedDailyDate = event.target.value; renderDailyPlan(); return; }
   if (event.target instanceof HTMLInputElement && event.target.id === "weekly-summary-start" && event.target.value) { selectedWeeklyStart = weekStartDate(new Date(event.target.value + "T00:00:00")); renderWeeklySummary(); return; }
   if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-theme") { localStorage.setItem(THEME_KEY, event.target.value); document.body.classList.toggle("dark-theme", event.target.value === "dark" || (event.target.value === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)); }
-  if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-font-scale") { localStorage.setItem(FONT_SCALE_KEY, event.target.value); document.body.style.zoom = event.target.value; }
+  if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-app-zoom") { setAppZoom(Number(event.target.value)); }
   if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-high-contrast") { localStorage.setItem(HIGH_CONTRAST_KEY, event.target.value); document.body.classList.toggle("high-contrast", event.target.value === "true"); }
   if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-reduced-motion") { localStorage.setItem(REDUCED_MOTION_KEY, event.target.value); document.body.classList.toggle("reduced-motion", event.target.value === "true"); }
   if (event.target instanceof HTMLSelectElement && event.target.id === "sprint-duration") {
@@ -4698,7 +5287,7 @@ document.addEventListener("change", (event) => {
   }
   if (target.id === "backlog-recent-filter") {
   const filter = recentBacklogFilters[Number(target.value)];
-    if (filter) { query = filter.query; backlogSearchScope = filter.searchScope; backlogStatus = filter.status; backlogType = filter.type; labelFilter = filter.label; teamFilterId = filter.teamId; assigneeFilter = filter.assignee; backlogSprintId = filter.sprintId || ""; backlogIncludeCompleted = filter.includeCompleted || false; activeBacklogViewId = ""; renderBacklog(); }
+    if (filter) { query = filter.query; backlogSearchScope = filter.searchScope; backlogStatus = filter.status; backlogType = filter.type; labelFilter = filter.label; teamFilterId = filter.teamId; assigneeFilter = filter.assignee; backlogSprintId = filter.sprintId || ""; backlogIncludeCompleted = filter.includeCompleted || false; backlogOverdueOnly = filter.overdueOnly || false; backlogStatusAgeMinDays = filter.statusAgeMinDays || 0; activeBacklogViewId = ""; renderBacklog(); }
     target.value = ""; return;
   }
   if (target.id === "backlog-recent-item" && target.value) { openItem(target.value); target.value = ""; return; }
@@ -4810,6 +5399,7 @@ document.addEventListener("change", (event) => {
 
 document.addEventListener("input", (event) => {
   const target = event.target as HTMLInputElement;
+  if (target.dataset?.inlineInsertTitle !== undefined) { target.setCustomValidity(""); return; }
   if (target.matches("[data-assignment-member]")) {
     const row = target.closest<HTMLElement>(".assignment-edit-row");
     const team = row?.querySelector<HTMLInputElement>("[data-assignment-team]");
@@ -4833,14 +5423,13 @@ document.addEventListener("input", (event) => {
   if (target.id === "backlog-search") { query = target.value; rememberRecentBacklogFilter(); updateBacklogRows(); }
   if (target.id === "asset-search") { assetQuery = target.value; updateAssetGrid(); }
   if (target.id === "global-search") {
-    query = target.value;
-    if (query && activeView !== "backlog") setView("backlog");
-    else if (activeView === "backlog") updateBacklogRows();
+    renderGlobalSearch();
   }
 });
 
 document.addEventListener("focusin", (event) => {
   const target = event.target as HTMLElement;
+  if (target.id === "global-search") { renderGlobalSearch(); return; }
   if (target.id !== "new-assets-search") return;
   document.getElementById("new-assets-picker")?.classList.add("open");
   target.setAttribute("aria-expanded", "true");
@@ -4911,10 +5500,13 @@ document.addEventListener("submit", (event) => {
 
 document.addEventListener("keydown", (event) => {
   const target = event.target as HTMLElement;
-  if (target.id === "backlog-quick-title" && event.key === "Enter") { event.preventDefault(); root.querySelector<HTMLButtonElement>('[data-action="quick-add-backlog"]')?.click(); return; }
+  if (target instanceof HTMLInputElement && target.dataset.inlineInsertTitle !== undefined) {
+    if (event.key === "Enter") { event.preventDefault(); root.querySelector<HTMLButtonElement>('[data-action="save-inline-insert"][data-after-id="' + CSS.escape(target.dataset.inlineInsertTitle) + '"]')?.click(); return; }
+    if (event.key === "Escape") { event.preventDefault(); inlineInsertAfterId = null; updateBacklogRows(); return; }
+  }
   if (event.key === "Escape" && modalRoot.querySelector(".modal-backdrop")) { closeModal(); return; }
   if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "n") {
-    event.preventDefault(); openQuickCreateModal(); return;
+    event.preventDefault(); modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null; openQuickCreateModal(); return;
   }
   if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && modalRoot.querySelector("#quick-create-form")) {
     event.preventDefault(); modalRoot.querySelector<HTMLButtonElement>('#quick-create-form button[value="close"]')?.click(); return;
@@ -4928,6 +5520,18 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     const search = document.getElementById("global-search") as HTMLInputElement;
     search.focus();
+  }
+  if (document.activeElement?.id === "global-search" && !document.getElementById("global-search-results")?.hidden) {
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const count = globalSearchResults.length;
+      if (count) globalSearchSelection = (globalSearchSelection + (event.key === "ArrowDown" ? 1 : -1) + count) % count;
+      document.querySelectorAll<HTMLElement>(".global-search-result").forEach((row, index) => { row.classList.toggle("selected", index === globalSearchSelection); row.setAttribute("aria-selected", String(index === globalSearchSelection)); });
+      document.getElementById("global-search")?.setAttribute("aria-activedescendant", count ? "global-result-" + globalSearchSelection : "");
+      return;
+    }
+    if (event.key === "Enter") { event.preventDefault(); chooseGlobalSearch(globalSearchSelection); return; }
+    if (event.key === "Escape") { event.preventDefault(); closeGlobalSearch(); return; }
   }
   if (event.key === "Escape" && document.getElementById("new-assets-picker")?.classList.contains("open")) {
     event.stopImmediatePropagation();
@@ -5007,8 +5611,11 @@ window.addEventListener("drop", async (event) => {
 });
 
 render();
+showWorkspaceRecovery();
 checkFollowUpReminders();
 window.setInterval(checkFollowUpReminders, 60_000);
+window.setTimeout(() => { void createAutomaticBackup(); }, 10_000);
+window.setInterval(() => { void createAutomaticBackup(); }, 60 * 60_000);
 if (!hasStoredWorkspace) openSetupWizard(true);
 
 

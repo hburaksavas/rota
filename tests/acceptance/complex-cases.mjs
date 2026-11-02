@@ -393,7 +393,7 @@ export function addComplexCases(cases) {
     await click(p, ".profile");
     await get(p, "#workspace-form").waitFor({ state: "visible" });
     await choose(p, "#workspace-theme", ["light", "dark", "system"][n % 3]);
-    await choose(p, "#workspace-font-scale", ["1", "1.1", "1.2", "0.9", "1"][n]);
+    await choose(p, "#workspace-app-zoom", ["1", "1.1", "1.2", "0.9", "1"][n]);
     await choose(p, "#workspace-high-contrast", n % 2 ? "true" : "false");
     await choose(p, "#workspace-reduced-motion", n % 2 ? "false" : "true");
     await p.locator('#workspace-form button[type="submit"]').click();

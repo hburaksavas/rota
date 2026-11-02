@@ -22,8 +22,11 @@ interface WorkItem {
   type: WorkType;
   title: string;
   status: WorkStatus;
+  statusEnteredAt?: string;
+  statusHistory?: { status: WorkStatus; enteredAt: string; leftAt: string }[];
   priority: Priority;
   project: string;
+  projectId?: string;
   area: string;
   updated: string;
   description: string;
@@ -119,6 +122,7 @@ interface RoadmapNode {
   type: "Initiative" | "Epic";
   title: string;
   project: string;
+  projectId?: string;
   parentId?: string;
   goal: string;
   successMetric: string;
@@ -135,6 +139,7 @@ type ReleaseStatus = "Planlanıyor" | "Hazırlanıyor" | "Yayına hazır" | "Yay
 interface ProductRelease {
   id: string;
   project: string;
+  projectId?: string;
   name: string;
   plannedDate: string;
   status: ReleaseStatus;
@@ -203,6 +208,7 @@ interface WorkActivity {
 interface WorkAssignment {
   teamId: string;
   member: string;
+  memberId?: string;
   scope?: string;
 }
 
@@ -212,6 +218,7 @@ interface ProductAsset {
   name: string;
   type: ProductAssetType;
   project: string;
+  projectId?: string;
   area: string;
   purpose: string;
   description: string;
@@ -284,6 +291,7 @@ interface Team {
   id: string;
   name: string;
   members: string[];
+  memberIds?: Record<string, string>;
 }
 
 interface WorkspaceProfile {
@@ -303,6 +311,7 @@ interface JiraSavedFilter { id: string; name: string; jql?: string; }
 interface JiraIssue { id: string; key: string; summary: string; issueType: string; status: string; priority: string; assignee: string; updated: string; browseUrl: string; }
 
 interface WorkspaceState {
+  schemaVersion?: number;
   items: WorkItem[];
   tasks: PersonalTask[];
   notes: PersonalNote[];
@@ -320,6 +329,7 @@ interface WorkspaceState {
   risks?: ProductRisk[];
   dailyPlans?: DailyPlan[];
   weeklySummaryNotes?: Record<string, string>;
+  wipLimits?: Record<string, number>;
   handoverNotes?: Record<string, string>;
 }
 
@@ -353,6 +363,10 @@ interface DesktopBridge {
   previewAttachment(storedName: string): Promise<{ mimeType: string; dataUrl: string } | null>;
   removeAttachment(storedName: string): Promise<boolean>;
   exportWorkspaceBackup(workspace: unknown, format: "rota" | "json"): Promise<{ path: string; attachmentCount: number } | null>;
+  createAutomaticBackup(workspace: unknown): Promise<{ path: string; attachmentCount: number }>;
+  getAutomaticBackupDirectory(): Promise<string>;
+  setAutomaticBackupDirectory(directory: string): Promise<string>;
+  exportUnreadableWorkspace(raw: string): Promise<string | null>;
   exportBacklogExcel(sheets: ExcelExportSheet[]): Promise<string | null>;
   pickBacklogExcelImport(): Promise<{ filename: string; rows: { title: string; description: string }[] } | null>;
   stageWorkspaceRestore(): Promise<{ token: string; workspace: unknown; attachmentCount: number } | null>;
@@ -369,7 +383,7 @@ interface DesktopBridge {
   jiraListBoards(baseUrl: string): Promise<JiraBoard[]>;
   jiraListBoardProjects(baseUrl: string, boardId: string): Promise<JiraProject[]>;
   jiraListSprints(baseUrl: string, boardId: string): Promise<JiraSprint[]>;
-  jiraFetchBoardIssues(baseUrl: string, boardId: string, scope: "backlog" | "board" | "sprint", sprintId?: string): Promise<JiraIssue[]>;
+  jiraFetchBoardIssues(baseUrl: string, boardId: string, scope: "backlog" | "board" | "sprint", sprintId?: string, startAt?: number): Promise<{ issues: JiraIssue[]; total?: number; hasMore: boolean }>;
   jiraListIssueTypes(baseUrl: string, projectKey: string): Promise<JiraIssueType[]>;
   jiraCreateIssue(baseUrl: string, boardId: string, projectKey: string, issueTypeId: string, summary: string, description: string): Promise<{ id: string; key: string }>;
 }
