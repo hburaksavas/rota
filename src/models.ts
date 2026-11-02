@@ -55,6 +55,19 @@ interface WorkItem {
   sourceEmail?: EmailSourceInfo;
   archived?: boolean;
   relatedRecords?: WorkRecordLink[];
+  estimateHistory?: EstimateHistoryEntry[];
+  checklistExceptions?: { gate: "Hazır" | "Tamamlandı"; missing: string[]; reason: string; at: string; actor: string }[];
+  mergedIntoId?: string;
+  importSource?: { fingerprint: string; filename: string; row: number; importedAt: string };
+}
+
+interface EstimateHistoryEntry {
+  from?: number;
+  to?: number;
+  reason: string;
+  confidence: "Düşük" | "Orta" | "Yüksek";
+  at: string;
+  actor: string;
 }
 
 interface WorkRecordLink {
@@ -72,12 +85,21 @@ interface ProductRisk {
   owner: string;
   status: "Açık" | "Azaltılıyor" | "Kapandı";
   updatedAt: string;
+  impact?: 1 | 2 | 3 | 4 | 5;
+  probability?: 1 | 2 | 3 | 4 | 5;
+  mitigation?: string;
+  reviewAt?: string;
+  workItemIds?: string[];
+  releaseIds?: string[];
+  manualLevel?: "Düşük" | "Orta" | "Yüksek" | "Kritik";
+  manualLevelReason?: string;
 }
 
 interface DailyPlan {
   date: string;
-  entries: { type: "item" | "task"; id: string }[];
+  entries: { type: "item" | "task"; id: string; estimatedMinutes?: number; carriedFrom?: string }[];
   note: string;
+  focusBudgetMinutes?: number;
 }
 
 interface Sprint {
@@ -94,6 +116,53 @@ interface Sprint {
     carryover: { id: string; title: string; status: string }[];
     blocked: { id: string; title: string; status: string }[];
   };
+  initialScopeIds?: string[];
+  scopeChanges?: { itemId: string; direction: "added" | "removed"; reason: string; at: string; actor: string; estimate?: number }[];
+}
+
+interface WorkTemplate {
+  id: string;
+  name: string;
+  type: WorkType;
+  description: string;
+  acceptance: string[];
+  labels: string[];
+  priority: Priority;
+}
+
+interface FormDraft {
+  id: string;
+  kind: "Backlog işi" | "Kişisel görev" | "Not";
+  values: Record<string, string>;
+  attachments: AttachmentInfo[];
+  updatedAt: string;
+}
+
+interface ImportBatch {
+  id: string;
+  fingerprint: string;
+  filename: string;
+  importedAt: string;
+  createdIds: string[];
+  beforeItems?: WorkItem[];
+}
+
+interface DiagnosticEvent {
+  id: string;
+  category: "storage" | "attachment" | "jira" | "import" | "application";
+  message: string;
+  correlationId: string;
+  occurredAt: string;
+}
+
+interface FollowUpNotification {
+  id: string;
+  type: "task" | "blocker" | "question" | "decision";
+  recordId: string;
+  title: string;
+  dueAt: string;
+  state: "unread" | "read" | "done";
+  snoozedUntil?: string;
 }
 
 interface OpenQuestion {
@@ -331,6 +400,13 @@ interface WorkspaceState {
   weeklySummaryNotes?: Record<string, string>;
   wipLimits?: Record<string, number>;
   handoverNotes?: Record<string, string>;
+  workTemplates?: WorkTemplate[];
+  formDrafts?: FormDraft[];
+  importBatches?: ImportBatch[];
+  diagnosticEvents?: DiagnosticEvent[];
+  notifications?: FollowUpNotification[];
+  estimateUnit?: "saat" | "puan";
+  labelAliases?: Record<string, string>;
 }
 
 interface ImportedAttachment extends AttachmentInfo {
