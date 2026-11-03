@@ -2422,3 +2422,89 @@ body.dark-theme .board-column { background-color: color-mix(in srgb, var(--surfa
 body.dark-theme .board-card { background-color: var(--surface-1); border-color: var(--border-1); }
 body.dark-theme :is(.board-hint select, .board-card select, .board-wip-control input) { color: #dce2ec; background-color: var(--surface-2); border-color: var(--border-2); }
 body.dark-theme .board-empty { color: var(--text-3); background: transparent; border-color: var(--border-2); }
+
+/* Board sütun başlıkları: durum noktaları iki temada da renkli */
+.board-status-dot { flex: 0 0 auto; width: 7px; height: 7px; }
+.board-status-dot.status-new { box-shadow: 0 0 0 3px #929baa26; }
+.board-status-dot.status-analysis { box-shadow: 0 0 0 3px #9a79cb2e; }
+.board-status-dot.status-ready { box-shadow: 0 0 0 3px #4b9b802e; }
+.board-status-dot.status-progress { box-shadow: 0 0 0 3px #4e80bc2e; }
+.board-status-dot.status-blocked { box-shadow: 0 0 0 3px #c6746c2e; }
+.board-status-dot.status-done { box-shadow: 0 0 0 3px #89948e26; }
+body.dark-theme .board-status-dot { border: 0; }
+body.dark-theme .board-status-dot.status-new { background-color: #a4adbd; box-shadow: 0 0 0 3px #a4adbd24; }
+body.dark-theme .board-status-dot.status-analysis { background-color: #b59cf0; box-shadow: 0 0 0 3px #b59cf02e; }
+body.dark-theme .board-status-dot.status-ready { background-color: #5fc9a0; box-shadow: 0 0 0 3px #5fc9a02e; }
+body.dark-theme .board-status-dot.status-progress { background-color: #6fa8ea; box-shadow: 0 0 0 3px #6fa8ea2e; }
+body.dark-theme .board-status-dot.status-blocked { background-color: #ec8d84; box-shadow: 0 0 0 3px #ec8d842e; }
+body.dark-theme .board-status-dot.status-done { background-color: #9fb0a6; box-shadow: 0 0 0 3px #9fb0a624; }
+.board-column > header > b { border-radius: 999px; }
+body.dark-theme .board-column > header > b { color: #c4ccdb; background: var(--surface-2); box-shadow: inset 0 0 0 1px var(--border-2); }
+body.dark-theme .board-column.drop-target { background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 45%, transparent); }
+.board-column.drop-target { background: var(--accent-soft); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--accent) 40%, transparent); }
+
+/* ==========================================================================
+   Backlog Filtreler paneli: tek ızgara, düzenli etiketler ve birleşik koşullar
+   ========================================================================== */
+.backlog-filter-popover { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 10px; align-items: end; max-height: min(640px, calc(100vh / var(--app-zoom, 1) - 240px)); overflow-y: auto; padding: 16px; background: var(--surface-1); }
+.backlog-filter-popover > .filter-popover-heading, .backlog-filter-popover > .backlog-filter-fields, .backlog-filter-popover > .advanced-filter-group { grid-column: 1 / -1; }
+.filter-popover-heading { margin-bottom: 2px; }
+.filter-popover-heading strong { color: var(--text-1); font-size: 13px; }
+.filter-popover-heading small { color: var(--text-3); font-size: 11px; }
+.backlog-filter-field { gap: 6px; color: var(--text-3); font-size: 11px; font-weight: 600; }
+.backlog-filter-field > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.backlog-filter-field select { height: 34px; color: var(--text-2); background: var(--surface-2); border-color: var(--border-1); font-size: 11.5px; transition: border-color var(--dur-fast), box-shadow var(--dur); }
+.backlog-filter-field select:hover { border-color: var(--border-2); }
+.backlog-filter-field select:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); box-shadow: 0 0 0 3px var(--accent-ring); outline: none; }
+.backlog-filter-popover :is(input[type="number"], input[type="date"], input[type="text"], input[type="search"]) { height: 34px; font-size: 11.5px; }
+.backlog-filter-popover .completed-filter { justify-content: flex-start; gap: 8px; min-height: 34px; padding: 0 10px; color: var(--text-2); background: var(--surface-2); border-color: var(--border-1); border-radius: var(--radius-sm); font-size: 11.5px; transition: border-color var(--dur-fast), background var(--dur-fast); }
+.backlog-filter-popover .completed-filter:hover { border-color: var(--border-2); }
+.backlog-filter-popover .completed-filter:has(input:checked) { color: var(--accent-strong); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.backlog-filter-popover .completed-filter input { width: 15px; height: 15px; accent-color: var(--accent); }
+
+/* Birleşik koşullar: çerçeveli alt bölüm */
+.advanced-filter-group { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px 10px; align-items: start; min-width: 0; margin: 4px 0 0; padding: 14px 12px 12px; background: var(--surface-2); border: 1px solid var(--border-1); border-radius: var(--radius-md); }
+.advanced-filter-group legend { padding: 0 6px; color: var(--text-3); font-size: 10.5px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; }
+.advanced-filter-group > label:not(.completed-filter) { display: grid; gap: 6px; min-width: 0; color: var(--text-3); font-size: 11px; font-weight: 600; }
+.advanced-filter-group select, .advanced-filter-group input[type="date"] { width: 100%; min-width: 0; margin: 0; color: var(--text-2); background: var(--surface-1); border: 1px solid var(--border-1); border-radius: var(--radius-sm); font-size: 11.5px; transition: border-color var(--dur-fast), box-shadow var(--dur); }
+.advanced-filter-group select:not([multiple]), .advanced-filter-group input[type="date"] { height: 34px; padding: 0 9px; }
+.advanced-filter-group select:hover, .advanced-filter-group input[type="date"]:hover { border-color: var(--border-2); }
+.advanced-filter-group select:focus, .advanced-filter-group input[type="date"]:focus { border-color: color-mix(in srgb, var(--accent) 60%, transparent); box-shadow: 0 0 0 3px var(--accent-ring); outline: none; }
+.advanced-filter-group select[multiple] { height: auto; min-height: 104px; padding: 4px; overflow-y: auto; scrollbar-width: thin; }
+.advanced-filter-group select[multiple] option { padding: 5px 8px; margin: 1px 0; color: var(--text-2); border-radius: 6px; }
+.advanced-filter-group select[multiple] option:checked { color: var(--accent-strong); background: var(--accent-soft) linear-gradient(0deg, var(--accent-soft), var(--accent-soft)); font-weight: 600; }
+.advanced-filter-group select[multiple]:focus option:checked { color: var(--accent-contrast); background: var(--accent) linear-gradient(0deg, var(--accent), var(--accent)); }
+/* Yerleşim: ilişki + iki çoklu seçim üst sırada, tarih aralığı ve tahminsiz işler altta */
+.advanced-filter-group > label:has(#advanced-condition-mode) { grid-area: 1 / 1; }
+.advanced-filter-group > label:has(#advanced-date-from) { grid-area: 1 / 2; }
+.advanced-filter-group > label:has(#advanced-date-to) { grid-area: 1 / 3; }
+.advanced-filter-group > label:has(#advanced-statuses) { grid-area: 2 / 1; }
+.advanced-filter-group > label:has(#advanced-priorities) { grid-area: 2 / 2; }
+.advanced-filter-group > .completed-filter { grid-area: 2 / 3; align-self: start; margin-top: 23px; }
+body.dark-theme .backlog-filter-popover { background-color: var(--surface-1); border-color: var(--border-1); }
+body.dark-theme .advanced-filter-group { background-color: var(--surface-2); border-color: var(--border-1); }
+body.dark-theme :is(.advanced-filter-group select, .advanced-filter-group input[type="date"]) { color: #dce2ec; background-color: var(--surface-1); border-color: var(--border-2); }
+body.dark-theme .backlog-filter-popover .completed-filter { color: #c4ccdb; background-color: var(--surface-2); border-color: var(--border-2); }
+body.dark-theme .backlog-filter-popover .completed-filter:has(input:checked) { color: #e2e5ff; background-color: var(--accent-soft); }
+body.dark-theme .backlog-filter-field select { background-color: var(--surface-2); border-color: var(--border-2); }
+@media (max-width: 900px) {
+  .backlog-filter-popover, .advanced-filter-group { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .advanced-filter-group > label { grid-area: auto !important; margin-top: 0 !important; }
+}
+
+/* Üst bar tema düğmesi: ay ↔ güneş dönerek yer değiştirir */
+.theme-toggle { position: relative; display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; padding: 0; overflow: hidden; color: var(--text-2); background: var(--surface-1); border: 1px solid var(--border-1); border-radius: var(--radius-sm); cursor: pointer; transition: color var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur), transform var(--dur) var(--ease-out); }
+.theme-toggle:hover { color: var(--accent); border-color: var(--border-2); box-shadow: var(--shadow-sm); }
+.theme-toggle:active { transform: scale(.94); }
+.theme-icon { position: absolute; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform .45s var(--ease-spring), opacity .25s ease; }
+.theme-icon-moon { opacity: 1; transform: rotate(0) scale(1); }
+.theme-icon-sun { opacity: 0; transform: rotate(-90deg) scale(.4); }
+body.dark-theme .theme-icon-moon { opacity: 0; transform: rotate(90deg) scale(.4); }
+body.dark-theme .theme-icon-sun { opacity: 1; transform: rotate(0) scale(1); color: #f5c451; }
+.theme-toggle:hover .theme-icon-moon { transform: rotate(-14deg) scale(1.05); }
+body.dark-theme .theme-toggle:hover .theme-icon-sun { transform: rotate(45deg) scale(1.05); }
+body.dark-theme .theme-toggle { background: var(--surface-2); border-color: var(--border-2); }
+/* Tema değişirken renkler yumuşakça geçer */
+body.theme-switching, body.theme-switching *, body.theme-switching *::before, body.theme-switching *::after { transition: background-color .4s ease, border-color .4s ease, color .4s ease, fill .4s ease, stroke .4s ease, box-shadow .4s ease !important; }
+body.theme-switching .theme-icon { transition: transform .45s var(--ease-spring), opacity .25s ease, color .4s ease !important; }
+@media (prefers-reduced-motion: reduce) { .theme-icon { transition: none; } body.theme-switching * { transition: none !important; } }

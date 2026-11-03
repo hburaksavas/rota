@@ -5184,6 +5184,7 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
       if (appZoom !== 1) { setAppZoom(1); toast("Yakınlaştırma %100'e döndü."); }
     }
     else if (action.dataset.action === "customize-sidebar") renderSidebarCustomizer();
+    else if (action.dataset.action === "toggle-theme") toggleTheme();
     else if (action.dataset.action === "toggle-sidebar") {
       const sidebar = document.querySelector(".sidebar");
       const collapsing = !sidebar?.classList.contains("collapsed");
@@ -5657,7 +5658,7 @@ document.addEventListener("change", (event) => {
   }
   if (event.target instanceof HTMLInputElement && event.target.id === "daily-plan-date" && event.target.value) { selectedDailyDate = event.target.value; renderDailyPlan(); return; }
   if (event.target instanceof HTMLInputElement && event.target.id === "weekly-summary-start" && event.target.value) { selectedWeeklyStart = weekStartDate(new Date(event.target.value + "T00:00:00")); renderWeeklySummary(); return; }
-  if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-theme") { localStorage.setItem(THEME_KEY, event.target.value); document.body.classList.toggle("dark-theme", event.target.value === "dark" || (event.target.value === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)); }
+  if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-theme") { localStorage.setItem(THEME_KEY, event.target.value); document.body.classList.toggle("dark-theme", event.target.value === "dark" || (event.target.value === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)); syncThemeToggle(); }
   if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-app-zoom") { setAppZoom(Number(event.target.value)); }
   if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-high-contrast") { localStorage.setItem(HIGH_CONTRAST_KEY, event.target.value); document.body.classList.toggle("high-contrast", event.target.value === "true"); }
   if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-reduced-motion") { localStorage.setItem(REDUCED_MOTION_KEY, event.target.value); document.body.classList.toggle("reduced-motion", event.target.value === "true"); }
@@ -6368,6 +6369,33 @@ document.addEventListener("click", (event) => {
 });
 
 applyAccentColor(storedAccentColor());
+
+// Üst bardaki tema düğmesi: açık ↔ koyu geçişi yapar ve tercihi ayarlarla aynı anahtarda saklar.
+let themeSwitchTimer = 0;
+function syncThemeToggle(): void {
+  const dark = document.body.classList.contains("dark-theme");
+  const label = dark ? "Açık temaya geç" : "Koyu temaya geç";
+  document.querySelectorAll<HTMLElement>(".theme-toggle").forEach((button) => {
+    button.setAttribute("aria-label", label);
+    button.dataset.tooltip = label;
+    button.setAttribute("aria-pressed", String(dark));
+  });
+  if (activeActionTooltipAnchor?.classList.contains("theme-toggle")) { const anchor = activeActionTooltipAnchor; closeActionTooltip(); openActionTooltip(anchor); }
+}
+
+function toggleTheme(): void {
+  const next = document.body.classList.contains("dark-theme") ? "light" : "dark";
+  window.clearTimeout(themeSwitchTimer);
+  document.body.classList.add("theme-switching");
+  document.body.classList.toggle("dark-theme", next === "dark");
+  try { localStorage.setItem(THEME_KEY, next); } catch { /* tercih kaydedilemezse tema bu oturumda kalır */ }
+  const select = document.getElementById("workspace-theme") as HTMLSelectElement | null;
+  if (select) select.value = next;
+  syncThemeToggle();
+  themeSwitchTimer = window.setTimeout(() => document.body.classList.remove("theme-switching"), 420);
+}
+
+syncThemeToggle();
 
 initSidebarCustomization();
 
