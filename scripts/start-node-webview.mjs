@@ -1,4 +1,5 @@
-import { Application } from "@webviewjs/webview";
+import { Application, Notification } from "@webviewjs/webview";
+import { createPomodoroController } from "./pomodoro.mjs";
 import { installDesktopShutdown } from "./desktop-lifecycle.mjs";
 import MsgReader from "@kenjiuno/msgreader";
 import ExcelJS from "exceljs";
@@ -257,7 +258,24 @@ const appWindow = app.createBrowserWindow({ title: "Rota", width: 1440, height: 
 appWindow.setWindowIcon(appIcon.pixels, appIcon.width, appIcon.height);
 appWindow.setTaskbarIcon(appIcon.pixels, appIcon.width, appIcon.height);
 const webview = appWindow.createWebview({ url: `${appOrigin}/index.html`, enableDevtools: process.env.ROTA_WEBVIEW_DEVTOOLS === "1", webContext: app.createWebContext({ dataDirectory: profilePath }), navigationHandler: (url) => url.startsWith(`${appOrigin}/`) });
+const pomodoro = createPomodoroController({
+  notify: (session) => new Promise((resolveNotification, rejectNotification) => {
+    const notification = new Notification(session.phase === "focus" ? "Rota · Odak süren tamamlandı" : "Rota · Molan tamamlandı", {
+      body: session.phase === "focus" ? `${session.title}\n${session.minutes} dakikalık çalışman bitti. ${session.breakMinutes} dakika mola verebilirsin.` : "Hazırsan yeni bir odak oturumu başlatabilirsin.",
+      requireInteraction: true
+    });
+    notification.on("show", resolveNotification);
+    notification.on("error", ({ error }) => rejectNotification(error));
+  })
+});
+appWindow.on("close", () => pomodoro.dispose());
 webview.expose("rotaDesktop", {
+  pomodoroGet: () => pomodoro.get(),
+  pomodoroStart: (input) => pomodoro.start(input),
+  pomodoroPause: (id) => pomodoro.pause(id),
+  pomodoroResume: (id) => pomodoro.resume(id),
+  pomodoroBreak: (id) => pomodoro.startBreak(id),
+  pomodoroCancel: (id) => pomodoro.cancel(id),
   pickAttachments: async () => { const files = await appWindow.openFileDialog({ multiple: true, title: "Dosya ekle", filters: [{ name: "Belgeler ve görseller", extensions: [...allowedExtensions] }, { name: "Tüm dosyalar", extensions: ["*"] }] }); return importPaths(files); },
   importDroppedFiles: async (files) => Promise.all(decodeIncoming(files).map(({ name, bytes }) => saveAttachment(name, bytes))),
   nativeDrop: async (paths) => {

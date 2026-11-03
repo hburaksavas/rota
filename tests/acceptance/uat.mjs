@@ -37,10 +37,10 @@ add("UAT-008 Kurulum zorunlu alanları doğrulanabilir", async p => assert(await
 
 // Shared workspace and dashboard
 const dashboardChecks = [
-  ["UAT-009 Genel bakış açılır", ".welcome-row h1"], ["UAT-010 Kişisel karşılama gösterilir", ".welcome-row p"],
-  ["UAT-011 Yeni iş kısayolu görünür", '.workspace-tools [data-workspace-create="item"]'], ["UAT-012 Backlog özeti görünür", ".stat-grid"],
-  ["UAT-013 Ürün hedefleri ve yayın takibi görünür", ".portfolio-tracking"], ["UAT-014 Hazır işler paneli görünür", ".backlog-panel"],
-  ["UAT-015 Kişisel görev özeti görünür", ".today-panel"], ["UAT-016 Son notlar paneli görünür", ".notes-panel"],
+  ["UAT-009 Genel bakış açılır", ".personal-heading h1"], ["UAT-010 Çalışma alanı başlığı gösterilir", ".personal-heading p"],
+  ["UAT-011 Yeni iş kısayolu görünür", '.workspace-tools [data-workspace-create="item"]'], ["UAT-012 Bugünkü odak alanı görünür", ".personal-focus"],
+  ["UAT-013 Kişisel notlar görünür", ".personal-notes"], ["UAT-014 Kritik backlog işleri görünür", ".personal-critical"],
+  ["UAT-015 Kişisel görev özeti görünür", ".personal-tasks"], ["UAT-016 Açık sorular görünür", ".personal-questions"],
   ["UAT-017 Aktif proje gezinme listesi görünür", ".project-list"], ["UAT-018 Proje arama alanı görünür", "#project-nav-search-input"],
 ];
 for (const [name, selector] of dashboardChecks) add(name, async p => { await nav(p, "overview", selector); await visible(p, selector); });

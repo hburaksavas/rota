@@ -1,4 +1,5 @@
 import { Graph, type Edge, type Node } from "@antv/x6";
+import { initPomodoro } from "./pomodoro";
 
 const seed: WorkspaceState = {
   schemaVersion: 6,
@@ -248,6 +249,7 @@ try {
     acceptanceTemplates: workspaceRecords<AcceptanceTemplate>(saved.acceptanceTemplates, []),
     risks: workspaceRecords<ProductRisk>(saved.risks, []),
     dailyPlans: workspaceRecords<DailyPlan>(saved.dailyPlans, []),
+    dailyFocus: normalizeWorkspaceFocus(saved.dailyFocus),
     weeklySummaryNotes: saved.weeklySummaryNotes || {},
     handoverNotes: saved.handoverNotes || {}
     ,workTemplates: workspaceRecords<WorkTemplate>(saved.workTemplates, [])
@@ -1007,6 +1009,9 @@ function openStatusUpdateModal(itemId: string, nextStatus: WorkItem["status"], r
 
 const icon = (name: string): string => {
   const paths: Record<string, string> = {
+    play: '<path d="m8 4 12 8-12 8Z"/>',
+    pin: '<path d="m15 3 6 6-4 1-3 5-2-2-5 5-1-1 5-5-2-2 5-3 1-4Z"/>',
+    focus: '<path d="M8 3H4a1 1 0 0 0-1 1v4m13-5h4a1 1 0 0 1 1 1v4M3 16v4a1 1 0 0 0 1 1h4m8 0h4a1 1 0 0 0 1-1v-4"/><circle cx="12" cy="12" r="4"/>',
     story: '<path d="M5 3.5h9l5 5v12H5z"/><path d="M14 3.5v5h5M8 13h8M8 16.5h6"/>',
     bug: '<path d="M8 8h8a2 2 0 0 1 2 2v6a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4v-6a2 2 0 0 1 2-2z"/><path d="M9 8V6a3 3 0 0 1 6 0v2M4 12h4m8 0h4M4 17h4m8 0h4M8 3 6.5 1.5M16 3l1.5-1.5"/>',
     task: '<path d="m5 12 4 4L19 6"/><path d="M4 4h4M4 20h4"/>',
@@ -1619,48 +1624,76 @@ function initWorkspaceToolbar(): void {
   syncWorkspaceToolbar();
 }
 
+function normalizeWorkspaceFocus(value: unknown): WorkspaceFocusEntry[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.filter((entry): entry is WorkspaceFocusEntry => {
+    if (!entry || typeof entry !== "object" || !/^\d{4}-\d{2}-\d{2}$/.test(entry.date) || !["task", "note", "question", "item"].includes(entry.kind) || typeof entry.id !== "string" || !entry.id) return false;
+    const key = entry.date + ":" + entry.kind + ":" + entry.id;
+    if (seen.has(key)) return false;
+    seen.add(key); return true;
+  });
+}
+
+function workspaceFocusDate(): string {
+  const now = new Date();
+  return [now.getFullYear(), String(now.getMonth() + 1).padStart(2, "0"), String(now.getDate()).padStart(2, "0")].join("-");
+}
+
+function workspaceFocusRecord(kind: WorkspaceFocusKind, id: string): { title: string; meta: string; icon: string; label: string; open: string } | undefined {
+  if (kind === "task") {
+    const task = state.tasks.find((entry) => entry.id === id);
+    if (task) return { title: task.title, meta: [task.done ? "Tamamlandı" : task.due, task.linked].filter(Boolean).join(" · "), icon: "task", label: "Görev", open: 'data-open-task="' + esc(id) + '"' };
+  } else if (kind === "note") {
+    const note = state.notes.find((entry) => entry.id === id);
+    if (note) return { title: note.title, meta: [note.updated, note.linked].filter(Boolean).join(" · "), icon: "note", label: "Not", open: 'data-note="' + esc(id) + '"' };
+  } else if (kind === "question") {
+    const question = state.openQuestions?.find((entry) => entry.id === id);
+    if (question) return { title: question.text, meta: [question.owner, question.status === "Açık" ? "Yanıt bekleniyor" : "Yanıtlandı"].filter(Boolean).join(" · "), icon: "help", label: "Soru", open: 'data-action="edit-open-question" data-id="' + esc(id) + '"' };
+  } else {
+    const item = state.items.find((entry) => entry.id === id && !entry.archived && isItemInActiveProject(entry));
+    if (item) return { title: item.title, meta: item.id + " · " + item.status, icon: item.type === "Bug" ? "bug" : item.type === "Task" ? "task" : "story", label: "Backlog", open: 'data-open-item="' + esc(id) + '"' };
+  }
+  return undefined;
+}
+
+function workspaceFocusPin(kind: WorkspaceFocusKind, id: string): string {
+  const pinned = (state.dailyFocus || []).some((entry) => entry.date === workspaceFocusDate() && entry.kind === kind && entry.id === id);
+  const label = pinned ? "Bugünkü odağımdan çıkar" : "Bugünkü odağıma ekle";
+  return '<button type="button" class="personal-icon personal-pin' + (pinned ? ' is-pinned' : '') + '" data-focus-kind="' + kind + '" data-focus-id="' + esc(id) + '" aria-pressed="' + pinned + '" aria-label="' + label + '" data-tooltip="' + label + '">' + icon("pin") + '</button>';
+}
+
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("[data-focus-kind][data-focus-id]") : null;
+  if (!target) return;
+  event.preventDefault(); event.stopPropagation();
+  const kind = target.dataset.focusKind as WorkspaceFocusKind;
+  const id = target.dataset.focusId || "";
+  if (!["task", "note", "question", "item"].includes(kind) || !workspaceFocusRecord(kind, id)) return;
+  const date = workspaceFocusDate();
+  const entries = normalizeWorkspaceFocus(state.dailyFocus);
+  const pinned = entries.some((entry) => entry.date === date && entry.kind === kind && entry.id === id);
+  state.dailyFocus = pinned ? entries.filter((entry) => !(entry.date === date && entry.kind === kind && entry.id === id)) : [...entries, { date, kind, id }];
+  save();
+  const scrollPositions = [...root.querySelectorAll<HTMLElement>(".personal-record-list, .personal-dashboard-body, .personal-focus-list")].map((element) => element.scrollTop);
+  renderOverview();
+  root.querySelectorAll<HTMLElement>(".personal-record-list, .personal-dashboard-body, .personal-focus-list").forEach((element, index) => { element.scrollTop = scrollPositions[index] || 0; });
+  root.querySelector<HTMLButtonElement>('.personal-grid [data-focus-kind="' + kind + '"][data-focus-id="' + CSS.escape(id) + '"]')?.focus({ preventScroll: true });
+  toast(pinned ? "Odaktan çıkarıldı. Asıl kayıt korunuyor." : "Bugünkü odağına eklendi.");
+}, true);
+
 function renderOverview(): void {
-  const portfolio = state.items.filter((item) => !item.archived && isItemInActiveProject(item));
-  const open = portfolio.filter((item) => item.status !== "Tamamlandı");
-  const ready = open.filter((item) => item.status === "Hazır").slice(0, 4);
-  const primaryProject = state.projects.find((project) => !project.archived);
-  const tasks = state.tasks.filter((task) => !task.done).slice(0, 3);
-  const recentNotes = state.notes.slice(0, 2);
-  const today = new Date(); today.setHours(0, 0, 0, 0);
-  const overdue = portfolio.filter((item) => overdueDays(item) > 0).sort((a, b) => overdueDays(b) - overdueDays(a)).slice(0, 5);
-  const stale = open.filter((item) => !item.activity?.[0] || Date.now() - new Date(item.activity[0].occurredAt).getTime() > 7 * 86400000).sort((a, b) => new Date(a.activity?.[0]?.occurredAt || 0).getTime() - new Date(b.activity?.[0]?.occurredAt || 0).getTime()).slice(0, 5);
-  const upcomingReleases = state.releases.filter((release) => release.status !== "Yayınlandı" && release.status !== "İptal edildi" && release.plannedDate && release.plannedDate >= today.toISOString().slice(0, 10) && isItemInActiveProject({ project: release.project } as WorkItem)).sort((a, b) => a.plannedDate.localeCompare(b.plannedDate)).slice(0, 4);
-  const activeInitiatives = state.roadmap.filter((node) => node.type === "Initiative" && isItemInActiveProject({ project: node.project } as WorkItem)).slice(0, 4);
-  const releaseDrift = state.releases.filter((release) => release.status === "Yayınlandı" && release.plannedDate && release.actualDate).map((release) => ({ release, days: Math.round((new Date(release.actualDate + "T00:00:00").getTime() - new Date(release.plannedDate + "T00:00:00").getTime()) / 86400000) }));
-  const completedDurations = portfolio.filter((item) => item.actualStartDate && item.completedAt).map((item) => ({ item, days: Math.max(0, (new Date(item.completedAt!).getTime() - new Date(item.actualStartDate!).getTime()) / 86400000) }));
-  const resolvedBlockers = portfolio.filter((item) => item.blocker?.openedAt && item.blocker.resolvedAt).map((item) => ({ item, days: Math.max(0, (new Date(item.blocker!.resolvedAt!).getTime() - new Date(item.blocker!.openedAt).getTime()) / 86400000) }));
-  const avg = (values: number[]) => values.length ? (values.reduce((sum, value) => sum + value, 0) / values.length).toFixed(1) : "—";
-  const metricList = (rows: { item: WorkItem; days: number }[], empty: string) => rows.length ? rows.slice(0, 4).map(({ item, days }) => '<button class="metric-evidence" data-open-item="' + esc(item.id) + '"><span>' + esc(item.id + " · " + item.title) + '</span><strong>' + days.toFixed(1) + ' gün</strong></button>').join("") : '<p class="metric-empty">' + empty + '</p>';
-  const dashboardTracking = '<section class="portfolio-tracking"><div class="portfolio-tracking-header"><div><div class="panel-kicker">PO TAKİP</div><h2>Hedefler, yayınlar ve dikkat isteyen işler</h2></div><span class="portfolio-hint">Özet tüm aktif projelerden üretilir</span></div><div class="portfolio-track-grid"><section><h3>Yaklaşan release\'ler</h3>' + (upcomingReleases.length ? upcomingReleases.map((release) => '<button class="portfolio-release" data-action="edit-release" data-id="' + esc(release.id) + '"><strong>' + esc(release.name) + '</strong><span>' + esc(release.project + " · " + release.plannedDate) + '</span><small>' + esc(release.status) + '</small></button>').join("") : '<p class="metric-empty">Planlanmış yaklaşan release yok.</p>') + '</section><section><h3>Geciken işler</h3>' + (overdue.length ? overdue.map((item) => '<button class="metric-evidence" data-open-item="' + esc(item.id) + '"><span>' + esc(item.id + " · " + item.title) + '</span><strong>' + overdueDays(item) + ' gün</strong></button>').join("") : '<p class="metric-empty">Geciken iş yok.</p>') + '</section><section><h3>Açık blokajlar</h3>' + (portfolio.filter((item) => item.status === "Bloke").slice(0, 5).map((item) => '<button class="metric-evidence" data-open-item="' + esc(item.id) + '"><span>' + esc(item.id + " · " + item.title) + '</span><strong>' + esc(item.blocker?.owner || "Sahip yok") + '</strong></button>').join("") || '<p class="metric-empty">Açık blokaj yok.</p>') + '</section><section><h3>7+ gündür güncellenmeyen</h3>' + (stale.length ? stale.map((item) => '<button class="metric-evidence" data-open-item="' + esc(item.id) + '"><span>' + esc(item.id + " · " + item.title) + '</span><strong>' + esc(itemLastActivityLabel(item)) + '</strong></button>').join("") : '<p class="metric-empty">Uzun süredir bekleyen iş yok.</p>') + '</section><section><h3>Ürün hedefleri</h3>' + (activeInitiatives.length ? activeInitiatives.map((node) => '<button class="portfolio-release" data-view="roadmap"><strong>' + esc(node.title) + '</strong><span>' + esc(node.project + " · " + node.stage) + '</span><small>' + esc(node.targetDate ? "Hedef " + node.targetDate : node.owner) + '</small></button>').join("") : '<p class="metric-empty">Henüz ürün hamlesi tanımlanmamış.</p>') + '</section></div><section class="portfolio-metrics"><div class="panel-heading compact"><div><div class="panel-kicker">GEÇMİŞTEN TÜRETİLEN GÖSTERGELER</div><h3>Akış metrikleri</h3></div><span class="portfolio-hint">Çalışan performans puanı değildir</span></div><div class="metric-grid"><article><strong>' + avg(completedDurations.map((entry) => entry.days)) + ' gün</strong><span>İşe başlama → tamamlanma · n=' + completedDurations.length + '</span>' + metricList(completedDurations, "Gerçek başlangıç ve tamamlanma tarihi olan kayıt yok.") + '</article><article><strong>' + avg(resolvedBlockers.map((entry) => entry.days)) + ' gün</strong><span>Blokaj açılışı → çözülme · n=' + resolvedBlockers.length + '</span>' + metricList(resolvedBlockers, "Çözümlenmiş blokaj süresi kaydı yok.") + '</article><article><strong>' + avg(releaseDrift.map((entry) => entry.days)) + ' gün</strong><span>Planlanan → gerçek yayın · n=' + releaseDrift.length + '</span>' + (releaseDrift.length ? releaseDrift.slice(0, 4).map(({ release, days }) => '<button class="metric-evidence" data-action="edit-release" data-id="' + esc(release.id) + '"><span>' + esc(release.name) + '</span><strong>' + (days > 0 ? "+" : "") + days + ' gün</strong></button>').join("") : '<p class="metric-empty">Planlanan ve gerçek tarihi olan yayın yok.</p>') + '</article></div><p class="metric-definition">Süreler yalnızca uygulamada saklanan tarih ve aktivite kayıtlarıyla hesaplanır. Tarihleri bulunmayan geçmiş kayıtlar örnekleme dahil edilmez; kişi bazında sıralama yapılmaz.</p></section></section>';
-  root.innerHTML =
-    '<div class="page-content">' +
-      '<section class="welcome-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>ÇALIŞMA ALANI</div><h1>Merhaba ' + esc(state.profile.userName.split(/\\s+/)[0] || "").replace(/[<>]/g, "") + ' <span class="wave">✳</span></h1><p>' + esc(state.profile.workspace) + ' · Bugünkü çalışmalarına buradan bak.</p></div></section>' +
-      '<section class="stat-grid">' +
-        '<button type="button" class="stat-card" data-overview-filter="open"><div class="stat-top"><span>Aktif backlog</span><span class="stat-icon icon-indigo">☷</span></div><div class="stat-number">' + open.length + '<span class="stat-change">iş</span></div><div class="stat-foot"><span class="mini-bars"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span> ' + portfolio.filter((item) => item.activity?.[0] && Date.now() - new Date(item.activity[0].occurredAt).getTime() < 7 * 86400000).length + ' iş son 7 günde güncellendi</div></button>' +
-        '<button type="button" class="stat-card" data-overview-filter="ready"><div class="stat-top"><span>Analize hazır</span><span class="stat-icon icon-green">✓</span></div><div class="stat-number">' + portfolio.filter((item) => item.status === "Hazır").length + '<span class="stat-change">iş</span></div><div class="stat-foot"><span class="progress-track"><i style="width:' + (portfolio.length ? Math.round(portfolio.filter((item) => item.status === "Hazır").length / portfolio.length * 100) : 0) + '%"></i></span> Aktif backlog içindeki oran</div></button>' +
-        '<button type="button" class="stat-card" data-overview-filter="tasks"><div class="stat-top"><span>Takip edeceğim</span><span class="stat-icon icon-amber">◷</span></div><div class="stat-number">' + state.tasks.filter((task) => !task.done).length + '<span class="stat-change">kişisel görev</span></div><div class="stat-foot"><span class="stat-subtle">Bugün tamamlanması gereken</span><strong>' + state.tasks.filter((task) => !task.done && task.due === "Bugün").length + '</strong></div></button>' +
-        '<button type="button" class="stat-card" data-overview-filter="blocked"><div class="stat-top"><span>Bloke işler</span><span class="stat-icon icon-rose">!</span></div><div class="stat-number">' + portfolio.filter((item) => item.status === "Bloke").length + '<span class="stat-change">iş</span></div><div class="stat-foot"><span class="risk-pulse"></span><span class="stat-subtle">Gözden geçirme gerekli</span></div></button>' +
-        '<button type="button" class="stat-card" data-overview-filter="overdue"><div class="stat-top"><span>Geciken işler</span><span class="stat-icon icon-rose">◷</span></div><div class="stat-number">' + open.filter((item) => overdueDays(item) > 0).length + '<span class="stat-change">iş</span></div><div class="stat-foot">Hedef tarihi geçmiş açık işler</div></button>' +
-        '<button type="button" class="stat-card" data-overview-filter="unassigned"><div class="stat-top"><span>Atanmamış işler</span><span class="stat-icon icon-amber">◇</span></div><div class="stat-number">' + open.filter((item) => !getWorkAssignments(item).length).length + '<span class="stat-change">iş</span></div><div class="stat-foot">Takım üyesi bekleyen açık işler</div></button>' +
-      '</section>' +
-      dashboardTracking +
-      '<section class="content-grid">' +
-        '<div class="panel backlog-panel"><div class="panel-heading"><div><div class="panel-kicker">' + esc(primaryProject?.name || "PROJELER") + ' <span class="project-dot dot-' + esc(primaryProject?.color || "blue") + '"></span></div><h2>Hazır işler</h2><p>Önceliklendirilmiş, refinement’a hazır</p></div><button class="text-button" data-view="backlog">Tüm backlog </button></div>' +
-          '<div class="issue-list">' + (ready.length ? ready.map((item) => issueRow(item)).join("") : '<div class="empty-inline">Hazır iş bulunmuyor.</div>') + '</div>' +
-          '<div class="panel-footer"><span class="avatar-stack"><i>DA</i><i>SK</i><i>+</i></span><span>PO alanı · son güncelleme bugün</span><button class="dots-button" aria-label="Diğer seçenekler">···</button></div></div>' +
-        '<div class="panel today-panel"><div class="panel-heading compact"><div><div class="panel-kicker">ÇALIŞMA ALANI</div><h2>Bugün</h2><p>Takip listenden kısa bir görünüm</p></div></div>' +
-          '<div class="today-list">' + (tasks.length ? tasks.map((task) => taskRow(task)).join("") : '<div class="empty-inline">Bugünlük her şey tamamlandı. ✨</div>') + '</div>' +
-          '</div>' +
-      '</section>' +
-      '<section class="bottom-grid"><div class="panel pulse-panel"><div class="panel-heading compact"><div><div class="panel-kicker">HAFTALIK RİTİM</div><h2>Backlog sağlığı</h2></div><span class="period-tag">Bu hafta ' + icon("chevronDown") + '</span></div><div class="health-graph"><div class="graph-labels"><span>12</span><span>8</span><span>4</span><span>0</span></div><div class="graph-area"><div class="grid-line line-one"></div><div class="grid-line line-two"></div><div class="grid-line line-three"></div><svg viewBox="0 0 560 116" preserveAspectRatio="none"><defs><linearGradient id="areaFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#4665e8" stop-opacity=".18"/><stop offset="1" stop-color="#4665e8" stop-opacity="0"/></linearGradient></defs><path d="M0 82 C38 77 45 57 83 61 S135 74 165 54 S211 58 247 45 S294 55 329 39 S377 42 413 25 S468 43 495 19 S535 24 560 8 L560 116 L0 116 Z" fill="url(#areaFill)"/><path d="M0 82 C38 77 45 57 83 61 S135 74 165 54 S211 58 247 45 S294 55 329 39 S377 42 413 25 S468 43 495 19 S535 24 560 8" fill="none" stroke="#4c65de" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg><div class="graph-days"><span>Pzt</span><span>Sal</span><span>Çar</span><span>Per</span><span>Cum</span><span>Cmt</span><span>Paz</span></div></div></div><div class="graph-caption"><span><i class="legend-dot blue"></i>Açık iş</span><span><i class="legend-dot gray"></i>Geçen hafta</span><strong>+%18 <small>bu haftaki hareket</small></strong></div></div>' +
-        '<div class="panel notes-panel"><div class="panel-heading compact"><div><div class="panel-kicker">HIZLI NOTLAR</div><h2>Son notların</h2></div></div><div class="note-list">' + recentNotes.map((note) => '<button class="note-preview" data-note="' + esc(note.id) + '"><span class="note-pin">✳</span><span class="note-copy"><strong>' + esc(note.title) + '</strong><small>' + esc(note.body) + '</small></span><span class="note-date">' + esc(note.updated) + '</span></button>').join("") + '</div></div></section>' +
-    '</div>';
-  document.querySelector(".pulse-panel")?.remove();
+  const date = workspaceFocusDate();
+  const focus = (state.dailyFocus || []).filter((entry) => entry.date === date).flatMap((entry) => {
+    const record = workspaceFocusRecord(entry.kind, entry.id);
+    return record ? [{ entry, record }] : [];
+  });
+  const tasks = state.tasks.filter((task) => !task.done).sort((a, b) => Number(b.due === "Bugün") - Number(a.due === "Bugün"));
+  const questions = (state.openQuestions || []).filter((question) => question.status === "Açık").sort((a, b) => (a.expectedAt || "9999").localeCompare(b.expectedAt || "9999"));
+  const critical = state.items.filter((item) => !item.archived && item.status !== "Tamamlandı" && isItemInActiveProject(item) && (item.status === "Bloke" || overdueDays(item) > 0 || item.priority === "Kritik" || item.priority === "Yüksek")).sort((a, b) => Number(b.status === "Bloke") - Number(a.status === "Bloke") || overdueDays(b) - overdueDays(a) || Number(b.priority === "Kritik") - Number(a.priority === "Kritik"));
+  const empty = (text: string) => '<p class="personal-empty">' + text + '</p>';
+  const heading = (title: string, count: number, glyph: string, action: string, label: string) => '<header class="personal-panel-heading"><h2>' + icon(glyph) + title + '<span>' + count + '</span></h2><button type="button" class="personal-icon icon-action" ' + action + ' aria-label="' + label + '" data-tooltip="' + label + '">' + icon("add") + '</button></header>';
+  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><header class="page-title-row personal-heading"><div><div class="panel-kicker">' + esc(new Date().toLocaleDateString("tr-TR", { day: "numeric", month: "long", weekday: "long" })) + ' · KİŞİSEL ALANIN</div><h1>Merhaba ' + esc(state.profile.userName.trim().split(/\s+/)[0] || "") + '.</h1><p>' + esc(state.profile.workspace) + ' · Bugünü kendi önceliklerinle şekillendir.</p></div></header><div class="personal-dashboard-body"><section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span></header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section><div class="personal-grid"><section class="personal-panel personal-tasks" aria-label="Görevlerim">' + heading("Görevlerim", tasks.length, "task", 'data-action="new" data-type="Kişisel görev"', "Kişisel görev ekle") + '<div class="personal-record-list">' + (tasks.map((task) => '<article class="personal-row"><button type="button" class="personal-task-check" data-toggle-task="' + esc(task.id) + '" aria-label="Görevi tamamla: ' + esc(task.title) + '">' + icon("check") + '</button><button type="button" class="personal-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong><small>' + esc([task.due, task.linked].filter(Boolean).join(" · ")) + '</small></button>' + workspaceFocusPin("task", task.id) + '</article>').join("") || empty("Açık kişisel görevin yok. + ile yeni bir görev ekleyebilirsin.")) + '</div></section><section class="personal-panel personal-notes" aria-label="Notlarım">' + heading("Notlarım", state.notes.length, "note", 'data-action="new" data-type="Not"', "Not ekle") + '<div class="personal-record-list">' + (state.notes.map((note) => '<article class="personal-row"><button type="button" class="personal-record-open" data-note="' + esc(note.id) + '"><strong>' + esc(note.title) + '</strong><p>' + esc(note.body.slice(0, 180)) + '</p><small>' + esc([note.linked, note.updated].filter(Boolean).join(" · ")) + '</small></button>' + workspaceFocusPin("note", note.id) + '</article>').join("") || empty("Düşüncelerini ve hazırlıklarını burada topla. + ile ilk notunu ekle.")) + '</div></section><section class="personal-panel personal-questions" aria-label="Sorularım">' + heading("Sorularım", questions.length, "help", 'data-workspace-create="question"', "Soru ekle") + '<div class="personal-record-list">' + (questions.map((question) => '<article class="personal-row"><button type="button" class="personal-record-open" data-action="edit-open-question" data-id="' + esc(question.id) + '"><strong>' + esc(question.text) + '</strong><small>' + esc([question.owner, question.expectedAt ? "Beklenen: " + question.expectedAt : "Yanıt bekleniyor", question.linkedItemId].filter(Boolean).join(" · ")) + '</small></button><button type="button" class="personal-icon" data-action="answer-open-question" data-id="' + esc(question.id) + '" aria-label="Soruyu yanıtla" data-tooltip="Yanıtı kaydet">' + icon("check") + '</button>' + workspaceFocusPin("question", question.id) + '</article>').join("") || empty("Yanıt bekleyen sorun yok. + ile takip edeceğin bir soru ekle.")) + '</div></section><section class="personal-panel personal-critical" aria-label="Kritik backlog işleri"><header class="personal-panel-heading"><h2>' + icon("bug") + 'Kritik backlog işleri<span>' + critical.length + '</span></h2><button type="button" class="personal-icon" data-overview-filter="open" aria-label="Backlog’u aç" data-tooltip="Backlog’da incele">' + icon("list") + '</button></header><div class="personal-record-list">' + (critical.map((item) => '<article class="personal-row"><button type="button" class="personal-record-open" data-open-item="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(item.id + " · " + item.project) + '</small><span class="personal-critical-reason">' + esc([item.status === "Bloke" ? "Bloke" : "", overdueDays(item) ? overdueDays(item) + " gün gecikti" : "", item.priority === "Kritik" || item.priority === "Yüksek" ? item.priority + " öncelik" : ""].filter(Boolean).join(" · ")) + '</span></button>' + workspaceFocusPin("item", item.id) + '</article>').join("") || empty("Bloke, geciken veya yüksek/kritik öncelikli açık iş yok.")) + '</div></section></div></div></div>';
 }
 
 function issueRow(item: WorkItem): string {
@@ -7005,6 +7038,7 @@ syncThemeToggle();
 
 initSidebarCustomization();
 initWorkspaceToolbar();
+initPomodoro({ desktop, modalRoot, record: workspaceFocusRecord, toast });
 
 render();
 showWorkspaceRecovery();

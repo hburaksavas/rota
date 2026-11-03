@@ -392,6 +392,13 @@ interface JiraIssueType { id: string; name: string; subtask?: boolean; }
 interface JiraSavedFilter { id: string; name: string; jql?: string; }
 interface JiraIssue { id: string; key: string; summary: string; issueType: string; status: string; priority: string; assignee: string; updated: string; browseUrl: string; }
 
+type WorkspaceFocusKind = "task" | "note" | "question" | "item";
+interface WorkspaceFocusEntry {
+  date: string;
+  kind: WorkspaceFocusKind;
+  id: string;
+}
+
 interface WorkspaceState {
   schemaVersion?: number;
   items: WorkItem[];
@@ -410,6 +417,7 @@ interface WorkspaceState {
   acceptanceTemplates?: AcceptanceTemplate[];
   risks?: ProductRisk[];
   dailyPlans?: DailyPlan[];
+  dailyFocus?: WorkspaceFocusEntry[];
   weeklySummaryNotes?: Record<string, string>;
   /** Kaldırılan akışların verileri yalnızca eski kayıt/yedek uyumluluğu içindir. */
   wipLimits?: Record<string, number>;
@@ -452,7 +460,28 @@ interface ParsedDroppedEmail {
   attachments: { id: string; name: string; size: number }[];
 }
 
+interface PomodoroSession {
+  id: string;
+  kind: WorkspaceFocusKind;
+  recordId: string;
+  title: string;
+  minutes: number;
+  breakMinutes: number;
+  phase: "focus" | "break";
+  status: "running" | "paused" | "completed";
+  durationMs: number;
+  remainingMs: number;
+  endsAt: number | null;
+  notification: "pending" | "sent" | "failed" | null;
+}
+
 interface DesktopBridge {
+  pomodoroGet(): Promise<PomodoroSession | null>;
+  pomodoroStart(input: { kind: WorkspaceFocusKind; recordId: string; title: string; minutes: number; breakMinutes: number }): Promise<PomodoroSession>;
+  pomodoroPause(id: string): Promise<PomodoroSession>;
+  pomodoroResume(id: string): Promise<PomodoroSession>;
+  pomodoroBreak(id: string): Promise<PomodoroSession>;
+  pomodoroCancel(id: string): Promise<null>;
   jiraGetIssue(base: string, key: string): Promise<{ issue: JiraIssue; transitions: { id: string; name: string; status: string }[] }>;
   jiraUpdateLinkedIssue(base: string, key: string, expectedUpdated: string, summary?: string, transitionId?: string): Promise<void>;
   getDiagnostics?(): Promise<Record<string, string>>;
