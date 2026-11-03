@@ -1142,7 +1142,7 @@ function undoLastDeletion(): void {
 }
 
 function setView(view: string): void {
-  if (view === "jira" && !state.profile.jiraBaseUrl?.trim()) { toast("Jira devre dışı. Kurulum veya çalışma alanı ayarlarına Base URL ekle."); return; }
+  if (view === "jira" && !state.profile.jiraBaseUrl?.trim()) { toast("Jira devre dışı. Ayarlar › Entegrasyonlar bölümünden Base URL ekle."); return; }
   if (activeView === "assets" && view !== "assets") disposeAssetDiagram();
   activeView = view;
   const navItem = document.querySelector<HTMLElement>('.nav-item[data-view="' + view + '"]');
@@ -1343,7 +1343,7 @@ function render(): void {
   const jiraNav = document.querySelector<HTMLButtonElement>('.nav-item[data-view="jira"]');
   const jiraState = document.getElementById("jira-nav-state");
   const jiraEnabled = Boolean(state.profile.jiraBaseUrl?.trim());
-  if (jiraNav) { jiraNav.disabled = !jiraEnabled; jiraNav.title = jiraEnabled ? "Jira Server paneli" : "Jira kapalı · Kurulum veya çalışma alanı ayarlarına Base URL ekleyin"; jiraNav.classList.toggle("nav-disabled", !jiraEnabled); }
+  if (jiraNav) { jiraNav.disabled = !jiraEnabled; jiraNav.title = jiraEnabled ? "Jira Server paneli" : "Jira kapalı · Ayarlar › Entegrasyonlar bölümünden Base URL ekleyin"; jiraNav.classList.toggle("nav-disabled", !jiraEnabled); }
   if (jiraState) jiraState.textContent = jiraEnabled ? "Hazır" : "Kapalı";
   if (activeView === "overview") renderOverview();
   else if (activeView === "backlog") renderBacklog();
@@ -1362,7 +1362,7 @@ function render(): void {
 function renderJira(): void {
   const baseUrl = state.profile.jiraBaseUrl?.trim() || "";
   if (!baseUrl) {
-    root.innerHTML = '<div class="page-content jira-page"><div class="page-title-row"><div><div class="eyebrow">ENTEGRASYON</div><h1>Jira</h1><p>Jira Base URL tanımlanmadan entegrasyon devre dışıdır.</p></div></div><section class="panel jira-empty"><div class="jira-empty-icon">◈</div><h2>Jira bağlantısı kapalı</h2><p>Jira adresini ilk kurulumda veya çalışma alanı ayarlarında ekleyebilirsin.</p><button class="button button-primary" data-action="open-workspace-settings">Çalışma alanı ayarlarını aç</button></section></div>';
+    root.innerHTML = '<div class="page-content jira-page"><div class="page-title-row"><div><div class="eyebrow">ENTEGRASYON</div><h1>Jira</h1><p>Jira Base URL tanımlanmadan entegrasyon devre dışıdır.</p></div></div><section class="panel jira-empty"><div class="jira-empty-icon">◈</div><h2>Jira bağlantısı kapalı</h2><p>Jira adresini ilk kurulumda veya Ayarlar › Entegrasyonlar bölümünde ekleyebilirsin.</p><button class="button button-primary" data-action="open-workspace-settings" data-settings-panel="integrations">Entegrasyon ayarlarını aç</button></section></div>';
     return;
   }
   if (jiraCatalogLoadedFor !== baseUrl && !jiraLoading) void loadJiraCatalog();
@@ -3239,27 +3239,116 @@ function renderTeamSettingsSection(): string {
   return '<section class="settings-team-section"><header><div><h3>Takımlar ve üyeler</h3><p>Görev atamalarında kullanılacak ekipleri ve üyeleri düzenle.</p></div><button type="button" class="button button-secondary button-small" data-action="new-team">＋ Takım ekle</button></header><div class="team-settings-list">' + (rows || '<p class="empty-inline">Henüz takım yok. Üye ve atama tanımlamak için ilk takımı ekle.</p>') + '</div></section>';
 }
 
-function renderFieldDictionarySettings(): string {
-  const labels = [...new Set(state.items.flatMap((item) => item.labels || []))].sort((a, b) => a.localeCompare(b, "tr-TR"));
-  const areas = [...new Set(state.items.map((item) => item.area).filter(Boolean))].sort((a, b) => a.localeCompare(b, "tr-TR"));
-  const rows = (kind: "label" | "area", values: string[]) => values.map((value) => '<tr><td>' + esc(value) + '</td><td>' + state.items.filter((item) => kind === "label" ? item.labels?.includes(value) : item.area === value).length + '</td><td><button type="button" class="button button-quiet button-small" data-action="rename-dictionary-value" data-kind="' + kind + '" data-value="' + esc(value) + '">Yeniden adlandır</button><button type="button" class="button button-quiet button-small" data-action="merge-dictionary-value" data-kind="' + kind + '" data-value="' + esc(value) + '">Birleştir</button></td></tr>').join("");
-  return '<section class="dictionary-settings"><h3>Etiket ve alan sözlüğü</h3><p>Kullanım sayılarını incele; farklı yazımları kayıtlı görünümlerle birlikte yeniden adlandır veya birleştir.</p><div class="dictionary-grid"><div><h4>Etiketler</h4><table><tbody>' + (rows("label", labels) || '<tr><td>Etiket yok</td></tr>') + '</tbody></table></div><div><h4>Ürün alanları</h4><table><tbody>' + (rows("area", areas) || '<tr><td>Alan yok</td></tr>') + '</tbody></table></div></div></section>';
+type DictionaryKind = "label" | "area";
+let dictionaryTab: DictionaryKind = "label";
+let dictionaryQuery = "";
+let dictionaryEdit: { kind: DictionaryKind; value: string; mode: "rename" | "merge" } | null = null;
+
+function dictionaryValues(kind: DictionaryKind): { value: string; count: number }[] {
+  const counts = new Map<string, number>();
+  state.items.forEach((item) => {
+    const values = kind === "label" ? item.labels || [] : item.area ? [item.area] : [];
+    values.forEach((value) => counts.set(value, (counts.get(value) || 0) + 1));
+  });
+  return [...counts].map(([value, count]) => ({ value, count })).sort((a, b) => b.count - a.count || a.value.localeCompare(b.value, "tr-TR"));
 }
 
-function updateDictionaryValue(kind: "label" | "area", value: string): void {
-  const affected = kind === "label" ? state.items.filter((item) => item.labels.includes(value)).length : state.items.filter((item) => item.area === value).length;
-  const replacement = window.prompt((kind === "label" ? "Etiket" : "Alan") + " için yeni ad veya birleştirilecek mevcut değer", value)?.trim();
-  if (!replacement || replacement === value) return;
-  const replacementExists = kind === "label" ? state.items.some((item) => item.labels.includes(replacement)) : state.items.some((item) => item.area === replacement);
-  if (!window.confirm(affected + " iş ve bağlı kayıtlı görünümler güncellenecek." + (replacementExists ? " Mevcut değerle birleştirilecek." : "") + " Devam edilsin mi?")) return;
-  if (kind === "label") {
-    state.items.forEach((item) => { if (item.labels.includes(value)) item.labels = [...new Set(item.labels.map((label) => label === value ? replacement : label))]; });
-    savedBacklogViews.forEach((view) => { if (view.label === value) view.label = replacement; });
-    state.labelAliases ||= {}; state.labelAliases[value] = replacement;
-    persistBacklogViews();
-  } else state.items.forEach((item) => { if (item.area === value) item.area = replacement; });
-  if (save()) { openWorkspaceSettings(); toast(affected + " kayıt güncellendi."); }
+// Büyük/küçük harf, Türkçe karakter ve boşluk farkıyla yazılmış değerleri aynı anahtarda toplar.
+function dictionaryKey(value: string): string {
+  return value.toLocaleLowerCase("tr-TR").normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/ı/g, "i").replace(/[^a-z0-9]+/g, "");
 }
+
+function renderFieldDictionarySettings(): string {
+  const kind = dictionaryTab;
+  const all = dictionaryValues(kind);
+  const max = Math.max(1, ...all.map((entry) => entry.count));
+  const groups = new Map<string, string[]>();
+  all.forEach((entry) => { const key = dictionaryKey(entry.value); groups.set(key, [...(groups.get(key) || []), entry.value]); });
+  const term = dictionaryQuery.trim().toLocaleLowerCase("tr-TR");
+  const visible = term ? all.filter((entry) => entry.value.toLocaleLowerCase("tr-TR").includes(term)) : all;
+  const duplicateCount = [...groups.values()].filter((values) => values.length > 1).length;
+  const noun = kind === "label" ? "etiket" : "alan";
+  const rows = visible.map((entry) => {
+    const similar = (groups.get(dictionaryKey(entry.value)) || []).filter((value) => value !== entry.value);
+    const editing = dictionaryEdit?.kind === kind && dictionaryEdit.value === entry.value ? dictionaryEdit.mode : null;
+    const usage = '<span class="dictionary-usage" title="' + entry.count + ' işte kullanılıyor"><i style="width:' + Math.max(6, Math.round(entry.count / max * 100)) + '%"></i></span><b class="dictionary-count">' + entry.count + '</b>';
+    if (editing === "rename") {
+      return '<div class="dictionary-row is-editing" data-dict-row="' + esc(entry.value) + '"><span class="dictionary-chip-icon" aria-hidden="true">' + (kind === "label" ? "#" : "◆") + '</span><input class="field-input dictionary-input" data-dict-rename-input value="' + esc(entry.value) + '" maxlength="60" aria-label="' + esc(entry.value + " için yeni ad") + '"><span class="dictionary-edit-note">' + entry.count + ' iş güncellenecek</span><span class="dictionary-actions"><button type="button" class="inline-icon-action inline-icon-confirm" data-dict-apply="rename" aria-label="Yeni adı kaydet" title="Kaydet">✓</button><button type="button" class="inline-icon-action inline-icon-dismiss" data-dict-cancel aria-label="Vazgeç" title="Vazgeç">×</button></span></div>';
+    }
+    if (editing === "merge") {
+      const targets = all.filter((other) => other.value !== entry.value).sort((a, b) => Number(similar.includes(b.value)) - Number(similar.includes(a.value)) || b.count - a.count);
+      return '<div class="dictionary-row is-editing" data-dict-row="' + esc(entry.value) + '"><span class="dictionary-merge-from">' + esc(entry.value) + '</span><span class="dictionary-merge-arrow" aria-hidden="true">→</span><select class="field-input dictionary-input" data-dict-merge-target aria-label="' + esc(entry.value + " hangi değere birleştirilsin") + '">' + targets.map((other) => '<option value="' + esc(other.value) + '">' + esc(other.value) + ' · ' + other.count + (similar.includes(other.value) ? ' · benzer' : '') + '</option>').join("") + '</select><span class="dictionary-edit-note">' + entry.count + ' iş taşınacak</span><span class="dictionary-actions"><button type="button" class="button button-primary button-small" data-dict-apply="merge"' + (targets.length ? "" : " disabled") + '>Birleştir</button><button type="button" class="inline-icon-action inline-icon-dismiss" data-dict-cancel aria-label="Vazgeç" title="Vazgeç">×</button></span></div>';
+    }
+    return '<div class="dictionary-row" data-dict-row="' + esc(entry.value) + '"><span class="dictionary-chip"><span class="dictionary-chip-icon" aria-hidden="true">' + (kind === "label" ? "#" : "◆") + '</span><span class="dictionary-name">' + esc(entry.value) + '</span></span>' + (similar.length ? '<button type="button" class="dictionary-duplicate" data-dict-merge-into="' + esc(similar[0]) + '" title="' + esc(similar[0]) + ' ile aynı görünüyor; birleştirmek için tıkla">Olası yineleme · ' + esc(similar[0]) + '</button>' : '<span></span>') + usage + '<span class="dictionary-actions"><button type="button" class="dictionary-icon-button" data-dict-start="rename" data-tooltip="Yeniden adlandır" aria-label="' + esc(entry.value + " değerini yeniden adlandır") + '">' + icon("edit") + '</button><button type="button" class="dictionary-icon-button" data-dict-start="merge" data-tooltip="Başka bir ' + noun + ' ile birleştir" aria-label="' + esc(entry.value + " değerini birleştir") + '"' + (all.length < 2 ? " disabled" : "") + '><svg viewBox="0 0 24 24" aria-hidden="true" class="svg-icon"><path d="M6 4v5a5 5 0 0 0 5 5h7"/><path d="M6 20v-5"/><path d="m15 11 3 3-3 3"/></svg></button></span></div>';
+  }).join("");
+  const empty = '<div class="dictionary-empty">' + (all.length ? '“' + esc(dictionaryQuery) + '” ile eşleşen ' + noun + ' yok.' : 'Henüz ' + noun + ' kullanılmamış. İşlere ' + noun + ' eklendikçe burada listelenir.') + '</div>';
+  return '<section class="dictionary-settings"><header class="dictionary-header"><div><h3>Etiket ve alan sözlüğü</h3><p>Kullanım sıklığını gör, farklı yazımları yeniden adlandır veya tek bir değerde birleştir. Kayıtlı görünümler de birlikte güncellenir.</p></div></header><div class="dictionary-toolbar"><div class="dictionary-tabs" role="tablist"><button type="button" role="tab" data-dict-tab="label" aria-selected="' + (kind === "label") + '">Etiketler <b>' + dictionaryValues("label").length + '</b></button><button type="button" role="tab" data-dict-tab="area" aria-selected="' + (kind === "area") + '">Ürün alanları <b>' + dictionaryValues("area").length + '</b></button></div><label class="dictionary-search"><span class="search-glyph">' + icon("search") + '</span><input type="search" data-dict-search value="' + esc(dictionaryQuery) + '" placeholder="' + (kind === "label" ? "Etiket" : "Alan") + ' ara…" aria-label="Sözlükte ara"></label></div>' + (duplicateCount ? '<div class="dictionary-hint"><span aria-hidden="true">!</span>' + duplicateCount + ' olası yineleme bulundu. Etiketin yanındaki uyarıya tıklayarak birleştirebilirsin.</div>' : '') + '<div class="dictionary-list" role="tabpanel">' + (rows || empty) + '</div></section>';
+}
+
+function refreshDictionarySettings(focusSelector?: string): void {
+  const section = modalRoot.querySelector(".dictionary-settings");
+  if (!section) return;
+  section.outerHTML = renderFieldDictionarySettings();
+  if (focusSelector) {
+    const target = modalRoot.querySelector<HTMLInputElement>(focusSelector);
+    target?.focus();
+    if (target instanceof HTMLInputElement && target.type !== "search") target.select();
+    else if (target instanceof HTMLInputElement) target.setSelectionRange(target.value.length, target.value.length);
+  }
+}
+
+function applyDictionaryChange(kind: DictionaryKind, value: string, replacement: string): void {
+  const next = replacement.trim();
+  if (!next || next === value) { dictionaryEdit = null; refreshDictionarySettings(); return; }
+  const affected = kind === "label" ? state.items.filter((item) => item.labels.includes(value)).length : state.items.filter((item) => item.area === value).length;
+  const merged = dictionaryValues(kind).some((entry) => entry.value === next);
+  if (kind === "label") {
+    state.items.forEach((item) => { if (item.labels.includes(value)) item.labels = [...new Set(item.labels.map((label) => label === value ? next : label))]; });
+    savedBacklogViews.forEach((view) => { if (view.label === value) view.label = next; });
+    state.labelAliases ||= {}; delete state.labelAliases[next]; state.labelAliases[value] = next;
+    persistBacklogViews();
+  } else state.items.forEach((item) => { if (item.area === value) item.area = next; });
+  if (!save()) return;
+  dictionaryEdit = null;
+  refreshDictionarySettings();
+  render();
+  toast(merged ? "“" + value + "” → “" + next + "” birleştirildi · " + affected + " iş güncellendi." : "“" + value + "” → “" + next + "” olarak adlandırıldı · " + affected + " iş güncellendi.");
+}
+
+document.addEventListener("click", (event) => {
+  const target = event.target as HTMLElement;
+  const section = target.closest?.(".dictionary-settings");
+  if (!section) return;
+  const row = target.closest<HTMLElement>("[data-dict-row]")?.dataset.dictRow || "";
+  const tab = target.closest<HTMLElement>("[data-dict-tab]");
+  if (tab) { dictionaryTab = tab.dataset.dictTab === "area" ? "area" : "label"; dictionaryQuery = ""; dictionaryEdit = null; refreshDictionarySettings(); return; }
+  const start = target.closest<HTMLElement>("[data-dict-start]");
+  if (start && row) { closeActionTooltip(); dictionaryEdit = { kind: dictionaryTab, value: row, mode: start.dataset.dictStart === "merge" ? "merge" : "rename" }; refreshDictionarySettings(dictionaryEdit.mode === "rename" ? "[data-dict-rename-input]" : "[data-dict-merge-target]"); return; }
+  const mergeInto = target.closest<HTMLElement>("[data-dict-merge-into]");
+  if (mergeInto && row) { dictionaryEdit = { kind: dictionaryTab, value: row, mode: "merge" }; refreshDictionarySettings("[data-dict-merge-target]"); const select = modalRoot.querySelector<HTMLSelectElement>("[data-dict-merge-target]"); if (select) select.value = mergeInto.dataset.dictMergeInto || select.value; return; }
+  if (target.closest("[data-dict-cancel]")) { dictionaryEdit = null; refreshDictionarySettings(); return; }
+  const apply = target.closest<HTMLElement>("[data-dict-apply]");
+  if (apply && dictionaryEdit) {
+    const value = apply.dataset.dictApply === "merge" ? section.querySelector<HTMLSelectElement>("[data-dict-merge-target]")?.value || "" : section.querySelector<HTMLInputElement>("[data-dict-rename-input]")?.value || "";
+    applyDictionaryChange(dictionaryEdit.kind, dictionaryEdit.value, value);
+  }
+});
+document.addEventListener("input", (event) => {
+  const input = event.target as HTMLInputElement;
+  if (input.dataset?.dictSearch === undefined) return;
+  dictionaryQuery = input.value;
+  refreshDictionarySettings("[data-dict-search]");
+});
+window.addEventListener("keydown", (event) => {
+  const input = event.target as HTMLElement;
+  if (!input.closest?.(".dictionary-row.is-editing")) return;
+  if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); dictionaryEdit = null; refreshDictionarySettings(); }
+  else if (event.key === "Enter" && dictionaryEdit) {
+    event.preventDefault();
+    const value = (input as HTMLInputElement | HTMLSelectElement).value;
+    applyDictionaryChange(dictionaryEdit.kind, dictionaryEdit.value, value);
+  }
+}, true);
 
 function workspaceLinkIssues(): string[] {
   const issues: string[] = [];
@@ -3278,8 +3367,11 @@ function workspaceLinkIssues(): string[] {
   return issues;
 }
 
-function openWorkspaceSettings(): void {
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header class="modal-header"><div><div class="panel-kicker">ÇALIŞMA ORTAMI</div><h2 id="settings-title">Çalışma alanını ayarla</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="workspace-form" class="settings-form"><p class="settings-intro">Takip edeceğin projeleri ve çalışma alanında görünecek kullanıcı bilgilerini düzenle. Ayarlar bu cihazda saklanır.</p><div class="form-two-col"><label class="field-label">Kurum / ekip<input class="field-input" name="organization" maxlength="60" required value="' + esc(state.profile.organization) + '"></label><label class="field-label">Çalışma alanı adı<input class="field-input" name="workspace" maxlength="60" required value="' + esc(state.profile.workspace) + '"></label><label class="field-label">Adın<input class="field-input" name="userName" maxlength="60" required value="' + esc(state.profile.userName) + '"></label><label class="field-label">Rolün<input class="field-input" name="userRole" maxlength="60" required value="' + esc(state.profile.userRole) + '"></label></div><section class="jira-settings-block"><h3>Jira Server / Data Center</h3><p>Base URL girilmezse Jira menüsü devre dışı kalır. PAT’i Jira panelinde kendi hesabından oluşturup ekleyebilirsin.</p><label class="field-label">Jira Base URL<input class="field-input" name="jiraBaseUrl" type="url" placeholder="https://jira.kurum.local" value="' + esc(state.profile.jiraBaseUrl || "") + '"></label></section><div class="settings-note">Bu bilgiler yalnızca masaüstündeki yerel görünümü kişiselleştirir. Henüz kullanıcı hesabı veya kurum bağlantısı oluşturmaz.</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Kapat</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
+function openWorkspaceSettings(panel?: string): void {
+  if (SETTINGS_PANELS.some((entry) => entry.id === panel)) settingsActivePanel = panel as SettingsPanelId;
+  const reopening = Boolean(modalRoot.querySelector(".settings-center-modal"));
+  const previousScroll = modalRoot.querySelector<HTMLElement>(".settings-panels")?.scrollTop || 0;
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header class="modal-header"><div><div class="panel-kicker">' + esc(state.profile.workspace || "ÇALIŞMA ALANI") + '</div><h2 id="settings-title">Ayarlar</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="workspace-form" class="settings-form"><p class="settings-intro">Takip edeceğin projeleri ve çalışma alanında görünecek kullanıcı bilgilerini düzenle. Ayarlar bu cihazda saklanır.</p><div class="form-two-col"><label class="field-label">Kurum / ekip<input class="field-input" name="organization" maxlength="60" required value="' + esc(state.profile.organization) + '"></label><label class="field-label">Çalışma alanı adı<input class="field-input" name="workspace" maxlength="60" required value="' + esc(state.profile.workspace) + '"></label><label class="field-label">Adın<input class="field-input" name="userName" maxlength="60" required value="' + esc(state.profile.userName) + '"></label><label class="field-label">Rolün<input class="field-input" name="userRole" maxlength="60" required value="' + esc(state.profile.userRole) + '"></label></div><section class="jira-settings-block"><h3>Jira Server / Data Center</h3><p>Base URL girilmezse Jira menüsü devre dışı kalır. PAT’i Jira panelinde kendi hesabından oluşturup ekleyebilirsin.</p><label class="field-label">Jira Base URL<input class="field-input" name="jiraBaseUrl" type="url" placeholder="https://jira.kurum.local" value="' + esc(state.profile.jiraBaseUrl || "") + '"></label></section><div class="settings-note">Bu bilgiler yalnızca masaüstündeki yerel görünümü kişiselleştirir. Henüz kullanıcı hesabı veya kurum bağlantısı oluşturmaz.</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Kapat</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
   modalRoot.querySelector(".jira-settings-block")?.insertAdjacentHTML("afterend", '<div class="settings-actions"><button type="button" class="button button-secondary" data-action="open-setup">Projeleri ve kurulum bilgilerini düzenle</button></div>' + renderTeamSettingsSection() + renderFieldDictionarySettings() + '<section class="backup-settings"><h3>Veri yedekleme</h3><p>Yedekleme dosya türünü ve kaydedileceği konumu seç. Ekler de yedeğe eklenir; dosyayı güvenli bir yerde sakla.</p><div class="backup-actions"><label class="field-label">Dosya biçimi<select id="backup-format" class="field-input"><option value="rota">Rota sıkıştırılmış yedek (.rota)</option><option value="json">JSON (.json)</option></select></label><button type="button" class="button button-secondary" data-action="backup-export">Yedek oluştur</button><button type="button" class="button button-secondary" data-action="backup-restore">Yedekten geri yükle</button></div></section>');
   const linkIssues = workspaceLinkIssues();
   document.querySelector(".backup-settings")?.insertAdjacentHTML("beforebegin", '<section class="workspace-link-report"><h3>Veri bağlantıları · ' + linkIssues.length + ' sorun</h3>' + (linkIssues.length ? '<ul>' + linkIssues.slice(0, 100).map((issue) => '<li>' + esc(issue) + '</li>').join('') + '</ul>' + (linkIssues.length > 100 ? '<p>İlk 100 sorun gösteriliyor.</p>' : '') : '<p>Eksik proje, iş, bileşen, release veya sprint bağlantısı bulunmadı.</p>') + '</section>');
@@ -3292,6 +3384,87 @@ function openWorkspaceSettings(): void {
   (document.getElementById("workspace-app-zoom") as HTMLSelectElement).value = String(appZoom);
   (document.getElementById("workspace-high-contrast") as HTMLSelectElement).value = localStorage.getItem(HIGH_CONTRAST_KEY) || "false";
   (document.getElementById("workspace-reduced-motion") as HTMLSelectElement).value = localStorage.getItem(REDUCED_MOTION_KEY) || "false";
+  buildSettingsCenter(reopening ? previousScroll : 0);
+  if (reopening) modalRoot.querySelector(".modal-backdrop")?.classList.add("is-reopening");
+}
+
+// Ayarlar merkezi: mevcut bölümleri sol menülü gruplara taşır; alanlar ve işleyiciler aynı kalır.
+type SettingsPanelId = "general" | "appearance" | "teams" | "work" | "integrations" | "data";
+let settingsActivePanel: SettingsPanelId = "general";
+const SETTINGS_PANELS: { id: SettingsPanelId; label: string; description: string; icon: string; selectors: string[] }[] = [
+  { id: "general", label: "Genel", description: "Kurum, çalışma alanı ve profil bilgilerin.", icon: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>', selectors: [".settings-intro", "#workspace-form > .form-two-col", ".settings-note", ".settings-actions"] },
+  { id: "appearance", label: "Görünüm", description: "Tema, vurgu rengi, yakınlaştırma ve erişilebilirlik.", icon: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.1-2.2H17a4 4 0 0 0 4-4c0-5-4-10-9-10z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15" cy="8" r="1"/>', selectors: [".appearance-settings"] },
+  { id: "teams", label: "Takımlar", description: "Atamalarda kullanılan ekipler ve üyeler.", icon: '<circle cx="9" cy="8" r="3.2"/><path d="M3 19a6 6 0 0 1 12 0"/><path d="M16 5.2a3 3 0 0 1 0 5.8M18.5 19a5.5 5.5 0 0 0-3-4.9"/>', selectors: [".settings-team-section"] },
+  { id: "work", label: "Tahmin ve sözlük", description: "Efor birimi, etiketler ve ürün alanları.", icon: '<path d="M3 12V4h8l9.5 9.5a2 2 0 0 1 0 2.8l-5.2 5.2a2 2 0 0 1-2.8 0z"/><circle cx="7.5" cy="8.5" r="1.3"/>', selectors: [".estimate-settings", ".dictionary-settings"] },
+  { id: "integrations", label: "Entegrasyonlar", description: "Jira Server / Data Center bağlantısı.", icon: '<path d="M9 3v5M15 3v5"/><path d="M6 8h12v3a6 6 0 0 1-12 0z"/><path d="M12 17v4"/>', selectors: [".jira-settings-block"] },
+  { id: "data", label: "Veri ve yedekleme", description: "Bağlantı kontrolü, elle ve otomatik yedekler.", icon: '<ellipse cx="12" cy="5.5" rx="7.5" ry="2.8"/><path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13"/><path d="M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8"/>', selectors: [".workspace-link-report", ".backup-settings:not(.estimate-settings)"] }
+];
+
+function activateSettingsPanel(id: SettingsPanelId, focusTab = false): void {
+  const form = modalRoot.querySelector<HTMLElement>(".settings-center");
+  if (!form) return;
+  settingsActivePanel = id;
+  form.querySelectorAll<HTMLElement>("[data-settings-tab]").forEach((tab) => {
+    const active = tab.dataset.settingsTab === id;
+    tab.setAttribute("aria-selected", String(active));
+    tab.tabIndex = active ? 0 : -1;
+    if (active && focusTab) tab.focus();
+  });
+  form.querySelectorAll<HTMLElement>("[data-settings-panel]").forEach((panel) => { panel.hidden = panel.dataset.settingsPanel !== id; });
+  const scroller = form.querySelector<HTMLElement>(".settings-panels");
+  if (scroller) scroller.scrollTop = 0;
+}
+
+function buildSettingsCenter(scrollTop = 0): void {
+  const form = modalRoot.querySelector<HTMLFormElement>("#workspace-form");
+  const modal = form?.closest<HTMLElement>(".modal");
+  const footer = form?.querySelector<HTMLElement>(":scope > .modal-footer");
+  if (!form || !modal || !footer) return;
+  modal.classList.add("settings-center-modal");
+  form.classList.add("settings-center");
+  const issueCount = workspaceLinkIssues().length;
+  const nav = document.createElement("nav");
+  nav.className = "settings-nav";
+  nav.setAttribute("role", "tablist");
+  nav.setAttribute("aria-orientation", "vertical");
+  nav.setAttribute("aria-label", "Ayar grupları");
+  nav.innerHTML = SETTINGS_PANELS.map((panel) => '<button type="button" role="tab" id="settings-tab-' + panel.id + '" aria-controls="settings-panel-' + panel.id + '" data-settings-tab="' + panel.id + '"><span class="settings-nav-icon" aria-hidden="true"><svg viewBox="0 0 24 24">' + panel.icon + '</svg></span><span class="settings-nav-label">' + esc(panel.label) + '</span>' + (panel.id === "data" && issueCount ? '<b class="settings-nav-badge" title="' + issueCount + ' veri bağlantısı sorunu">' + issueCount + '</b>' : '') + '</button>').join("");
+  const panels = document.createElement("div");
+  panels.className = "settings-panels";
+  const claimed = new Set<Element>();
+  SETTINGS_PANELS.forEach((definition) => {
+    const panel = document.createElement("section");
+    panel.className = "settings-panel";
+    panel.id = "settings-panel-" + definition.id;
+    panel.dataset.settingsPanel = definition.id;
+    panel.setAttribute("role", "tabpanel");
+    panel.setAttribute("aria-labelledby", "settings-tab-" + definition.id);
+    panel.innerHTML = '<header class="settings-panel-header"><span class="settings-panel-icon" aria-hidden="true"><svg viewBox="0 0 24 24">' + definition.icon + '</svg></span><div><h3>' + esc(definition.label) + '</h3><p>' + esc(definition.description) + '</p></div></header>';
+    definition.selectors.forEach((selector) => form.querySelectorAll(selector).forEach((node) => { if (!claimed.has(node) && node.parentElement === form) { claimed.add(node); panel.append(node); } }));
+    panels.append(panel);
+  });
+  // Tanımlanmamış yeni bir bölüm eklenirse kaybolmasın: Genel grubunun sonuna alınır.
+  [...form.children].forEach((node) => { if (node !== footer && !claimed.has(node)) panels.querySelector('[data-settings-panel="general"]')?.append(node); });
+  form.prepend(nav);
+  form.insertBefore(panels, footer);
+  activateSettingsPanel(settingsActivePanel);
+  panels.scrollTop = scrollTop;
+  nav.addEventListener("click", (event) => {
+    const tab = (event.target as HTMLElement).closest<HTMLElement>("[data-settings-tab]");
+    if (tab) activateSettingsPanel(tab.dataset.settingsTab as SettingsPanelId);
+  });
+  nav.addEventListener("keydown", (event) => {
+    if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+    event.preventDefault();
+    const index = SETTINGS_PANELS.findIndex((panel) => panel.id === settingsActivePanel);
+    const next = event.key === "Home" ? 0 : event.key === "End" ? SETTINGS_PANELS.length - 1 : (index + (event.key === "ArrowDown" ? 1 : -1) + SETTINGS_PANELS.length) % SETTINGS_PANELS.length;
+    activateSettingsPanel(SETTINGS_PANELS[next].id, true);
+  });
+  // Gizli gruptaki zorunlu alan boşsa kaydetmede o gruba geçilir.
+  form.addEventListener("invalid", (event) => {
+    const panel = (event.target as HTMLElement).closest<HTMLElement>("[data-settings-panel]");
+    if (panel && panel.hidden) activateSettingsPanel(panel.dataset.settingsPanel as SettingsPanelId);
+  }, true);
 }
 
 async function exportWorkspaceBackup(): Promise<void> {
@@ -3532,7 +3705,7 @@ function saveWorkspaceSettings(event: SubmitEvent): void {
   state.profile = { organization: String(values.get("organization") || "").trim(), workspace: String(values.get("workspace") || "").trim(), userName: String(values.get("userName") || "").trim(), userRole: String(values.get("userRole") || "").trim(), ...(jiraBaseUrl ? { jiraBaseUrl } : {}) };
   if (!jiraBaseUrl) { jiraBoards = []; jiraProjects = []; jiraSprints = []; jiraIssueTypes = []; jiraIssues = []; jiraCatalogLoadedFor = ""; }
   else if (jiraCatalogLoadedFor !== jiraBaseUrl) jiraCatalogLoadedFor = "";
-  save(); closeModal(); render(); toast("Çalışma alanı ayarları kaydedildi.");
+  save(); closeModal(); render(); toast("Ayarlar kaydedildi.");
 }
 
 function saveProjectSettings(event: SubmitEvent): void {
@@ -5047,7 +5220,6 @@ document.addEventListener("click", async (event) => {
     else if (action.dataset.action === "apply-bulk-preview") applyBulkImpactPreview();
     else if (action.dataset.action === "restore-form-draft" && action.dataset.id) restoreFormDraft(action.dataset.id);
     else if (action.dataset.action === "discard-form-draft" && action.dataset.id) { state.formDrafts = (state.formDrafts || []).filter((entry) => entry.id !== action.dataset.id); save(); action.closest(".draft-recovery")?.remove(); toast("Taslak silindi."); }
-    else if (action.dataset.action === "rename-dictionary-value" && action.dataset.kind && action.dataset.value) updateDictionaryValue(action.dataset.kind as "label" | "area", action.dataset.value);
     else if (["open-notification", "snooze-notification", "read-notification", "done-notification"].includes(action.dataset.action || "") && action.dataset.id) {
       const notice = state.notifications?.find((row) => row.id === action.dataset.id); if (!notice) return;
       if (action.dataset.action === "snooze-notification") { const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); notice.snoozedUntil = tomorrow.toISOString(); notice.state = "read"; save(); renderFocus(); toast("Hatırlatma yarına ertelendi."); }
@@ -5055,7 +5227,7 @@ document.addEventListener("click", async (event) => {
       else if (action.dataset.action === "done-notification") { notice.state = "done"; save(); renderFocus(); }
       else { notice.state = "read"; save(); if (notice.type === "task") openTask(notice.recordId); else if (notice.type === "blocker") openItem(notice.recordId); else if (notice.type === "question") { setView("questions"); } else { setView("decisions"); openDecisionDetail(notice.recordId); } }
     }
-    else if (action.dataset.action === "open-workspace-settings") openWorkspaceSettings();
+    else if (action.dataset.action === "open-workspace-settings") openWorkspaceSettings(action.dataset.settingsPanel);
     else if (action.dataset.action === "jira-refresh") await refreshJiraCatalog();
     else if (action.dataset.action === "jira-save-token") await saveJiraPat();
     else if (action.dataset.action === "jira-replace-token") { jiraHasSavedToken = false; jiraError = "Yeni tokenı kaydettiğinde mevcut PAT değiştirilir."; renderJira(); }
