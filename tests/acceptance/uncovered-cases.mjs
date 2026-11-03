@@ -53,8 +53,8 @@ export function addUncoveredCases(cases) {
 
   // File metadata on creation and on existing backlog items.
   for (let n = 0; n < 15; n++) test(`Yeni backlog işi formundaki ek kayda bağlanır ${n + 1}`, async page => {
-    await go(page, "backlog", ".backlog-page"); await click(page, '.backlog-bottom [data-action="new"]');
-    await click(page, '[data-action="quick-create-details"]'); await get(page, "#new-form").waitFor({ state: "visible" });
+    await go(page, "backlog", ".backlog-page"); await click(page, '.workspace-tools [data-workspace-create="item"]');
+    await click(page, '[data-action="expand-create-form"]'); await get(page, "#new-form").waitFor({ state: "visible" });
     const title = `UAT kapsam işi ek ${n + 1}`;
     await get(page, "#new-title-input").fill(title);
     const file = `uat-work-${n + 1}.txt`;
@@ -88,8 +88,8 @@ export function addUncoveredCases(cases) {
     expect(activity?.visibility === (n % 2 ? "private" : "team"), "İlerleme notu görünürlüğü saklanmadı");
   });
   for (const kind of ["Kişisel görev", "Not"]) for (let n = 0; n < 7; n++) test(`${kind} oluşturulurken dosya eki aynı kayda bağlanır (${n + 1})`, async page => {
-    await go(page, "backlog", ".backlog-page"); await click(page, '.backlog-bottom [data-action="new"]');
-    await click(page, '[data-action="quick-create-details"]'); await get(page, "#new-form").waitFor({ state: "visible" });
+    await go(page, "backlog", ".backlog-page"); await click(page, '.workspace-tools [data-workspace-create="item"]');
+    await click(page, '[data-action="expand-create-form"]'); await get(page, "#new-form").waitFor({ state: "visible" });
     await get(page, "#new-kind").selectOption(kind);
     const title = `UAT ${kind} ek ${n + 1}`;
     await get(page, "#new-title-input").fill(title);

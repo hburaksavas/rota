@@ -19,9 +19,9 @@ const go = async (page, view, selector) => {
 };
 const openDetailedCreate = async page => {
   await go(page, "backlog", ".backlog-page");
-  await click(page, '.backlog-bottom [data-action="new"]');
+  await click(page, '.workspace-tools [data-workspace-create="item"]');
   await get(page, "#quick-create-form").waitFor({ state: "visible" });
-  await click(page, '[data-action="quick-create-details"]');
+  await click(page, '[data-action="expand-create-form"]');
   await get(page, "#new-form").waitFor({ state: "visible" });
 };
 const clearFilters = async page => {
@@ -71,9 +71,10 @@ export function addComplexCases(cases) {
   for (let n = 0; n < 10; n++) test(`Hızlı ekleme Enter ve buton akışında kalıcıdır ${n + 1}`, async p => {
     await go(p, "backlog", ".backlog-page");
     const title = uniq("Hızlı iş", n);
-    await fill(p, "#backlog-quick-title", title);
-    if (n % 2) await get(p, "#backlog-quick-title").press("Enter");
-    else await click(p, '[data-action="quick-add-backlog"]');
+    await click(p, '.workspace-tools [data-workspace-create="item"]');
+    await fill(p, '#quick-create-form [name="title"]', title);
+    if (n % 2) await get(p, '#quick-create-form [name="title"]').press("Control+Enter");
+    else await click(p, '#quick-create-form button[value="close"]');
     const state = await readVisible(p);
     const item = state.items.find(row => row.title === title);
     expect(item && item.status === "Yeni" && item.project, "Hızlı oluşturulan işin varsayılanları veya kaydı eksik");

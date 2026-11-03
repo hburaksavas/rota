@@ -33,8 +33,59 @@ try {
   }
  }
  await page.evaluate(()=>testApi.setAppZoom(1));
+ for (const zoom of [0.75,1,1.25]) {
+  await page.evaluate(value=>{testApi.setAppZoom(value);document.querySelectorAll('.nav-group').forEach(group=>group.open=false);},zoom);
+  await page.waitForTimeout(400);
+  assert.equal(await page.locator('.nav-active-pill.visible').count(),0,'Kapalı menü grubunun vurgusu boş kutu bırakmamalı');
+  await page.evaluate(()=>{document.querySelector('.nav-item.active').closest('details').open=true;});
+  await page.waitForTimeout(650);
+  assert.equal(await page.locator('.nav-active-pill.visible').count(),1);
+  const drift=await page.evaluate(()=>{const active=document.querySelector('.nav-item.active').getBoundingClientRect();const pill=document.querySelector('.nav-active-pill').getBoundingClientRect();return Math.max(Math.abs(active.top-pill.top),Math.abs(active.height-pill.height));});
+  assert.ok(drift<1,'Grup yeniden açılınca vurgu seçili satıra dönmeli');
+ }
+ await page.evaluate(()=>testApi.setAppZoom(1));
  assert.equal(await page.locator('[data-view="focus"]').count(),0);assert.equal(await page.locator('.workspace-tools [data-workspace-create]').count(),3);
  const workspaceContext=await page.evaluate(()=>{testApi.setProject(testApi.state.projects[0].id);testApi.setQuery('transfer');testApi.updateBacklogRows();return testApi.context;});
+ assert.equal(await page.locator('.primary-nav [data-view="questions"]').count(),0);
+ const initialQuestions=await page.evaluate(()=>JSON.parse(JSON.stringify(testApi.state.openQuestions||[])));
+ await page.locator('.workspace-tools [data-workspace-panel="questions"]').click();
+ await page.locator('.workspace-shelf-add').click();
+ await page.locator('#open-question-form [name="text"]').fill('Toolbar karar sorusu');
+ await page.locator('#open-question-form [name="owner"]').fill('Operasyon');
+ await page.locator('#open-question-form [name="expectedAt"]').fill('2020-01-01');
+ await page.locator('#open-question-form [name="linkedItemId"]').selectOption('PAY-241');
+ await page.locator('#open-question-form button[type="submit"]').click();
+ assert.deepEqual(await page.evaluate(()=>testApi.context),workspaceContext);
+ await page.locator('#workspace-shelf-search').fill('Toolbar karar sorusu');
+ assert.equal(await page.locator('.workspace-question-row').count(),1);
+ assert.equal(await page.locator('.workspace-question-row.is-overdue').count(),1);
+ assert.match(await page.locator('.workspace-question-link').innerText(),/PAY-241/);
+ await fs.mkdir(process.env.TEMP+'/rota-feature-review',{recursive:true});
+ for (const dark of [false,true]) {
+  await page.evaluate(value=>document.body.classList.toggle('dark-theme',value),dark);
+  await page.screenshot({path:process.env.TEMP+'/rota-feature-review/questions-'+(dark?'dark':'light')+'.png'});
+ }
+ await page.evaluate(()=>document.body.classList.remove('dark-theme'));
+
+ await page.locator('.workspace-question-action[data-action="edit-open-question"]').click();
+ await page.locator('#open-question-form [name="owner"]').fill('Ürün ekibi');
+ await page.locator('#open-question-form button[type="submit"]').click();
+ await page.locator('#workspace-shelf-search').fill('Toolbar karar sorusu');
+ await page.locator('.workspace-question-action[data-action="answer-open-question"]').click();
+ await page.locator('#open-question-answer-form [name="answer"]').fill('Limit onaylandı');
+ await page.locator('#open-question-answer-form button[type="submit"]').click();
+ assert.deepEqual(await page.evaluate(()=>testApi.context),workspaceContext);
+ assert.equal(await page.locator('#workspace-question-filter').inputValue(),'answered');
+ await page.locator('#workspace-shelf-search').fill('Toolbar karar sorusu');
+ assert.equal(await page.locator('.workspace-question-answer').innerText(),'Limit onaylandı');
+ await page.locator('.workspace-question-action[data-action="reopen-question"]').click();
+ await page.locator('#workspace-shelf-search').fill('Toolbar karar sorusu');
+ assert.equal(await page.locator('#workspace-question-filter').inputValue(),'open');
+ page.once('dialog',dialog=>dialog.accept());
+ await page.locator('.workspace-question-action[data-action="delete-open-question"]').click();
+ assert.deepEqual(await page.evaluate(()=>testApi.state.openQuestions||[]),initialQuestions);
+ assert.deepEqual(await page.evaluate(()=>testApi.context),workspaceContext);
+ await page.keyboard.press('Escape');
  const initialTasks=await page.evaluate(()=>testApi.state.tasks.map(task=>task.id));const initialNotes=await page.evaluate(()=>testApi.state.notes.map(note=>note.id));
  await page.locator('.workspace-tools [data-workspace-create="task"]').click();assert.equal(await page.locator('#quick-create-form [name="kind"]').inputValue(),'Kişisel görev');await page.locator('#quick-create-form [name="title"]').fill('Çalışma alanı görevi');await page.locator('#quick-create-form [name="description"]').fill('Toolbar üzerinden eklendi');await page.locator('#quick-create-form button[value="close"]').click();
  assert.deepEqual(await page.evaluate(()=>testApi.context),workspaceContext);assert.ok(await page.evaluate(()=>testApi.state.tasks.some(task=>task.title==='Çalışma alanı görevi')));

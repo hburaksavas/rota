@@ -9,6 +9,12 @@
 
 ## Tamamlanan
 
+- **Toolbar sonrası tekrarlanan oluşturma eylemleri (4 Kasım 2026):** Genel çalışma alanı ve Backlog başlığındaki Yeni iş oluştur butonları, Backlog altındaki eski hızlı ekleme/Form satırı ve tekrarlanan saklama açıklaması kaldırıldı. Ana ekrandaki Tüm görevler/Tüm notlar bağlantıları ve Görev/Not panellerindeki yinelenen ekleme butonları kaldırıldı; oluşturma ortak toolbar üzerinden yapılır. Sorular panelinin tek ekleme erişimi, kayda özel eylemler ve satır konumuna ekleme korunur. Kabul testi girişleri toolbar akışına uyarlandı.
+
+- **Kapalı menü grubunda boş vurgu kutusu (4 Kasım 2026):** Seçili öğenin bulunduğu grup kapatılınca kayan vurgu gizlenir; grup yeniden açıldığında seçili satıra döner. %75, %100 ve %125 oranlarında kapatma/açma regresyonu eklendi.
+
+- **Toolbar üzerinden açık soru takibi (4 Kasım 2026):** Açık sorular sol menüden kaldırıldı; ortak toolbar'da açık soru sayacı ve aranabilir soru paneli eklendi. Açık/tümü/yanıtlandı filtreleri, soru ekleme/düzenleme, yanıtlama, yeniden açma, silme, gecikme göstergesi ve ilişkili işe erişim aynı panelde çalışır. Kayıtlar korunur; işlemler mevcut sayfa, proje ve arama kapsamını değiştirmez. Tema ve dar pencere uyumu, kayıt döngüsü ve veri korunumu hedefli testle doğrulandı.
+
 - **Yakınlaştırmada sol menü vurgusu (4 Kasım 2026):** Kayan seçim vurgusunun konumu ve boyutu CSS yakınlaştırması hesaba katılarak hesaplanır; yakınlaştırma değiştiğinde yeniden hizalanır. Mevcut animasyon ve tema korunur. %50, %75, %90, %100, %110, %125, %150 ve %200 oranlarında Backlog/Yol haritası geçişlerinde satırla vurgu arasındaki fark 1 pikselin altında doğrulanır.
 
 - **Masaüstü kapanış düzeltmesi (4 Kasım 2026):** Son pencere kapatıldığında native olay döngüsü durdurulur, uygulamanın pencere/WebView/bağlam kaynakları bırakılır ve yerel HTTP sunucusu bağlantılarıyla birlikte kapatılır. Zorla süreç sonlandırma kullanılmaz. İzole WebView2 testi doğal süreç çıkışını, native kaynakların bırakılmasını ve portun tekrar kullanılmasını doğrular.

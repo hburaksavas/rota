@@ -38,7 +38,7 @@ add("UAT-008 Kurulum zorunlu alanları doğrulanabilir", async p => assert(await
 // Shared workspace and dashboard
 const dashboardChecks = [
   ["UAT-009 Genel bakış açılır", ".welcome-row h1"], ["UAT-010 Kişisel karşılama gösterilir", ".welcome-row p"],
-  ["UAT-011 Yeni iş kısayolu görünür", '.welcome-row [data-action="new"]'], ["UAT-012 Backlog özeti görünür", ".stat-grid"],
+  ["UAT-011 Yeni iş kısayolu görünür", '.workspace-tools [data-workspace-create="item"]'], ["UAT-012 Backlog özeti görünür", ".stat-grid"],
   ["UAT-013 Ürün hedefleri ve yayın takibi görünür", ".portfolio-tracking"], ["UAT-014 Hazır işler paneli görünür", ".backlog-panel"],
   ["UAT-015 Kişisel görev özeti görünür", ".today-panel"], ["UAT-016 Son notlar paneli görünür", ".notes-panel"],
   ["UAT-017 Aktif proje gezinme listesi görünür", ".project-list"], ["UAT-018 Proje arama alanı görünür", "#project-nav-search-input"],
@@ -56,7 +56,7 @@ const backlogSelectors = [
   ["UAT-031 Hazır iş havuzu kontrolü görünür", '[data-action="toggle-ready-pool"]'], ["UAT-032 Kolon yönetimi açılır", '[data-action="manage-backlog-columns"]'],
   ["UAT-033 Başlık önizleme kontrolü görünür", '[data-action="toggle-backlog-preview"]'], ["UAT-034 Excel dışa aktarma eylemi görünür", '[data-action="backlog-export-excel"]'],
   ["UAT-035 Toplu silme eylemi görünür", '[data-action="delete-selected-backlog"]'], ["UAT-036 Sprint oluşturma eylemi görünür", '[data-action="create-sprint"]'],
-  ["UAT-037 Hızlı backlog ekleme alanı görünür", "#backlog-quick-title"], ["UAT-038 Ayrıntılı iş formu kısayolu görünür", '.backlog-bottom [data-action="new"]'],
+  ["UAT-037 Toolbar iş oluşturma kısayolu görünür", '.workspace-tools [data-workspace-create="item"]'], ["UAT-038 Toolbar görev oluşturma kısayolu görünür", '.workspace-tools [data-workspace-create="task"]'],
   ["UAT-039 Görünüm listesi ile tablo görünümü birlikte sunulur", ".view-tabs"], ["UAT-040 Liste görünümü seçilebilir", '[data-action="list"]'],
   ["UAT-041 Board görünümüne geçilebilir", '[data-action="kanban"]'], ["UAT-042 Board görünümünde kolonlar sunulur", ".board-column"],
   ["UAT-043 Board kartları görünür", ".board-card"], ["UAT-044 Boarddan listeye geri dönülebilir", '[data-action="list"]'],
