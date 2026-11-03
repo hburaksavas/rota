@@ -36,9 +36,8 @@
             </div>
           </details>
           <details class="nav-group" data-nav-group="personal">
-            <summary><span>Kişisel çalışma</span><i aria-hidden="true"></i></summary>
+            <summary><span>Çalışma akışı</span><i aria-hidden="true"></i></summary>
             <div class="nav-group-items">
-              <button class="nav-item" data-view="focus"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg></span>Kişisel alan</button>
               <button class="nav-item" data-view="questions"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.4 2.4 0 1 1 3.4 2.2c-.8.4-1.2.9-1.2 1.8M12 17h.01"/></svg></span>Açık sorular <span class="nav-count" id="nav-question-count">0</span></button>
               <button class="nav-item" data-view="daily-plan"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17M9 15l2 2 4-4"/></svg></span>Günlük plan</button>
               <button class="nav-item" data-view="weekly-summary"><span class="nav-icon"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 20h16M7 16v-5M12 16V7M17 16v-8"/></svg></span>Haftalık özet</button>
@@ -72,6 +71,24 @@
             <button class="help-button" data-tooltip="Klavye kısayollarını göster" aria-label="Klavye kısayollarını göster"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.4 2.4 0 1 1 3.4 2.2c-.8.4-1.2.9-1.2 1.8M12 17h.01"/></svg></button>
           </div>
         </header>
+        <div class="workspace-commandbar">
+          <div class="workspace-command-context"><span class="workspace-context-mark" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="m12 3 3 6 6 3-6 3-3 6-3-6-6-3 6-3z"/></svg></span><span>Çalışma alanı<small id="workspace-command-scope">Tüm projeler</small></span></div>
+          <div class="workspace-tools" role="toolbar" aria-label="Çalışma alanı araçları">
+            <span class="workspace-tool-highlight" aria-hidden="true"></span>
+            <button type="button" class="workspace-tool workspace-tool-create" data-workspace-create="item" data-tooltip="Yeni backlog işi" aria-label="Yeni backlog işi"><span class="workspace-tool-icon" data-workspace-icon="add"></span><span>İş</span></button>
+            <button type="button" class="workspace-tool" data-workspace-create="task" data-tooltip="Yeni görev" aria-label="Yeni görev"><span class="workspace-tool-icon" data-workspace-icon="task"></span><span>Görev</span></button>
+            <button type="button" class="workspace-tool" data-workspace-create="note" data-tooltip="Yeni not" aria-label="Yeni not"><span class="workspace-tool-icon" data-workspace-icon="note"></span><span>Not</span></button>
+            <span class="workspace-tool-divider" aria-hidden="true"></span>
+            <button type="button" class="workspace-tool" data-workspace-panel="tasks" aria-label="Çalışma alanı görevleri" aria-controls="workspace-shelf" aria-expanded="false"><span class="workspace-tool-icon" data-workspace-icon="list"></span><span>Görevler</span><small data-workspace-count="tasks">0</small></button>
+            <button type="button" class="workspace-tool" data-workspace-panel="notes" aria-label="Çalışma alanı notları" aria-controls="workspace-shelf" aria-expanded="false"><span class="workspace-tool-icon" data-workspace-icon="notes"></span><span>Notlar</span><small data-workspace-count="notes">0</small></button>
+          </div>
+          <section id="workspace-shelf" class="workspace-shelf" role="region" aria-labelledby="workspace-shelf-title" hidden>
+            <header class="workspace-shelf-header"><div><span class="workspace-shelf-kicker">ÇALIŞMA ALANI</span><h2 id="workspace-shelf-title">Görevler</h2></div><button type="button" class="workspace-shelf-add" data-workspace-create="task" aria-label="Yeni görev">＋</button><button type="button" class="workspace-shelf-close" data-workspace-close aria-label="Kayıt panelini kapat">×</button></header>
+            <div class="workspace-shelf-filters"><label class="workspace-shelf-search"><span data-workspace-icon="search" aria-hidden="true"></span><input id="workspace-shelf-search" type="search" placeholder="Kayıtlarda ara…" aria-label="Çalışma alanı kayıtlarında ara"></label><label class="workspace-show-completed"><input id="workspace-show-completed" type="checkbox"> Tamamlananlar</label></div>
+            <div id="workspace-shelf-list" class="workspace-shelf-list"></div>
+            <footer class="workspace-shelf-footer"><span id="workspace-shelf-count"></span><kbd>Esc</kbd></footer>
+          </section>
+        </div>
         <div id="view-root"></div>
       </main>
     </div>

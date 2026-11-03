@@ -93,6 +93,7 @@ interface BacklogSavedView {
   dateFrom?: string;
   dateTo?: string;
   noEstimate?: boolean;
+  overdueCondition?: boolean;
   conditionMode?: "and" | "or";
   columns: BacklogColumnId[];
   sort: BacklogSort;
@@ -152,7 +153,7 @@ function loadSavedBacklogViews(): BacklogSavedView[] {
       statusAgeMinDays: Number.isInteger(view.statusAgeMinDays) && (view.statusAgeMinDays || 0) >= 0 ? view.statusAgeMinDays : 0,
       statuses: Array.isArray(view.statuses) ? view.statuses.filter((value) => ["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Bloke", "Tamamlandı"].includes(value)) : [],
       priorities: Array.isArray(view.priorities) ? view.priorities.filter((value) => ["Kritik", "Yüksek", "Orta", "Düşük"].includes(value)) : [],
-      dateFrom: view.dateFrom || "", dateTo: view.dateTo || "", noEstimate: Boolean(view.noEstimate), conditionMode: view.conditionMode === "or" ? "or" : "and",
+      dateFrom: view.dateFrom || "", dateTo: view.dateTo || "", noEstimate: Boolean(view.noEstimate), overdueCondition: Boolean(view.overdueCondition), conditionMode: view.conditionMode === "or" ? "or" : "and",
       columns: Array.isArray(view.columns) ? [...new Set(view.columns.filter((id) => knownColumns.has(id)))] : [...DEFAULT_BACKLOG_COLUMNS],
       sort: normalizeBacklogSort(view.sort === "manual" && view.secondarySort && view.secondarySort !== "manual" ? view.secondarySort : view.sort),
       secondarySort: "manual"
@@ -185,10 +186,9 @@ function migrateWorkspace(value: Partial<WorkspaceState>): Partial<WorkspaceStat
     migrated.diagnosticEvents ||= [];
     migrated.estimateUnit ||= "saat";
     migrated.labelAliases ||= {};
-    for (const sprint of migrated.sprints || []) sprint.initialScopeIds ||= (migrated.items || []).filter((item) => item.sprintId === sprint.id).map((item) => item.id);
     version = 5;
   }
-  if (version === 5) { migrated.notifications ||= []; version = 6; }
+  if (version === 5) { version = 6; }
   const projects = migrated.projects || [];
   for (const records of [migrated.items || [], migrated.assets || [], migrated.roadmap || [], migrated.releases || []]) {
     for (const record of records) {
@@ -255,6 +255,7 @@ try {
     ,importBatches: workspaceRecords<ImportBatch>(saved.importBatches, [])
     ,diagnosticEvents: workspaceRecords<DiagnosticEvent>(saved.diagnosticEvents, [])
     ,estimateUnit: saved.estimateUnit === "puan" ? "puan" : "saat"
+    ,workflowChecks: saved.workflowChecks || {}
     ,labelAliases: saved.labelAliases || {}
     ,notifications: workspaceRecords<FollowUpNotification>(saved.notifications, [])
   } : structuredClone(seed);
@@ -267,9 +268,11 @@ try {
   state = structuredClone(seed);
 }
 let activeView = "overview";
-let pendingBacklogImport: { filename: string; rows: { title: string; description: string }[] } | null = null;
+let pendingBacklogImport: ExcelImportData | null = null;
+let importSheetIndex = 0;
+let importHasHeader = true;
+let importMapping: Record<string, number> = {};
 let backlogMode = "list";
-let boardLane: "none" | "project" | "team" | "sprint" | "priority" = "none";
 let activeProjectId: string | null = null;
 let activeItemId: string | null = null;
 let statusUpdateReturnToBoard = false;
@@ -334,6 +337,7 @@ let backlogPriorities: Priority[] = [];
 let backlogDateFrom = "";
 let backlogDateTo = "";
 let backlogNoEstimate = false;
+let backlogOverdueCondition = false;
 let backlogConditionMode: "and" | "or" = "and";
 let backlogOverdueOnly = false;
 let backlogStatusAgeMinDays = 0;
@@ -387,11 +391,32 @@ state.diagnosticEvents ||= [];
 function recordDiagnostic(category: DiagnosticEvent["category"], message: string): string {
   const correlationId = Math.random().toString(36).slice(2, 10).toUpperCase();
   state.diagnosticEvents ||= [];
-  state.diagnosticEvents.unshift({ id: nextId("LOG"), category, message: message.replace(/(token|pat|password|parola)\s*[:=]\s*\S+/gi, "$1: [MASKELENDİ]").slice(0, 500), correlationId, occurredAt: new Date().toISOString() });
+  state.diagnosticEvents.unshift({ id: nextId("LOG"), category, message: ({ storage: "Yerel çalışma alanı kaydetme işlemi başarısız.", attachment: "Dosya eki işlemi başarısız.", jira: "Jira isteği başarısız.", import: "İçe aktarma işlemi başarısız.", application: "Uygulama işlemi başarısız." })[category], correlationId, occurredAt: new Date().toISOString() });
   state.diagnosticEvents = state.diagnosticEvents.slice(0, 100);
+  if (category !== "storage" && unreadableWorkspace === null) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* Keep the event in memory until saving is possible. */ } }
   return correlationId;
 }
 
+function openRiskCenter(overdueOnly = false): void {
+  const today = new Date().toLocaleDateString("sv-SE");
+  const risks = (state.risks || []).filter((risk) => !overdueOnly || risk.status !== "Kapandı" && risk.reviewAt && risk.reviewAt < today);
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><h2>Risk takibi</h2><button class="modal-close" data-close-modal>×</button></header><div class="settings-form"><label class="completed-filter"><input id="risk-overdue-only" type="checkbox" ' + (overdueOnly ? 'checked' : '') + '> Gözden geçirmesi gecikenler</label>' + risks.map((risk) => '<button class="button button-secondary" data-action="edit-risk" data-id="' + esc(risk.id) + '">' + esc(risk.title + " · " + risk.status + " · " + (risk.reviewAt || "Tarih yok")) + '</button>').join("") + (!risks.length ? '<p class="settings-note">Bu kapsamda risk yok. İşin ilişkiler bölümünden risk ekleyebilirsin.</p>' : '') + '</div></section></div>';
+}
+function openRiskEditor(riskId?: string, itemId?: string): void {
+  const risk = state.risks?.find((entry) => entry.id === riskId); const item = itemId ? itemById(itemId) : undefined;
+  const field = (name: string, label: string, value: string, type = "text") => '<label class="field-label">' + label + '<input class="field-input" name="' + name + '" type="' + type + '" value="' + esc(value) + '"></label>';
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><h2>Risk kaydı</h2><button class="modal-close" data-close-modal>×</button></header><form id="risk-form" class="settings-form"><input type="hidden" name="id" value="' + esc(riskId || "") + '"><input type="hidden" name="itemId" value="' + esc(itemId || "") + '"><input type="hidden" name="project" value="' + esc(risk?.project || item?.project || "") + '">' + field("title", "Başlık", risk?.title || "") + field("description", "Açıklama", risk?.description || "") + field("owner", "Sahip", risk?.owner || state.profile.userName) + '<div class="form-two-col">' + ["impact", "probability"].map((key) => '<label class="field-label">' + (key === "impact" ? "Etki" : "Olasılık") + '<select class="field-input" name="' + key + '">' + [1, 2, 3, 4, 5].map((value) => '<option ' + (value === (risk?.[key as "impact" | "probability"] || 3) ? 'selected' : '') + '>' + value + '</option>').join("") + '</select></label>').join("") + '</div><p class="settings-note">Ölçek: 1 en düşük, 5 en yüksek. Etki × olasılık: 1–4 Düşük, 5–9 Orta, 10–15 Yüksek, 16–25 Kritik.</p>' + field("mitigation", "Azaltma aksiyonu", risk?.mitigation || "") + field("reviewAt", "Gözden geçirme tarihi", risk?.reviewAt || "", "date") + '<label class="field-label">Durum<select class="field-input" name="status">' + ["Açık", "Azaltılıyor", "Kapandı"].map((status) => '<option ' + (status === risk?.status ? 'selected' : '') + '>' + status + '</option>').join("") + '</select></label><label class="field-label">Elle seviye<select class="field-input" name="manualLevel"><option value="">Hesaplanan seviyeyi kullan</option>' + ["Düşük", "Orta", "Yüksek", "Kritik"].map((level) => '<option ' + (level === risk?.manualLevel ? 'selected' : '') + '>' + level + '</option>').join("") + '</select></label>' + field("manualLevelReason", "Elle seviye gerekçesi", risk?.manualLevelReason || "") + '<label class="field-label">İlgili release<select class="field-input" name="releaseId"><option value="">Bağlantı yok</option>' + state.releases.filter((release) => release.project === (risk?.project || item?.project)).map((release) => '<option value="' + esc(release.id) + '" ' + (risk?.releaseIds?.includes(release.id) ? 'selected' : '') + '>' + esc(release.name) + '</option>').join("") + '</select></label>' + (risk?.workItemIds || (item ? [item.id] : [])).map((id) => '<button type="button" class="text-button" data-open-item="' + esc(id) + '">' + esc(id) + '</button>').join("") + '<footer class="modal-footer"><button class="button button-primary" type="submit">Kaydet</button></footer></form></section></div>';
+}
+function openWorkTemplateEditor(): void {
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><h2>İş şablonu ekle</h2><button class="modal-close" data-close-modal>×</button></header><form id="work-template-form" class="settings-form"><label class="field-label">Şablon adı<input class="field-input" name="name" required maxlength="80"></label><div class="form-two-col"><label class="field-label">Tür<select class="field-input" name="type"><option>Story</option><option>Bug</option><option>Task</option></select></label><label class="field-label">Öncelik<select class="field-input" name="priority"><option>Orta</option><option>Kritik</option><option>Yüksek</option><option>Düşük</option></select></label></div><label class="field-label">Açıklama bölümleri<textarea class="field-input" name="description" rows="5"></textarea></label><label class="field-label">Kabul kriterleri (her satır bir kriter)<textarea class="field-input" name="acceptance" rows="3"></textarea></label><label class="field-label">Etiketler (virgülle ayır)<input class="field-input" name="labels"></label><footer class="modal-footer"><button type="submit" class="button button-primary">Şablonu kaydet</button></footer></form></section></div>';
+}
+async function openDiagnostics(): Promise<void> {
+  let environment: Record<string, string> = { uygulama: "Rota 0.1.0", arayüz: navigator.userAgent };
+  try { if (desktop.getDiagnostics) environment = await desktop.getDiagnostics(); } catch { /* Report remains available without the host. */ }
+  const report = { ortam: environment, olaylar: (state.diagnosticEvents || []).map(({ category, correlationId, occurredAt }) => ({ kategori: category, ilişkiKimliği: correlationId, zaman: occurredAt })) };
+  const content = JSON.stringify(report, null, 2);
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">YEREL TANILAMA</div><h2>Rapor önizlemesi</h2></div><button class="modal-close" data-close-modal aria-label="Kapat">×</button></header><div class="settings-form"><p class="settings-note">Rapor yalnızca sürüm, işlem kategorisi, zaman ve ilişkilendirme kimliğini içerir.</p><textarea id="diagnostic-report" class="field-input diagnostic-report" readonly rows="16">' + esc(content) + '</textarea><footer class="modal-footer"><button class="button button-secondary" data-action="export-diagnostics">Raporu dışa aktar</button></footer></div></section></div>';
+}
 function structuredEditorToolbar(target: string): string {
   return '<div class="structured-editor-toolbar" role="toolbar" aria-label="Metin biçimlendirme"><button type="button" data-format="heading" data-target="' + target + '" aria-label="Başlık ekle">H</button><button type="button" data-format="bold" data-target="' + target + '" aria-label="Kalın metin ekle"><strong>B</strong></button><button type="button" data-format="list" data-target="' + target + '" aria-label="Liste ekle">• Liste</button><button type="button" data-format="check" data-target="' + target + '" aria-label="Kontrol maddesi ekle">☐</button><button type="button" data-format="link" data-target="' + target + '" aria-label="Bağlantı ekle">↗</button></div>';
 }
@@ -479,7 +504,8 @@ new MutationObserver(() => {
   if (!dialog || dialog === activeModalDialog) return;
   if (!modalReturnFocus) modalReturnFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
   activeModalDialog = dialog;
-  (dialog.querySelector<HTMLElement>('input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), select:not([disabled])') || dialog.querySelector<HTMLElement>(modalFocusSelector))?.focus();
+  const preferred = [...dialog.querySelectorAll<HTMLElement>('input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), select:not([disabled])')].find((element) => element.getClientRects().length > 0);
+  (preferred || [...dialog.querySelectorAll<HTMLElement>(modalFocusSelector)].find((element) => element.getClientRects().length > 0))?.focus();
 }).observe(modalRoot, { childList: true, subtree: true });
 modalRoot.addEventListener("keydown", (event) => {
   if (event.key !== "Tab") return;
@@ -555,6 +581,7 @@ function applyAppZoom(): void {
   }
   const settingsSelect = document.getElementById("workspace-app-zoom") as HTMLSelectElement | null;
   if (settingsSelect) settingsSelect.value = String(appZoom);
+  updateNavIndicator();
 }
 function setAppZoom(value: number): void {
   const next = clampAppZoom(value);
@@ -629,6 +656,7 @@ const save = () => {
     pendingSaveFailureToast = false;
     return true;
   } catch {
+    recordDiagnostic("storage", "");
     pendingSaveFailureToast = true;
     showWorkspaceSaveError();
     return false;
@@ -791,46 +819,28 @@ function getDailyPlan(date = selectedDailyDate): DailyPlan {
   return plan;
 }
 
-function syncFollowUpNotifications(): FollowUpNotification[] {
-  state.notifications ||= [];
-  const candidates: Omit<FollowUpNotification, "state">[] = [
-    ...state.tasks.filter((task) => !task.done && (task.remindAt || task.due)).map((task) => ({ id: "task::" + task.id, type: "task" as const, recordId: task.id, title: task.title, dueAt: task.remindAt || task.due })),
-    ...state.items.filter((item) => item.status === "Bloke" && item.blocker?.followUpAt).map((item) => ({ id: "blocker::" + item.id, type: "blocker" as const, recordId: item.id, title: item.id + " · " + item.title, dueAt: item.blocker!.followUpAt! })),
-    ...(state.openQuestions || []).filter((question) => question.status === "Açık" && question.expectedAt).map((question) => ({ id: "question::" + question.id, type: "question" as const, recordId: question.id, title: question.text, dueAt: question.expectedAt })),
-    ...(state.decisions || []).filter((decision) => decision.status === "Gözden geçirilecek" && decision.reviewAt).map((decision) => ({ id: "decision::" + decision.id, type: "decision" as const, recordId: decision.id, title: decision.title, dueAt: decision.reviewAt! }))
-  ];
-  candidates.forEach((candidate) => { const existing = state.notifications!.find((row) => row.id === candidate.id); if (existing) Object.assign(existing, candidate); else state.notifications!.push({ ...candidate, state: "unread" }); });
-  return state.notifications.filter((row) => row.state !== "done" && (!row.snoozedUntil || new Date(row.snoozedUntil).getTime() <= Date.now())).sort((a, b) => a.dueAt.localeCompare(b.dueAt));
-}
-
-function notificationCenterMarkup(): string {
-  const rows = syncFollowUpNotifications();
-  return '<section class="panel notification-center"><div class="panel-heading"><div><div class="panel-kicker">TAKİP MERKEZİ <span class="count-chip">' + rows.filter((row) => row.state === "unread").length + '</span></div><h2>Hatırlatmalar</h2><p>Görev, blokaj, soru ve karar takipleri tek yerde.</p></div></div><div class="notification-list">' + (rows.length ? rows.map((row) => '<article class="notification-row ' + row.state + '"><button data-action="open-notification" data-id="' + esc(row.id) + '"><strong>' + esc(row.title) + '</strong><small>' + esc(({ task: "Görev", blocker: "Blokaj", question: "Açık soru", decision: "Karar gözden geçirme" } as const)[row.type]) + ' · ' + esc(row.dueAt) + '</small></button><div><button class="button button-quiet button-small" data-action="snooze-notification" data-id="' + esc(row.id) + '">Yarın</button><button class="button button-quiet button-small" data-action="read-notification" data-id="' + esc(row.id) + '">' + (row.state === "read" ? "Okunmadı" : "Okundu") + '</button><button class="button button-quiet button-small" data-action="done-notification" data-id="' + esc(row.id) + '">Tamamla</button></div></article>').join("") : '<div class="empty-state">Bekleyen takip yok.</div>') + '</div></section>';
-}
-
 function checkFollowUpReminders(): void {
   const now = Date.now();
-  const dueTasks = state.tasks.filter((task) => !task.done && task.remindAt && !task.remindedAt && new Date(task.remindAt).getTime() <= now);
-  const dueBlockers = state.items.filter((item) => item.status === "Bloke" && item.blocker?.followUpAt && !item.blocker.remindedAt && new Date(item.blocker.followUpAt).getTime() <= now);
-  if (!dueTasks.length && !dueBlockers.length) return;
-  dueTasks.forEach((task) => { task.remindedAt = new Date().toISOString(); });
-  dueBlockers.forEach((item) => { if (item.blocker) item.blocker.remindedAt = new Date().toISOString(); });
+  const tasks = state.tasks.filter((task) => !task.done && task.remindAt && !task.remindedAt && Date.parse(task.remindAt) <= now);
+  const blockers = state.items.filter((item) => item.status === "Bloke" && item.blocker?.followUpAt && !item.blocker.remindedAt && Date.parse(item.blocker.followUpAt) <= now);
+  if (!tasks.length && !blockers.length) return;
+  const remindedAt = new Date().toISOString();
+  tasks.forEach((task) => { task.remindedAt = remindedAt; });
+  blockers.forEach((item) => { item.blocker!.remindedAt = remindedAt; });
   save();
-  toast("Takip zamanı geldi: " + [...dueTasks.map((task) => task.title), ...dueBlockers.map((item) => item.id + " · " + item.title)].slice(0, 3).join("; ") + (dueTasks.length + dueBlockers.length > 3 ? " ve " + (dueTasks.length + dueBlockers.length - 3) + " kayıt daha" : ""));
+  toast("Takip zamanı geldi: " + [...tasks.map((task) => task.title), ...blockers.map((item) => item.id + " · " + item.title)].slice(0, 3).join("; "));
 }
 
 function renderDailyPlan(): void {
   const plan = getDailyPlan();
   const entries = plan.entries.map((entry) => ({ entry, item: entry.type === "item" ? itemById(entry.id) : undefined, task: entry.type === "task" ? state.tasks.find((task) => task.id === entry.id) : undefined })).filter((row) => row.item || row.task);
   const completedCount = entries.filter(({ item, task }) => task?.done || item?.status === "Tamamlandı").length;
-  const plannedMinutes = plan.entries.reduce((sum, entry) => sum + (entry.estimatedMinutes || 0), 0);
-  const budgetMinutes = plan.focusBudgetMinutes || 0;
   const dateLabel = new Date(plan.date + "T00:00:00").toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
   const shortDateLabel = new Date(plan.date + "T00:00:00").toLocaleDateString("tr-TR", { day: "numeric", month: "long" });
   const backlogOptions = state.items.filter((item) => !item.archived && item.status !== "Tamamlandı" && !plan.entries.some((entry) => entry.type === "item" && entry.id === item.id)).map((item) => '<option value="' + esc(item.id) + '">' + esc(item.id + " · " + item.title) + '</option>').join("");
   const taskOptions = state.tasks.filter((task) => !task.done && !plan.entries.some((entry) => entry.type === "task" && entry.id === task.id)).map((task) => '<option value="' + esc(task.id) + '">' + esc(task.title) + '</option>').join("");
   root.innerHTML = '<div class="page-content planning-page daily-planning-page"><section class="page-title-row daily-plan-heading"><div><div class="eyebrow"><span class="eyebrow-dot"></span>GÜNLÜK ODAK</div><h1>Günlük plan</h1><p>Bugün ilerletmen gereken işleri ve kişisel takiplerini sırala.</p></div><div class="daily-date-controls"><button type="button" class="button button-quiet button-small" data-action="daily-plan-today">Bugün</button><label class="field-label daily-date-picker">Plan tarihi<input id="daily-plan-date" class="field-input" type="date" value="' + esc(plan.date) + '"></label></div></section>' +
-    '<section class="daily-plan-summary ' + (budgetMinutes > 0 && plannedMinutes > budgetMinutes ? 'budget-over' : '') + '"><div class="daily-date-label"><span class="daily-calendar-icon"><svg viewBox="0 0 24 24" aria-hidden="true" class="svg-icon"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg></span><div><strong>' + esc(dateLabel) + '</strong><small>Günlük odak listesi</small></div></div><div class="daily-plan-budget"><label>Odak bütçesi <input id="daily-focus-budget" type="number" min="0" step="15" value="' + esc(budgetMinutes || '') + '"> dk</label><strong>' + plannedMinutes + ' / ' + (budgetMinutes || '—') + ' dk</strong><small>' + (budgetMinutes > 0 && plannedMinutes > budgetMinutes ? 'Bütçe ' + (plannedMinutes - budgetMinutes) + ' dk aşıldı' : 'Kişisel plan; takım eforundan ayrıdır') + '</small></div><div class="daily-plan-stats"><span><strong>' + entries.length + '</strong> planlanan</span><i></i><span><strong>' + completedCount + '</strong> tamamlanan</span><i></i><span><strong>' + (entries.length - completedCount) + '</strong> açık</span></div></section>' +
+    '<section class="daily-plan-summary"><div class="daily-date-label"><span class="daily-calendar-icon"><svg viewBox="0 0 24 24" aria-hidden="true" class="svg-icon"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg></span><div><strong>' + esc(dateLabel) + '</strong><small>Günlük odak listesi</small></div></div><div class="daily-plan-stats"><span><strong>' + entries.length + '</strong> planlanan</span><i></i><span><strong>' + completedCount + '</strong> tamamlanan</span><i></i><span><strong>' + (entries.length - completedCount) + '</strong> açık</span></div></section>' +
     '<div class="daily-plan-layout"><section class="daily-plan-main panel"><header class="daily-section-heading"><div><span class="panel-kicker">SIRADAKİ İŞLER</span><h2>Odak listesi</h2></div><span class="count-chip">' + entries.length + '</span></header>' +
     '<div class="daily-plan-add"><label class="daily-add-control"><span>Backlog işi</span><select class="field-input" id="daily-add-item"><option value="">Bir iş seç…</option>' + backlogOptions + '</select></label><button type="button" class="daily-add-button" data-action="add-daily-entry" data-type="item" aria-label="Backlog işini plana ekle" title="Backlog işini ekle">＋</button><label class="daily-add-control"><span>Kişisel görev</span><select class="field-input" id="daily-add-task"><option value="">Bir görev seç…</option>' + taskOptions + '</select></label><button type="button" class="daily-add-button" data-action="add-daily-entry" data-type="task" aria-label="Kişisel görevi plana ekle" title="Kişisel görevi ekle">＋</button></div>' +
     '<div class="daily-plan-list">' + (entries.length ? entries.map((row, index) => dailyPlanEntryMarkup(row, index, entries.length)).join("") : '<div class="daily-plan-empty"><span>✳</span><strong>Planın henüz boş</strong><p>Backlog işlerini ve kişisel görevlerini ekleyerek günün sırasını oluştur.</p></div>') + '</div></section>' +
@@ -961,18 +971,6 @@ function blockerOwnerOptions(selected = ""): string {
 
 function applyWorkStatus(item: WorkItem, status: WorkItem["status"], blocker?: Pick<WorkBlocker, "reason" | "nextStep" | "expectedAction" | "owner" | "followUpAt">, updateNote = ""): boolean {
   const previous = item.status;
-  if (previous !== status && (status === "Hazır" || status === "Tamamlandı")) {
-    const missing = status === "Hazır"
-      ? [!item.description.trim() ? "Açıklama" : "", !(item.acceptance || []).length ? "Kabul kriteri" : "", !item.area.trim() ? "Ürün alanı" : ""].filter(Boolean)
-      : [!(item.acceptance || []).length ? "Kabul kriteri" : "", (item.dependsOnIds || []).some((id) => itemById(id)?.status !== "Tamamlandı") ? "Açık bağımlılık" : ""].filter(Boolean);
-    if (missing.length) {
-      const reason = window.prompt(status + " kontrol listesinde eksik: " + missing.join(", ") + ". Devam etmek için istisna gerekçesi yazın:", "")?.trim();
-      if (!reason) { toast("Durum değişikliği eksik kontrol maddeleri nedeniyle iptal edildi."); return false; }
-      item.checklistExceptions ||= [];
-      item.checklistExceptions.push({ gate: status, missing, reason, at: new Date().toISOString(), actor: state.profile.userName || "PO" });
-      addWorkActivity(item, "change", status + " kontrol listesi istisnası: " + missing.join(", ") + " · Gerekçe: " + reason);
-    }
-  }
   if (previous === status) {
     if (status === "Bloke" && blocker && (item.blocker?.reason !== blocker.reason || item.blocker?.nextStep !== blocker.nextStep || item.blocker?.expectedAction !== blocker.expectedAction || item.blocker?.owner !== blocker.owner || item.blocker?.followUpAt !== blocker.followUpAt)) {
       item.blocker = { ...blocker, openedAt: item.blocker?.openedAt || new Date().toISOString() };
@@ -1032,6 +1030,9 @@ const icon = (name: string): string => {
     board: '<rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M9.5 4v16M15 4v16"/>',
     filter: '<path d="M4 6h16M7 12h10M10 18h4"/>',
     chevronDown: '<path d="m7 10 5 5 5-5"/>',
+    chevronLeft: '<path d="m14 6-6 6 6 6"/>',
+    chevronRight: '<path d="m10 6 6 6-6 6"/>',
+    merge: '<path d="M5 4v4a4 4 0 0 0 4 4h10M5 20v-4a4 4 0 0 1 4-4m6-4 4 4-4 4"/>',
     chevronUp: '<path d="m7 14 5-5 5 5"/>',
     sort: '<path d="m8.5 9.5 3.5-3.5 3.5 3.5M8.5 14.5l3.5 3.5 3.5-3.5"/>'
   };
@@ -1142,6 +1143,8 @@ function undoLastDeletion(): void {
 }
 
 function setView(view: string): void {
+  if (view === "focus") { setView("overview"); openWorkspaceShelf("tasks"); return; }
+  closeWorkspaceShelf(false);
   if (view === "jira" && !state.profile.jiraBaseUrl?.trim()) { toast("Jira devre dışı. Ayarlar › Entegrasyonlar bölümünden Base URL ekle."); return; }
   if (activeView === "assets" && view !== "assets") disposeAssetDiagram();
   activeView = view;
@@ -1152,7 +1155,7 @@ function setView(view: string): void {
   activeBacklogViewId = "";
   document.querySelectorAll<HTMLElement>(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   document.querySelector<HTMLElement>(".workspace-switcher")?.classList.toggle("active", view === "overview");
-  const names: Record<string, string> = { overview: "Genel bakış", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", roadmap: "Yol haritası", decisions: "Ürün kararları", releases: "Release planı", focus: "Kişisel alan", questions: "Açık sorular", "daily-plan": "Günlük plan", "weekly-summary": "Haftalık özet", "archive-search": "Arşivde ara" };
+  const names: Record<string, string> = { overview: "Genel bakış", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", roadmap: "Yol haritası", decisions: "Ürün kararları", releases: "Release planı", questions: "Açık sorular", "daily-plan": "Günlük plan", "weekly-summary": "Haftalık özet", "archive-search": "Arşivde ara" };
   (document.getElementById("breadcrumb-current") as HTMLElement).textContent = names[view] ?? "Genel bakış";
   render();
   animateViewEnter();
@@ -1356,7 +1359,8 @@ function render(): void {
   else if (activeView === "daily-plan") renderDailyPlan();
   else if (activeView === "weekly-summary") renderWeeklySummary();
   else if (activeView === "archive-search") renderArchiveSearch();
-  else renderFocus();
+  else renderOverview();
+  syncWorkspaceToolbar();
 }
 
 function renderJira(): void {
@@ -1469,6 +1473,43 @@ async function createJiraIssueFromRota(): Promise<void> {
   finally { jiraLoading = false; renderJira(); }
 }
 
+let linkedJiraPreview: { itemId: string; localTitle: string; localStatus: WorkStatus; issue: JiraIssue; transitions: { id: string; name: string; status: string }[] } | null = null;
+async function openLinkedJira(itemId: string, key?: string): Promise<void> {
+  const item = itemById(itemId); const base = state.profile.jiraBaseUrl;
+  if (!item || !base) { toast("Önce ayarlardan Jira bağlantısını tanımla."); return; }
+  if (!key && !item.jiraIssueKey) {
+    modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><h2>Mevcut Jira işini bağla</h2><button class="modal-close" data-close-modal>×</button></header><div class="settings-form"><label class="field-label">Jira anahtarı<input id="linked-jira-key" class="field-input" placeholder="PROJE-123"></label><button class="button button-primary" data-action="fetch-linked-jira" data-id="' + esc(itemId) + '">Kaydı getir</button></div></section></div>'; return;
+  }
+  try {
+    const result = await desktop.jiraGetIssue(base, key || item.jiraIssueKey!);
+    linkedJiraPreview = { itemId, localTitle: item.title, localStatus: item.status, ...result };
+    modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">JIRA · ' + esc(result.issue.key) + '</div><h2>Alan farklarını incele</h2></div><button class="modal-close" data-close-modal>×</button></header><div class="settings-form"><div class="bulk-preview-scroll"><table><thead><tr><th>Alan</th><th>Rota</th><th>Jira</th></tr></thead><tbody><tr><th>Başlık</th><td>' + esc(item.title) + '</td><td>' + esc(result.issue.summary) + '</td></tr><tr><th>Durum</th><td>' + esc(item.status) + '</td><td>' + esc(result.issue.status) + '</td></tr></tbody></table></div><label class="field-label">Aktarım yönü<select id="linked-jira-direction" class="field-input"><option value="link">Yalnızca bağlantı kur</option><option value="pull">Jira → Rota</option><option value="push">Rota → Jira</option></select></label><label class="completed-filter"><input id="linked-jira-title" type="checkbox"> Başlığı aktar</label><label class="field-label">Jira → Rota durum eşlemesi<select id="linked-jira-local-status" class="field-input"><option value="">Durumu değiştirme</option>' + ["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Bloke", "Tamamlandı"].map((status) => '<option>' + status + '</option>').join("") + '</select></label><label class="field-label">Rota → Jira hedef geçişi<select id="linked-jira-transition" class="field-input"><option value="">Durumu değiştirme</option>' + result.transitions.map((entry) => '<option value="' + esc(entry.id) + '">' + esc(entry.name + " → " + entry.status) + '</option>').join("") + '</select></label><p class="settings-note">Yalnızca seçilen alanlar aktarılır. Güncellemeden önce kaydın tazeliği kontrol edilir.</p><footer class="modal-footer"><button class="button button-primary" data-action="apply-linked-jira">Seçimi uygula</button></footer></div></section></div>';
+  } catch { recordDiagnostic("jira", ""); toast("Jira kaydı alınamadı. Anahtarı, bağlantıyı ve yetkileri kontrol et."); }
+}
+async function applyLinkedJira(): Promise<void> {
+  const preview = linkedJiraPreview; const item = preview && itemById(preview.itemId); const base = state.profile.jiraBaseUrl;
+  if (!preview || !item || !base) return;
+  const direction = modalRoot.querySelector<HTMLSelectElement>("#linked-jira-direction")?.value;
+  const title = Boolean(modalRoot.querySelector<HTMLInputElement>("#linked-jira-title")?.checked);
+  const status = modalRoot.querySelector<HTMLSelectElement>("#linked-jira-local-status")?.value as WorkStatus;
+  const transition = modalRoot.querySelector<HTMLSelectElement>("#linked-jira-transition")?.value || undefined;
+  const button = modalRoot.querySelector<HTMLButtonElement>('[data-action="apply-linked-jira"]'); if (button) button.disabled = true;
+  try {
+    if (item.title !== preview.localTitle || item.status !== preview.localStatus) throw new Error("Rota kaydı değişti. Farkları yeniden getir.");
+    const current = await desktop.jiraGetIssue(base, preview.issue.key);
+    if (current.issue.updated !== preview.issue.updated) throw new Error("Jira kaydı değişti. Farkları yeniden getir.");
+    if (direction === "push") await desktop.jiraUpdateLinkedIssue(base, preview.issue.key, preview.issue.updated, title ? item.title : undefined, transition);
+    if (direction === "pull") {
+      if (status === "Bloke" && (!item.blocker?.reason || !item.blocker?.nextStep || !item.blocker?.owner || !item.blocker?.expectedAction)) throw new Error("Önce Rota işinde blokaj bilgilerini doldur.");
+      if (status && !applyWorkStatus(item, status, item.blocker)) return;
+      if (title) item.title = preview.issue.summary;
+    }
+    item.jiraIssueKey = preview.issue.key;
+    addWorkActivity(item, "change", "Jira bağlantısı / aktarımı: " + preview.issue.key + " · " + direction + " · " + (title ? "başlık " : "") + (direction === "pull" ? status : transition || ""));
+    save(); linkedJiraPreview = null; openItem(item.id); toast("Jira bağlantısı ve seçilen alanlar kaydedildi.");
+  } catch (error) { recordDiagnostic("jira", ""); toast(error instanceof Error ? error.message : "Jira güncellemesi başarısız. Farkları yeniden getir."); }
+  finally { if (button?.isConnected) button.disabled = false; }
+}
 async function saveJiraPat(): Promise<void> {
   const input = document.getElementById("jira-pat-input") as HTMLInputElement | null;
   if (!input?.value.trim()) { toast("Önce Jira PAT’ini yapıştır."); input?.focus(); return; }
@@ -1479,6 +1520,96 @@ async function saveJiraPat(): Promise<void> {
 async function removeJiraPat(): Promise<void> {
   if (!window.confirm("Jira PAT’i bu bilgisayardan kaldırmak istiyor musun?")) return;
   await desktop.jiraRemoveToken(); jiraHasSavedToken = false; jiraBoards = []; jiraProjects = []; jiraSprints = []; jiraIssueTypes = []; jiraIssues = []; renderJira(); toast("Jira bağlantı anahtarı kaldırıldı.");
+}
+
+type WorkspaceShelf = "tasks" | "notes";
+let workspaceShelf: WorkspaceShelf | null = null;
+let workspaceShelfQuery = "";
+let workspaceShowCompleted = false;
+function syncWorkspaceToolbar(): void {
+  const counts = { tasks: state.tasks.filter((task) => !task.done).length, notes: state.notes.length };
+  document.querySelectorAll<HTMLElement>("[data-workspace-count]").forEach((node) => { node.textContent = String(counts[node.dataset.workspaceCount as WorkspaceShelf]); });
+  document.querySelectorAll<HTMLButtonElement>(".workspace-tools [data-workspace-panel]").forEach((button) => {
+    const selected = workspaceShelf === button.dataset.workspacePanel;
+    button.setAttribute("aria-expanded", String(selected)); button.classList.toggle("is-active", selected);
+  });
+  const scope = document.getElementById("workspace-command-scope");
+  if (scope) scope.textContent = state.projects.find((project) => project.id === activeProjectId)?.name || "Tüm projeler";
+  if (workspaceShelf) renderWorkspaceShelf();
+}
+function renderWorkspaceShelf(): void {
+  if (!workspaceShelf) return;
+  const list = document.getElementById("workspace-shelf-list"); if (!list) return;
+  const term = workspaceShelfQuery.trim().toLocaleLowerCase("tr-TR");
+  const title = document.getElementById("workspace-shelf-title"); if (title) title.textContent = workspaceShelf === "tasks" ? "Görevler" : "Notlar";
+  const add = document.querySelector<HTMLButtonElement>(".workspace-shelf-add");
+  if (add) { add.dataset.workspaceCreate = workspaceShelf === "tasks" ? "task" : "note"; add.setAttribute("aria-label", workspaceShelf === "tasks" ? "Yeni görev" : "Yeni not"); }
+  const completed = document.querySelector<HTMLElement>(".workspace-show-completed"); if (completed) completed.hidden = workspaceShelf !== "tasks";
+  const matches = (text: string) => text.toLocaleLowerCase("tr-TR").includes(term);
+  const tasks = state.tasks.filter((task) => (workspaceShowCompleted || !task.done) && matches(task.title + " " + (task.description || "") + " " + task.linked));
+  const notes = state.notes.filter((note) => matches(note.title + " " + note.body + " " + note.linked));
+  const scrollTop = list.scrollTop;
+  list.innerHTML = workspaceShelf === "tasks" ? tasks.map((task) => '<article class="workspace-record-row ' + (task.done ? "is-done" : "") + '" data-context-task-id="' + esc(task.id) + '"><button type="button" class="workspace-task-toggle" data-toggle-task="' + esc(task.id) + '" aria-label="' + esc(task.done ? 'Görevi yeniden aç: ' + task.title : 'Görevi tamamla: ' + task.title) + '" aria-pressed="' + task.done + '">' + (task.done ? icon("check") : '<span></span>') + '</button><button type="button" class="workspace-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong><small>' + esc([task.due || "", task.linked || ""].filter(Boolean).join(" · ")) + '</small></button></article>').join("") : notes.map((note) => '<article class="workspace-record-row" data-context-note-id="' + esc(note.id) + '"><span class="workspace-record-symbol">' + icon("note") + '</span><button type="button" class="workspace-record-open" data-note="' + esc(note.id) + '"><strong>' + esc(note.title) + '</strong><small>' + esc(note.body.slice(0, 160) || note.updated) + '</small></button><button type="button" class="workspace-record-convert" data-action="note-to-task" data-id="' + esc(note.id) + '" aria-label="Notu göreve dönüştür" data-tooltip="Notu göreve dönüştür">' + icon("task") + '</button></article>').join("");
+  const count = workspaceShelf === "tasks" ? tasks.length : notes.length;
+  if (!count) list.innerHTML = '<div class="workspace-shelf-empty">' + icon(workspaceShelf === "tasks" ? "task" : "note") + '<strong>' + (term ? "Eşleşen kayıt yok" : workspaceShelf === "tasks" ? "Bekleyen görev yok" : "Henüz not yok") + '</strong></div>';
+  list.scrollTop = scrollTop;
+  const footer = document.getElementById("workspace-shelf-count"); if (footer) footer.textContent = count + " " + (workspaceShelf === "tasks" ? "görev" : "not");
+}
+function closeWorkspaceShelf(restoreFocus = false): void {
+  const previous = workspaceShelf; workspaceShelf = null;
+  const shelf = document.getElementById("workspace-shelf"); if (shelf) shelf.hidden = true;
+  syncWorkspaceToolbar();
+  if (restoreFocus && previous) document.querySelector<HTMLButtonElement>('.workspace-tools [data-workspace-panel="' + previous + '"]')?.focus();
+}
+function openWorkspaceShelf(kind: WorkspaceShelf): void {
+  closeActionTooltip(); workspaceShelf = kind; workspaceShelfQuery = "";
+  const shelf = document.getElementById("workspace-shelf"); if (!shelf) return;
+  shelf.hidden = false;
+  const search = document.getElementById("workspace-shelf-search") as HTMLInputElement | null;
+  if (search) search.value = "";
+  syncWorkspaceToolbar(); search?.focus({ preventScroll: true });
+}
+function initWorkspaceToolbar(): void {
+  document.querySelectorAll<HTMLElement>("[data-workspace-icon]").forEach((node) => { node.innerHTML = icon(node.dataset.workspaceIcon === "notes" ? "duplicate" : node.dataset.workspaceIcon!); });
+  const tools = document.querySelector<HTMLElement>(".workspace-tools")!;
+  const highlight = (button: HTMLElement | null) => {
+    if (!button) { tools.classList.remove("is-tracking"); return; }
+    tools.style.setProperty("--tool-x", button.offsetLeft + "px"); tools.style.setProperty("--tool-width", button.offsetWidth + "px"); tools.classList.add("is-tracking");
+  };
+  tools.addEventListener("pointerover", (event) => { const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("button") : null; if (button) highlight(button); });
+  tools.addEventListener("pointerleave", () => highlight(tools.querySelector<HTMLElement>(".is-active")));
+  tools.addEventListener("focusin", (event) => { if (event.target instanceof HTMLButtonElement) highlight(event.target); });
+  tools.addEventListener("focusout", (event) => { if (!(event.relatedTarget instanceof window.Node) || !tools.contains(event.relatedTarget)) highlight(tools.querySelector<HTMLElement>(".is-active")); });
+  tools.addEventListener("keydown", (event) => {
+    const buttons = [...tools.querySelectorAll<HTMLButtonElement>("button")]; const index = buttons.indexOf(event.target as HTMLButtonElement);
+    if (index < 0 || !["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+    event.preventDefault(); const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : (index + (event.key === "ArrowRight" ? 1 : -1) + buttons.length) % buttons.length; buttons[next].focus();
+  });
+  document.addEventListener("click", (event) => {
+    const target = event.target instanceof Element ? event.target : null; if (!target) return;
+    const create = target.closest<HTMLButtonElement>("[data-workspace-create]");
+    if (create) {
+      const kind = create.dataset.workspaceCreate; closeWorkspaceShelf(false); closeActionTooltip();
+      create.classList.add("is-launching"); window.setTimeout(() => create.classList.remove("is-launching"), 360);
+      const selected = getSelectedBacklogItems();
+      if (state.formDrafts?.length) openNewModal(kind === "task" ? "Kişisel görev" : kind === "note" ? "Not" : "Backlog işi");
+      else openQuickCreateModal(kind === "task" ? "Kişisel görev" : kind === "note" ? "Not" : "Backlog işi", selected.length === 1 ? selected[0].id : "");
+      return;
+    }
+    const panel = target.closest<HTMLButtonElement>("[data-workspace-panel]");
+    if (panel) { const kind = panel.dataset.workspacePanel as WorkspaceShelf; if (workspaceShelf === kind) closeWorkspaceShelf(true); else openWorkspaceShelf(kind); return; }
+    if (target.closest("[data-workspace-close]")) { closeWorkspaceShelf(true); return; }
+    if (target.closest("#workspace-shelf") && target.closest("[data-open-task], [data-note], [data-open-item]")) {
+      const panel = workspaceShelf;
+      closeWorkspaceShelf(false);
+      if (panel) modalReturnFocus = document.querySelector<HTMLButtonElement>('.workspace-tools [data-workspace-panel="' + panel + '"]');
+    }
+  }, true);
+  document.addEventListener("pointerdown", (event) => { if (workspaceShelf && event.target instanceof Element && !event.target.closest(".workspace-commandbar, [data-workspace-panel]")) closeWorkspaceShelf(false); });
+  document.addEventListener("keydown", (event) => { if (workspaceShelf && event.key === "Escape" && !modalRoot.children.length) { event.preventDefault(); event.stopImmediatePropagation(); closeWorkspaceShelf(true); } }, true);
+  document.getElementById("workspace-shelf-search")?.addEventListener("input", (event) => { workspaceShelfQuery = (event.target as HTMLInputElement).value; renderWorkspaceShelf(); });
+  document.getElementById("workspace-show-completed")?.addEventListener("change", (event) => { workspaceShowCompleted = (event.target as HTMLInputElement).checked; renderWorkspaceShelf(); });
+  syncWorkspaceToolbar();
 }
 
 function renderOverview(): void {
@@ -1515,12 +1646,12 @@ function renderOverview(): void {
         '<div class="panel backlog-panel"><div class="panel-heading"><div><div class="panel-kicker">' + esc(primaryProject?.name || "PROJELER") + ' <span class="project-dot dot-' + esc(primaryProject?.color || "blue") + '"></span></div><h2>Hazır işler</h2><p>Önceliklendirilmiş, refinement’a hazır</p></div><button class="text-button" data-view="backlog">Tüm backlog </button></div>' +
           '<div class="issue-list">' + (ready.length ? ready.map((item) => issueRow(item)).join("") : '<div class="empty-inline">Hazır iş bulunmuyor.</div>') + '</div>' +
           '<div class="panel-footer"><span class="avatar-stack"><i>DA</i><i>SK</i><i>+</i></span><span>PO alanı · son güncelleme bugün</span><button class="dots-button" aria-label="Diğer seçenekler">···</button></div></div>' +
-        '<div class="panel today-panel"><div class="panel-heading compact"><div><div class="panel-kicker">KİŞİSEL ALAN</div><h2>Bugün</h2><p>Takip listenden kısa bir görünüm</p></div><button class="round-add" data-action="new" title="Yeni görev">+</button></div>' +
+        '<div class="panel today-panel"><div class="panel-heading compact"><div><div class="panel-kicker">ÇALIŞMA ALANI</div><h2>Bugün</h2><p>Takip listenden kısa bir görünüm</p></div></div>' +
           '<div class="today-list">' + (tasks.length ? tasks.map((task) => taskRow(task)).join("") : '<div class="empty-inline">Bugünlük her şey tamamlandı. ✨</div>') + '</div>' +
-          '<button class="panel-link" data-view="focus">Kişisel alanı aç </button></div>' +
+          '<button class="panel-link" data-workspace-panel="tasks">Tüm görevler</button></div>' +
       '</section>' +
       '<section class="bottom-grid"><div class="panel pulse-panel"><div class="panel-heading compact"><div><div class="panel-kicker">HAFTALIK RİTİM</div><h2>Backlog sağlığı</h2></div><span class="period-tag">Bu hafta ' + icon("chevronDown") + '</span></div><div class="health-graph"><div class="graph-labels"><span>12</span><span>8</span><span>4</span><span>0</span></div><div class="graph-area"><div class="grid-line line-one"></div><div class="grid-line line-two"></div><div class="grid-line line-three"></div><svg viewBox="0 0 560 116" preserveAspectRatio="none"><defs><linearGradient id="areaFill" x1="0" x2="0" y1="0" y2="1"><stop offset="0" stop-color="#4665e8" stop-opacity=".18"/><stop offset="1" stop-color="#4665e8" stop-opacity="0"/></linearGradient></defs><path d="M0 82 C38 77 45 57 83 61 S135 74 165 54 S211 58 247 45 S294 55 329 39 S377 42 413 25 S468 43 495 19 S535 24 560 8 L560 116 L0 116 Z" fill="url(#areaFill)"/><path d="M0 82 C38 77 45 57 83 61 S135 74 165 54 S211 58 247 45 S294 55 329 39 S377 42 413 25 S468 43 495 19 S535 24 560 8" fill="none" stroke="#4c65de" stroke-width="2.5" vector-effect="non-scaling-stroke"/></svg><div class="graph-days"><span>Pzt</span><span>Sal</span><span>Çar</span><span>Per</span><span>Cum</span><span>Cmt</span><span>Paz</span></div></div></div><div class="graph-caption"><span><i class="legend-dot blue"></i>Açık iş</span><span><i class="legend-dot gray"></i>Geçen hafta</span><strong>+%18 <small>bu haftaki hareket</small></strong></div></div>' +
-        '<div class="panel notes-panel"><div class="panel-heading compact"><div><div class="panel-kicker">HIZLI NOTLAR</div><h2>Son notların</h2></div><button class="text-button" data-view="focus">Tüm notlar </button></div><div class="note-list">' + recentNotes.map((note) => '<button class="note-preview" data-note="' + esc(note.id) + '"><span class="note-pin">✳</span><span class="note-copy"><strong>' + esc(note.title) + '</strong><small>' + esc(note.body) + '</small></span><span class="note-date">' + esc(note.updated) + '</span></button>').join("") + '</div><button class="add-note-button" data-action="new" data-type="Not">+ Yeni not ekle</button></div></section>' +
+        '<div class="panel notes-panel"><div class="panel-heading compact"><div><div class="panel-kicker">HIZLI NOTLAR</div><h2>Son notların</h2></div><button class="text-button" data-workspace-panel="notes">Tüm notlar</button></div><div class="note-list">' + recentNotes.map((note) => '<button class="note-preview" data-note="' + esc(note.id) + '"><span class="note-pin">✳</span><span class="note-copy"><strong>' + esc(note.title) + '</strong><small>' + esc(note.body) + '</small></span><span class="note-date">' + esc(note.updated) + '</span></button>').join("") + '</div></div></section>' +
     '</div>';
   document.querySelector(".pulse-panel")?.remove();
 }
@@ -1640,7 +1771,7 @@ function renderBacklog(): void {
   const labelFilterOptions = '<select id="label-filter" aria-label="Etikete göre filtrele"><option value="">Tüm etiketler</option>' + availableLabels.map((label) => '<option value="' + esc(label) + '" ' + (labelFilter === label ? "selected" : "") + '>' + esc(label) + '</option>').join("") + '</select>';
   const savedViewOptions = '<option value="">Geçerli görünüm</option>' + [...scopedViews].sort((left, right) => Number(Boolean(right.pinned)) - Number(Boolean(left.pinned))).map((view) => '<option value="' + esc(view.id) + '" ' + (activeBacklogViewId === view.id ? "selected" : "") + '>' + (view.pinned ? "★ " : "") + esc(view.name) + '</option>').join("");
   const activeSavedView = scopedViews.find((view) => view.id === activeBacklogViewId);
-  const currentViewState = JSON.stringify({ mode: backlogMode, query, status: backlogStatus, type: backlogType, label: labelFilter, teamId: teamFilterId, assignee: assigneeFilter, sprintId: backlogSprintId, includeCompleted: backlogIncludeCompleted, overdueOnly: backlogOverdueOnly, statusAgeMinDays: backlogStatusAgeMinDays, searchScope: backlogSearchScope, columns: backlogColumns, sort: backlogSort, statuses: backlogStatuses, priorities: backlogPriorities, dateFrom: backlogDateFrom, dateTo: backlogDateTo, noEstimate: backlogNoEstimate, conditionMode: backlogConditionMode });
+  const currentViewState = JSON.stringify({ mode: backlogMode, query, status: backlogStatus, type: backlogType, label: labelFilter, teamId: teamFilterId, assignee: assigneeFilter, sprintId: backlogSprintId, includeCompleted: backlogIncludeCompleted, overdueOnly: backlogOverdueOnly, statusAgeMinDays: backlogStatusAgeMinDays, searchScope: backlogSearchScope, columns: backlogColumns, sort: backlogSort, statuses: backlogStatuses, priorities: backlogPriorities, dateFrom: backlogDateFrom, dateTo: backlogDateTo, noEstimate: backlogNoEstimate, overdueCondition: backlogOverdueCondition, conditionMode: backlogConditionMode });
   const savedViewState = activeSavedView ? JSON.stringify({ mode: activeSavedView.mode, query: activeSavedView.query, status: activeSavedView.status, type: activeSavedView.type, label: activeSavedView.label, teamId: activeSavedView.teamId, assignee: activeSavedView.assignee, sprintId: activeSavedView.sprintId || "", includeCompleted: activeSavedView.includeCompleted || false, overdueOnly: activeSavedView.overdueOnly || false, statusAgeMinDays: activeSavedView.statusAgeMinDays || 0, searchScope: activeSavedView.searchScope || "all", columns: activeSavedView.columns, sort: normalizeBacklogSort(activeSavedView.sort === "manual" && activeSavedView.secondarySort && activeSavedView.secondarySort !== "manual" ? activeSavedView.secondarySort : activeSavedView.sort), statuses: activeSavedView.statuses || [], priorities: activeSavedView.priorities || [], dateFrom: activeSavedView.dateFrom || "", dateTo: activeSavedView.dateTo || "", noEstimate: Boolean(activeSavedView.noEstimate), conditionMode: activeSavedView.conditionMode || "and" }) : "";
   const viewDirty = Boolean(activeSavedView && currentViewState !== savedViewState);
   const activeFilterCount = [backlogStatus, backlogType, labelFilter, teamFilterId, assigneeFilter, backlogSprintId, backlogIncludeCompleted ? "completed" : ""].filter(Boolean).length;
@@ -1669,6 +1800,7 @@ function renderBacklog(): void {
   if (secondaryInfoSelect) secondaryInfoSelect.value = backlogSecondaryInfo;
   root.querySelector(".backlog-filter-popover")?.insertAdjacentHTML("beforeend", '<label class="backlog-filter-field"><span>Arama kapsamı</span><select id="backlog-search-scope" aria-label="Arama kapsamı"><option value="all">Tüm alanlarda ara</option><option value="title">Başlıkta ara</option><option value="description">Açıklamada ara</option><option value="id">İş ID’sinde ara</option><option value="labels">Etiketlerde ara</option><option value="components">Bileşenlerde ara</option></select></label><label class="backlog-filter-field"><span>Durumda en az (gün)</span><input id="backlog-status-age-min" type="number" min="0" max="3650" value="' + (backlogStatusAgeMinDays || "") + '" placeholder="Tümü" aria-label="Durumda en az gün"></label>');
   root.querySelector(".backlog-filter-popover")?.insertAdjacentHTML("beforeend", '<fieldset class="advanced-filter-group"><legend>Birleşik koşullar</legend><label>Koşul ilişkisi<select id="advanced-condition-mode"><option value="and">VE · tümü sağlansın</option><option value="or">VEYA · biri sağlansın</option></select></label><label>Çoklu durum<select id="advanced-statuses" multiple size="4">' + (["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Bloke", "Tamamlandı"] as WorkStatus[]).map((value) => '<option ' + (backlogStatuses.includes(value) ? "selected" : "") + '>' + value + '</option>').join("") + '</select></label><label>Çoklu öncelik<select id="advanced-priorities" multiple size="4">' + (["Kritik", "Yüksek", "Orta", "Düşük"] as Priority[]).map((value) => '<option ' + (backlogPriorities.includes(value) ? "selected" : "") + '>' + value + '</option>').join("") + '</select></label><label>Hedef başlangıcı<input id="advanced-date-from" type="date" value="' + esc(backlogDateFrom) + '"></label><label>Hedef bitişi<input id="advanced-date-to" type="date" value="' + esc(backlogDateTo) + '"></label><label class="completed-filter"><input id="advanced-no-estimate" type="checkbox" ' + (backlogNoEstimate ? "checked" : "") + '> Tahminsiz işler</label></fieldset>');
+  root.querySelector(".advanced-filter-group")?.insertAdjacentHTML("beforeend", '<label class="completed-filter"><input id="advanced-overdue" type="checkbox" ' + (backlogOverdueCondition ? "checked" : "") + '> Geciken işler</label>');
   (document.getElementById("advanced-condition-mode") as HTMLSelectElement).value = backlogConditionMode;
   (document.getElementById("backlog-search-scope") as HTMLSelectElement).value = backlogSearchScope;
   (document.getElementById("status-filter") as HTMLSelectElement).value = backlogStatus;
@@ -1679,8 +1811,7 @@ function renderBacklog(): void {
   root.querySelectorAll<HTMLElement>(".view-tab").forEach((tab) => tab.classList.toggle("selected", (tab.dataset.action === "kanban" ? "board" : "list") === backlogMode));
   refreshBacklogAssigneeFilter();
   const tableWrap = root.querySelector<HTMLElement>(".backlog-table-wrap");
-  if (backlogMode === "board" && tableWrap) tableWrap.outerHTML = '<div class="board-hint"><span>Kartı durum sütunları arasında sürükleyerek statüsünü güncelle.</span><label>Yüzme kulvarı<select id="board-lane"><option value="none">Kapalı</option><option value="project">Proje</option><option value="team">Takım</option><option value="sprint">Sprint</option><option value="priority">Öncelik</option></select></label></div><div class="board-wrap" id="board-wrap" aria-label="Backlog durum panosu"></div>';
-  const boardLaneSelect = document.getElementById("board-lane") as HTMLSelectElement | null; if (boardLaneSelect) boardLaneSelect.value = boardLane;
+  if (backlogMode === "board" && tableWrap) tableWrap.outerHTML = '<div class="board-hint"><span>Kartı durum sütunları arasında sürükleyerek statüsünü güncelle.</span></div><div class="board-wrap" id="board-wrap" aria-label="Backlog durum panosu"></div>';
   updateBacklogRows();
 }
 
@@ -1738,32 +1869,6 @@ function fitBacklogColumnsToWindow(): void {
   indicator.hidden = hidden.length === 0;
 }
 
-function wipScope(): { key: string; label: string } {
-  const team = state.teams.find((entry) => entry.id === teamFilterId);
-  return team ? { key: team.id, label: team.name } : { key: "all", label: "Tüm takımlar" };
-}
-
-function wipCount(status: WorkStatus, teamId: string): number {
-  return state.items.filter((item) => !item.archived && item.status === status && (!activeProjectId || item.projectId === activeProjectId || item.project === state.projects.find((project) => project.id === activeProjectId)?.name) && (teamId === "all" || getWorkAssignments(item).some((assignment) => assignment.teamId === teamId))).length;
-}
-
-let pendingWipException: { itemId: string; status: WorkStatus; reason: string } | null = null;
-
-function checkWipBeforeBoardMove(item: WorkItem, nextStatus: WorkStatus): boolean {
-  const scope = wipScope();
-  const limit = state.wipLimits?.[scope.key + "::" + nextStatus];
-  if (limit === undefined || wipCount(nextStatus, scope.key) < limit) { pendingWipException = null; return true; }
-  const reason = window.prompt(scope.label + " · " + nextStatus + " WIP sınırı " + limit + ". Taşıma sınırı aşacak. İstisna gerekçesi yazın:", "")?.trim();
-  if (!reason) { toast("WIP sınırı nedeniyle taşıma iptal edildi."); return false; }
-  pendingWipException = { itemId: item.id, status: nextStatus, reason };
-  return true;
-}
-
-function logWipException(item: WorkItem, status: WorkStatus): void {
-  if (pendingWipException?.itemId === item.id && pendingWipException.status === status) addWorkActivity(item, "change", "WIP sınırı istisnası (" + status + "): " + pendingWipException.reason);
-  pendingWipException = null;
-}
-
 function inlineInsertRow(afterId: string, isLast = false): string {
   const colspan = backlogColumns.length + 5;
   const rowClass = "backlog-insert-row" + (isLast ? " is-last" : "");
@@ -1771,6 +1876,20 @@ function inlineInsertRow(afterId: string, isLast = false): string {
   return '<tr class="' + rowClass + '"><td colspan="' + colspan + '"><button type="button" class="backlog-insert-button" data-action="start-inline-insert" data-after-id="' + esc(afterId) + '" aria-label="' + (afterId ? esc(afterId + ' işinden sonra yeni task ekle') : 'İlk taskı ekle') + '" title="Bu satırdan sonra yeni task ekle"><span aria-hidden="true">＋</span><span>Buraya task ekle</span></button></td></tr>';
 }
 
+let backlogWindowStart = 0;
+let backlogWindowRowHeight = 54;
+let backlogWindowSignature = "";
+let backlogWindowFrame = 0;
+let backlogSearchTimer = 0;
+const boardDrawLimits: Record<string, number> = {};
+document.addEventListener("scroll", (event) => {
+  const wrap = event.target instanceof HTMLElement && event.target.matches(".backlog-table-wrap") ? event.target : null;
+  if (!wrap || !wrap.dataset.virtual || inlineBacklogEdit || inlineInsertAfterId !== null) return;
+  const start = Math.max(0, Math.floor(wrap.scrollTop / backlogWindowRowHeight) - 8);
+  if (Math.abs(start - backlogWindowStart) < 8) return;
+  cancelAnimationFrame(backlogWindowFrame);
+  backlogWindowFrame = requestAnimationFrame(() => { backlogWindowStart = start; updateBacklogRows(); });
+}, true);
 function updateBacklogRows(): void {
   for (const id of selectedBacklogItemIds) if (!state.items.some((item) => item.id === id)) selectedBacklogItemIds.delete(id);
   const status = backlogStatus;
@@ -1797,45 +1916,28 @@ function updateBacklogRows(): void {
       ...(backlogPriorities.length ? [backlogPriorities.includes(item.priority)] : []),
       ...(backlogDateFrom ? [Boolean(item.targetDate && item.targetDate >= backlogDateFrom)] : []),
       ...(backlogDateTo ? [Boolean(item.targetDate && item.targetDate <= backlogDateTo)] : []),
-      ...(backlogNoEstimate ? [item.estimate === undefined] : [])
+      ...(backlogNoEstimate ? [item.estimate === undefined] : []),
+      ...(backlogOverdueCondition ? [overdueDays(item) > 0] : [])
     ];
     const matchesAdvanced = !advancedConditions.length || (backlogConditionMode === "or" ? advancedConditions.some(Boolean) : advancedConditions.every(Boolean));
     return !item.archived && !item.mergedIntoId && isItemInActiveProject(item) && (!project || item.project === project.name) && completedIsVisible && (!status || item.status === status) && (!type || item.type === type) && (!label || (item.labels || []).includes(label)) && matchesTeam && matchesAssignee && matchesSprint && matchesQuery && matchesAdvanced && (!readyWorkPool || ready) && (!backlogOverdueOnly || overdueDays(item) > 0) && (!backlogStatusAgeMinDays || (statusAgeDays(item) ?? -1) >= backlogStatusAgeMinDays);
   }));
+  const estimateSummary = "Tahmin: " + items.reduce((sum, item) => sum + (item.estimate || 0), 0) + " " + (state.estimateUnit || "saat") + " · " + items.filter((item) => item.estimate === undefined).length + " tahminsiz";
+  let summary = document.getElementById("backlog-estimate-summary");
+  if (!summary) { summary = document.createElement("span"); summary.id = "backlog-estimate-summary"; root.querySelector(".backlog-bottom")?.append(summary); }
+  summary.textContent = estimateSummary;
   const board = document.getElementById("board-wrap");
   if (board) {
     const columns = ["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Bloke", "Tamamlandı"];
     board.innerHTML = columns.map((column) => {
       const cards = items.filter((item) => item.status === column);
-      return '<section class="board-column" data-board-status="' + esc(column) + '"><header><span><i class="board-status-dot ' + statusClass(column) + '"></i>' + esc(column) + '</span><b>' + cards.length + '</b></header><div class="board-cards">' + (cards.length ? cards.map((item) => '<button class="board-card" draggable="true" data-board-card="' + esc(item.id) + '" data-open-item="' + esc(item.id) + '" aria-label="' + esc(item.id + " · " + item.title + " · " + item.status + ". Durumu değiştirmek için başka bir sütuna sürükleyin.") + '"><span class="board-card-id"><span class="board-card-key">' + esc(item.id) + '</span><span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span></span><strong class="backlog-preview-trigger" data-preview-item="' + esc(item.id) + '" tabindex="0" aria-haspopup="dialog">' + esc(item.title) + '</strong><span class="board-card-footer"><span>' + esc(item.area) + '</span><span title="Durumda geçen süre">' + (statusAgeDays(item) === null ? 'Süre bilinmiyor' : statusAgeDays(item) + ' gün') + '</span><span class="board-assignment">' + (getWorkAssignments(item).length ? esc(assignmentSummary(item)) : "") + '</span><span class="table-type ' + (item.type === "Bug" ? "bug-type" : item.type === "Task" ? "task-type" : "story-type") + '">' + itemIcon(item.type) + '</span></span></button>').join("") : '<div class="board-empty">Henüz iş yok</div>') + '</div></section>';
+      return '<section class="board-column" data-board-status="' + esc(column) + '"><header><span><i class="board-status-dot ' + statusClass(column) + '"></i>' + esc(column) + '</span><b>' + cards.length + '</b></header><div class="board-cards">' + (cards.length ? cards.slice(0, boardDrawLimits[column] || 40).map((item) => '<button class="board-card" draggable="true" data-board-card="' + esc(item.id) + '" data-open-item="' + esc(item.id) + '" aria-label="' + esc(item.id + " · " + item.title + " · " + item.status + ". Durumu değiştirmek için başka bir sütuna sürükleyin.") + '"><span class="board-card-id"><span class="board-card-key">' + esc(item.id) + '</span><span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span></span><strong class="backlog-preview-trigger" data-preview-item="' + esc(item.id) + '" tabindex="0" aria-haspopup="dialog">' + esc(item.title) + '</strong><span class="board-card-footer"><span>' + esc(item.area) + '</span><span title="Durumda geçen süre">' + (statusAgeDays(item) === null ? 'Süre bilinmiyor' : statusAgeDays(item) + ' gün') + '</span><span class="board-assignment">' + (getWorkAssignments(item).length ? esc(assignmentSummary(item)) : "") + '</span><span class="table-type ' + (item.type === "Bug" ? "bug-type" : item.type === "Task" ? "task-type" : "story-type") + '">' + itemIcon(item.type) + '</span></span></button>').join("") : '<div class="board-empty">Henüz iş yok</div>') + '</div></section>';
     }).join("");
-    if (boardLane !== "none") {
-      const laneLabel = (item: WorkItem): string => boardLane === "project" ? item.project : boardLane === "team" ? (state.teams.find((team) => team.id === getWorkAssignments(item)[0]?.teamId)?.name || "Atanmamış") : boardLane === "sprint" ? (state.sprints.find((sprint) => sprint.id === item.sprintId)?.name || "Sprint yok") : item.priority;
-      board.querySelectorAll<HTMLElement>(".board-column[data-board-status]").forEach((column) => {
-        const host = column.querySelector<HTMLElement>(".board-cards"); if (!host) return;
-        const cards = [...host.querySelectorAll<HTMLButtonElement>(".board-card")].sort((left, right) => laneLabel(itemById(left.dataset.boardCard || "")!).localeCompare(laneLabel(itemById(right.dataset.boardCard || "")!), "tr-TR"));
-        host.replaceChildren(); let previous = "";
-        cards.forEach((card) => { const item = itemById(card.dataset.boardCard || ""); if (!item) return; const label = laneLabel(item); if (label !== previous) { const heading = document.createElement("div"); heading.className = "board-lane-heading"; heading.textContent = label; host.append(heading); previous = label; } host.append(card); });
-      });
+    for (const [index, status] of columns.entries()) {
+      const count = items.filter((item) => item.status === status).length;
+      const limit = boardDrawLimits[status] || 40;
+      if (count > limit) board.querySelectorAll<HTMLElement>(".board-column")[index]?.insertAdjacentHTML("beforeend", '<button class="button button-quiet button-small" data-action="board-load-more" data-status="' + esc(status) + '">' + Math.min(40, count - limit) + ' kart daha · ' + limit + ' / ' + count + '</button>');
     }
-    const scope = wipScope();
-    board.querySelectorAll<HTMLElement>(".board-column[data-board-status]").forEach((column) => {
-      const status = column.dataset.boardStatus as WorkStatus;
-      const limit = state.wipLimits?.[scope.key + "::" + status];
-      const count = wipCount(status, scope.key);
-      const label = document.createElement("label");
-      label.className = "board-wip-control" + (limit !== undefined && count > limit ? " board-wip-exceeded" : "");
-      label.textContent = "WIP ";
-      const input = document.createElement("input");
-      input.type = "number"; input.min = "0"; input.max = "999"; input.placeholder = "∞";
-      input.value = limit === undefined ? "" : String(limit);
-      input.dataset.wipStatus = status;
-      input.setAttribute("aria-label", scope.label + " · " + status + " WIP sınırı");
-      input.title = "Boş bırakılırsa sınır yok";
-      label.append(input);
-      if (limit !== undefined && count > limit) label.append(document.createTextNode(" · Sınır aşıldı"));
-      column.querySelector("header")?.append(label);
-    });
     board.querySelectorAll<HTMLButtonElement>(".board-card[data-board-card]").forEach((card) => {
       const item = itemById(card.dataset.boardCard || "");
       if (!item) return;
@@ -1864,7 +1966,21 @@ function updateBacklogRows(): void {
   (document.getElementById("total-count") as HTMLElement).textContent = String(state.items.filter((item) => !project || item.project === project.name).length);
   renderActiveBacklogFilterChips();
   closeBacklogPreview();
-  tbody.innerHTML = items.map((item, index) => '<tr data-open-item="' + esc(item.id) + '" class="backlog-work-row' + (backlogSort === "manual" ? ' backlog-reorder-row' : '') + '" ' + (backlogSort === "manual" ? 'draggable="true"' : '') + '>' + renderBacklogSelectionCell(item) + renderBacklogTitleCell(item) + backlogColumns.map((column) => renderBacklogCell(item, column)).join("") + backlogActionColumns(item.id) + '</tr>' + inlineInsertRow(item.id, index === items.length - 1)).join("") || '<tr><td colspan="' + (backlogColumns.length + 5) + '" class="empty-table">Bu filtrelerle eşleşen iş yok.</td></tr>' + inlineInsertRow("", true);
+  const wrap = root.querySelector<HTMLElement>(".backlog-table-wrap");
+  const virtual = items.length > 200;
+  const signature = items.map((item) => item.id).join("|");
+  if (signature !== backlogWindowSignature) { backlogWindowStart = 0; if (wrap) wrap.scrollTop = 0; backlogWindowSignature = signature; }
+  if (wrap) { if (virtual) wrap.dataset.virtual = "true"; else delete wrap.dataset.virtual; }
+  const start = virtual ? Math.min(backlogWindowStart, Math.max(0, items.length - 60)) : 0;
+  const drawn = virtual ? items.slice(start, start + 60) : items;
+  const spacer = (count: number) => count > 0 ? '<tr class="virtual-spacer" aria-hidden="true"><td colspan="' + (backlogColumns.length + 5) + '" style="height:' + count * backlogWindowRowHeight + 'px"></td></tr>' : '';
+  tbody.innerHTML = drawn.map((item, index) => '<tr data-open-item="' + esc(item.id) + '" class="backlog-work-row' + (backlogSort === "manual" ? ' backlog-reorder-row' : '') + '" ' + (backlogSort === "manual" ? 'draggable="true"' : '') + '>' + renderBacklogSelectionCell(item) + renderBacklogTitleCell(item) + backlogColumns.map((column) => renderBacklogCell(item, column)).join("") + backlogActionColumns(item.id) + '</tr>' + inlineInsertRow(item.id, start + index === items.length - 1)).join("") || '<tr><td colspan="' + (backlogColumns.length + 5) + '" class="empty-table">Bu filtrelerle eşleşen iş yok.</td></tr>' + inlineInsertRow("", true);
+  if (virtual) {
+    tbody.insertAdjacentHTML("afterbegin", spacer(start)); tbody.insertAdjacentHTML("beforeend", spacer(items.length - start - drawn.length));
+    const first = tbody.querySelector<HTMLElement>(".backlog-work-row");
+    const measured = (first?.getBoundingClientRect().height || 0) / appZoom;
+    if (measured > 10 && !inlineBacklogEdit && inlineInsertAfterId === null) backlogWindowRowHeight = measured;
+  }
   applyBacklogColumnWidths();
   fitBacklogColumnsToWindow();
   if (!items.length) { const empty = tbody.querySelector(".empty-table"); if (empty) empty.innerHTML = 'Bu filtrelerle eşleşen iş yok.<br><button type="button" class="button button-quiet button-small" data-action="clear-backlog-filters">Filtreleri temizle</button>'; }
@@ -1903,8 +2019,8 @@ function updateSavedBacklogViewDirtyIndicator(): void {
   const view = savedBacklogViews.find((entry) => entry.id === activeBacklogViewId && entry.projectId === activeProjectId);
   const button = root.querySelector<HTMLButtonElement>('[data-action="update-backlog-view"]');
   if (!view || !button) return;
-  const current = JSON.stringify({ mode: backlogMode, query, status: backlogStatus, type: backlogType, label: labelFilter, teamId: teamFilterId, assignee: assigneeFilter, sprintId: backlogSprintId, includeCompleted: backlogIncludeCompleted, overdueOnly: backlogOverdueOnly, statusAgeMinDays: backlogStatusAgeMinDays, searchScope: backlogSearchScope, columns: backlogColumns, sort: backlogSort });
-  const saved = JSON.stringify({ mode: view.mode, query: view.query, status: view.status, type: view.type, label: view.label, teamId: view.teamId, assignee: view.assignee, sprintId: view.sprintId || "", includeCompleted: view.includeCompleted || false, overdueOnly: view.overdueOnly || false, statusAgeMinDays: view.statusAgeMinDays || 0, searchScope: view.searchScope || "all", columns: view.columns, sort: normalizeBacklogSort(view.sort === "manual" && view.secondarySort && view.secondarySort !== "manual" ? view.secondarySort : view.sort) });
+  const current = JSON.stringify({ mode: backlogMode, query, status: backlogStatus, type: backlogType, label: labelFilter, teamId: teamFilterId, assignee: assigneeFilter, sprintId: backlogSprintId, includeCompleted: backlogIncludeCompleted, overdueOnly: backlogOverdueOnly, statusAgeMinDays: backlogStatusAgeMinDays, searchScope: backlogSearchScope, columns: backlogColumns, sort: backlogSort, statuses: backlogStatuses, priorities: backlogPriorities, dateFrom: backlogDateFrom, dateTo: backlogDateTo, noEstimate: backlogNoEstimate, overdueCondition: backlogOverdueCondition, conditionMode: backlogConditionMode });
+  const saved = JSON.stringify({ mode: view.mode, query: view.query, status: view.status, type: view.type, label: view.label, teamId: view.teamId, assignee: view.assignee, sprintId: view.sprintId || "", includeCompleted: view.includeCompleted || false, overdueOnly: view.overdueOnly || false, statusAgeMinDays: view.statusAgeMinDays || 0, searchScope: view.searchScope || "all", columns: view.columns, sort: normalizeBacklogSort(view.sort === "manual" && view.secondarySort && view.secondarySort !== "manual" ? view.secondarySort : view.sort), statuses: view.statuses || [], priorities: view.priorities || [], dateFrom: view.dateFrom || "", dateTo: view.dateTo || "", noEstimate: Boolean(view.noEstimate), overdueCondition: Boolean(view.overdueCondition), conditionMode: view.conditionMode || "and" });
   button.textContent = "Görünümü güncelle" + (current === saved ? "" : " · Değişiklik var");
 }
 
@@ -1999,7 +2115,7 @@ function commitInlineStatus(itemId: string): void {
   if (nextStatus === item.status) { inlineBacklogEdit = null; updateBacklogRows(); return; }
   inlineBacklogEdit = null;
   if (nextStatus === "Bloke") { updateBacklogRows(); openStatusUpdateModal(item.id, nextStatus, true); return; }
-  applyWorkStatus(item, nextStatus, item.blocker);
+  if (!applyWorkStatus(item, nextStatus, item.blocker)) return;
   item.updated = "Az önce";
   if (!save()) { showInlineFeedback(itemId, "status", "Kaydedilemedi. Üstteki uyarıdan yeniden deneyin.", true); return; }
   updateBacklogRows();
@@ -2110,7 +2226,7 @@ function renderBacklogCell(item: WorkItem, column: BacklogColumnId): string {
     startDate: '<span>' + esc(item.startDate || item.actualStartDate || "—") + '</span>',
     targetDate: '<span>' + esc(item.targetDate || "—") + '</span>',
     targetPeriod: '<span>' + esc(item.targetPeriod || "—") + '</span>',
-    estimate: '<span>' + esc(item.estimate == null ? "—" : item.estimate + " saat") + '</span>',
+    estimate: '<span>' + esc(item.estimate == null ? "—" : item.estimate + " " + (state.estimateUnit || "saat")) + '</span>',
     productStage: '<span>' + esc(item.productStage || "—") + '</span>',
     release: '<span class="backlog-cell-truncate">' + esc(release?.name || "—") + '</span>',
     sprint: sprint ? '<span class="backlog-sprint-cell"><strong>' + esc(sprint.name) + '</strong><small>' + esc(sprintTeam + ' · ' + sprint.startDate + ' – ' + sprint.endDate) + '</small></span>' : '<span>—</span>',
@@ -2146,31 +2262,51 @@ function captureBacklogView(name: string, id = nextId("VIEW")): BacklogSavedView
   return {
     id, name, projectId: activeProjectId, mode: backlogMode === "board" ? "board" : "list", query,
     status: backlogStatus, type: backlogType, label: labelFilter, teamId: teamFilterId, assignee: assigneeFilter, sprintId: backlogSprintId, includeCompleted: backlogIncludeCompleted, overdueOnly: backlogOverdueOnly, statusAgeMinDays: backlogStatusAgeMinDays, searchScope: backlogSearchScope,
-    statuses: [...backlogStatuses], priorities: [...backlogPriorities], dateFrom: backlogDateFrom, dateTo: backlogDateTo, noEstimate: backlogNoEstimate, conditionMode: backlogConditionMode,
+    statuses: [...backlogStatuses], priorities: [...backlogPriorities], dateFrom: backlogDateFrom, dateTo: backlogDateTo, noEstimate: backlogNoEstimate, overdueCondition: backlogOverdueCondition, conditionMode: backlogConditionMode,
     columns: [...backlogColumns], sort: backlogSort
   };
 }
 
-let pendingBulkPreview: { kind: "status" | "assignment" | "project" | "release"; value: string; itemIds: string[] } | null = null;
+let pendingBulkPreview: { kind: "status" | "assignment" | "project" | "release"; value: string; itemIds: string[]; assignmentMode?: "add" | "replace" | "remove" } | null = null;
 function openBulkImpactPreview(kind: "status" | "assignment" | "project" | "release", value: string): void {
   const items = getSelectedBacklogItems();
   if (!items.length) { toast("Önce backlog işlerini seç."); return; }
   pendingBulkPreview = { kind: kind as "status" | "assignment" | "project" | "release", value, itemIds: items.map((item) => item.id) };
+  if (kind === "assignment") pendingBulkPreview.assignmentMode = "add";
   const label = kind === "status" ? "Durum" : kind === "assignment" ? "Atama ekle" : kind === "project" ? "Proje" : "Release";
   const targetLabel = kind === "assignment" ? value.split("::")[1] || value : kind === "release" ? (value === "__none" ? "Atamayı kaldır" : state.releases.find((entry) => entry.id === value)?.name || value) : value;
-  const incompatible = kind === "release" && value !== "__none" ? items.filter((item) => item.project !== state.releases.find((entry) => entry.id === value)?.project) : [];
-  const rows = items.map((item) => '<tr><td>' + esc(item.id) + '</td><td>' + esc(item.title) + '</td><td>' + esc(kind === "status" ? item.status : kind === "project" ? item.project : kind === "release" ? state.releases.find((entry) => entry.id === item.releaseId)?.name || "Atama yok" : assignmentSummary(item)) + '</td><td>' + esc(incompatible.includes(item) ? "Atlanacak · proje uyumsuz" : targetLabel) + '</td></tr>').join("");
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal bulk-preview-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">TOPLU İŞLEM ÖNİZLEMESİ</div><h2>' + esc(label) + ' değişikliği</h2></div><button class="modal-close" data-close-modal>×</button></header><div class="settings-form"><div class="bulk-impact-summary"><strong>' + items.length + ' seçili kayıt</strong><span>' + (items.length - incompatible.length) + ' değişecek</span><span class="' + (incompatible.length ? "has-warning" : "") + '">' + incompatible.length + ' atlanacak</span></div><div class="bulk-preview-scroll"><table><thead><tr><th>İş</th><th>Başlık</th><th>Önce</th><th>Sonra</th></tr></thead><tbody>' + rows + '</tbody></table></div><p class="settings-note">İşlem tamamlandığında değişen kayıtlar için geri alma sunulur.</p><footer class="modal-footer"><button class="button button-quiet" data-close-modal>Vazgeç</button><button class="button button-primary" data-action="apply-bulk-preview">' + (items.length - incompatible.length) + ' kaydı güncelle</button></footer></div></section></div>';
+  const incompatible = items.filter((item) => kind === "release" && value !== "__none" ? item.project !== state.releases.find((entry) => entry.id === value)?.project : kind === "status" ? item.status === value || value === "Bloke" && (!item.blocker?.reason || !item.blocker?.nextStep || !item.blocker?.owner || !item.blocker?.expectedAction) : kind === "project" ? item.project === value : false);
+  const rows = items.map((item) => '<tr><td>' + esc(item.id) + '</td><td>' + esc(item.title) + '</td><td>' + esc(kind === "status" ? item.status : kind === "project" ? item.project : kind === "release" ? state.releases.find((entry) => entry.id === item.releaseId)?.name || "Atama yok" : assignmentSummary(item)) + '</td><td>' + esc(incompatible.includes(item) ? "Atlanacak · aynı değer veya eksik/uyumsuz bilgi" : targetLabel) + '</td></tr>').join("");
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal bulk-preview-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">TOPLU İŞLEM ÖNİZLEMESİ</div><h2>' + esc(label) + ' değişikliği</h2></div><button class="modal-close" data-close-modal>×</button></header><div class="settings-form"><div class="bulk-impact-summary"><strong>' + items.length + ' seçili kayıt</strong><span>' + (items.length - incompatible.length) + ' değişecek</span><span class="' + (incompatible.length ? "has-warning" : "") + '">' + incompatible.length + ' atlanacak</span></div><div class="bulk-preview-scroll"><table><thead><tr><th>İş</th><th>Başlık</th><th>Önce</th><th>Sonra</th></tr></thead><tbody>' + rows + '</tbody></table></div><p class="settings-note">Proje değişirse release ve sprint bağlantıları kaldırılır. İşlem tamamlandığında değişen kayıtlar için geri alma sunulur.</p><footer class="modal-footer"><button class="button button-quiet" data-close-modal>Vazgeç</button><button class="button button-primary" data-action="apply-bulk-preview">' + (items.length - incompatible.length) + ' kaydı güncelle</button></footer></div></section></div>';
+  if (kind === "assignment") modalRoot.querySelector(".bulk-impact-summary")?.insertAdjacentHTML("beforebegin", '<label class="field-label">Çoklu atama işlemi<select id="bulk-assignment-mode" class="field-input"><option value="add">Üyeyi mevcut atamalara ekle</option><option value="replace">Tüm atamaları bu üyeyle değiştir</option><option value="remove">Üyeyi atamalardan kaldır</option></select></label>');
+  refreshBulkAssignmentPreview();
 }
 
+function refreshBulkAssignmentPreview(): void {
+  const preview = pendingBulkPreview; if (!preview || preview.kind !== "assignment") return;
+  const mode = modalRoot.querySelector<HTMLSelectElement>("#bulk-assignment-mode")?.value || "add";
+  const [teamId, member] = preview.value.split("::");
+  let changed = 0;
+  preview.itemIds.forEach((id, index) => {
+    const item = itemById(id); if (!item) return;
+    const current = getWorkAssignments(item);
+    const remaining = current.filter((entry) => entry.teamId !== teamId || entry.member !== member);
+    const next = mode === "remove" ? remaining : mode === "replace" ? [{ teamId, member }] : [...remaining, { teamId, member }];
+    const identical = JSON.stringify(current) === JSON.stringify(next);
+    if (!identical) changed++;
+    const cell = modalRoot.querySelectorAll("tbody tr")[index]?.lastElementChild;
+    if (cell) cell.textContent = identical ? "Atlanacak · atama aynı" : next.map((entry) => entry.member).join(", ") || "Atama yok";
+  });
+  const spans = modalRoot.querySelectorAll(".bulk-impact-summary span"); if (spans[0]) spans[0].textContent = changed + " değişecek"; if (spans[1]) spans[1].textContent = preview.itemIds.length - changed + " atlanacak";
+}
 function applyBulkImpactPreview(): void {
   if (!pendingBulkPreview) return;
-  const preview = pendingBulkPreview; const items = preview.itemIds.map((id) => itemById(id)).filter((item): item is WorkItem => Boolean(item)); const before = structuredClone(items); let changed = 0; let skipped = 0;
+  const preview = pendingBulkPreview; preview.assignmentMode = (modalRoot.querySelector<HTMLSelectElement>("#bulk-assignment-mode")?.value || "add") as "add" | "replace" | "remove"; const items = preview.itemIds.map((id) => itemById(id)).filter((item): item is WorkItem => Boolean(item)); const before = structuredClone(items); let changed = 0; let skipped = 0;
   for (const item of items) {
-    if (preview.kind === "status") { applyWorkStatus(item, preview.value as WorkStatus, item.blocker); changed++; }
-    else if (preview.kind === "assignment") { const [teamId, member] = preview.value.split("::"); if (!state.teams.find((team) => team.id === teamId)?.members.includes(member)) { skipped++; continue; } item.assignments = [...getWorkAssignments(item).filter((entry) => entry.teamId !== teamId || entry.member !== member), { teamId, member }]; syncLegacyAssignmentFields(item); changed++; }
-    else if (preview.kind === "project") { item.project = preview.value; item.projectId = state.projects.find((entry) => entry.name === preview.value)?.id; item.releaseId = undefined; item.sprintId = undefined; changed++; }
-    else { const release = preview.value === "__none" ? undefined : state.releases.find((entry) => entry.id === preview.value); if (release && release.project !== item.project) { skipped++; continue; } item.releaseId = release?.id; changed++; }
+    if (preview.kind === "status") { if (preview.value === item.status) { skipped++; continue; } if (preview.value === "Bloke" && (!item.blocker?.reason || !item.blocker?.nextStep || !item.blocker?.owner || !item.blocker?.expectedAction)) { skipped++; continue; } if (!applyWorkStatus(item, preview.value as WorkStatus, item.blocker)) { skipped++; continue; } changed++; }
+    else if (preview.kind === "assignment") { const [teamId, member] = preview.value.split("::"); if (!state.teams.find((team) => team.id === teamId)?.members.includes(member)) { skipped++; continue; } const current = getWorkAssignments(item); const remaining = current.filter((entry) => entry.teamId !== teamId || entry.member !== member); const next = preview.assignmentMode === "remove" ? remaining : preview.assignmentMode === "replace" ? [{ teamId, member }] : [...remaining, { teamId, member }]; if (JSON.stringify(current) === JSON.stringify(next)) { skipped++; continue; } item.assignments = next; syncLegacyAssignmentFields(item); changed++; }
+    else if (preview.kind === "project") { if (item.project === preview.value) { skipped++; continue; } item.project = preview.value; item.projectId = state.projects.find((entry) => entry.name === preview.value)?.id; item.releaseId = undefined; item.sprintId = undefined; changed++; }
+    else { const release = preview.value === "__none" ? undefined : state.releases.find((entry) => entry.id === preview.value); if (preview.value !== "__none" && !release) { skipped++; continue; } if (item.releaseId === release?.id) { skipped++; continue; } if (release && release.project !== item.project) { skipped++; continue; } item.releaseId = release?.id; changed++; }
     item.updated = "Az önce"; addWorkActivity(item, "change", "Toplu işlem uygulandı: " + preview.kind + " → " + preview.value);
   }
   pendingBulkPreview = null; save(); closeModal(); renderBacklog(); toastUndo(changed + " kayıt güncellendi" + (skipped ? ", " + skipped + " kayıt atlandı." : "."), before);
@@ -2210,6 +2346,7 @@ function applyBacklogView(view: BacklogSavedView): void {
   backlogStatus = view.status;
   backlogIncludeCompleted = view.includeCompleted || false;
   backlogOverdueOnly = view.overdueOnly || false; backlogStatusAgeMinDays = view.statusAgeMinDays || 0;
+  backlogOverdueCondition = Boolean(view.overdueCondition);
   backlogStatuses = [...(view.statuses || [])]; backlogPriorities = [...(view.priorities || [])]; backlogDateFrom = view.dateFrom || ""; backlogDateTo = view.dateTo || ""; backlogNoEstimate = Boolean(view.noEstimate); backlogConditionMode = view.conditionMode === "or" ? "or" : "and";
   backlogType = view.type;
   labelFilter = view.label;
@@ -2322,7 +2459,7 @@ function renderBacklogPreview(item: WorkItem): string {
   const activity = item.activity?.[0];
   const description = item.description.trim() || "Bu iş için henüz açıklama eklenmemiş.";
   const dates = [item.startDate ? "Başlangıç " + item.startDate : "", item.targetDate ? "Hedef " + item.targetDate : ""].filter(Boolean).join(" · ");
-  return '<section class="backlog-preview-card" data-preview-card="' + esc(item.id) + '" role="dialog" aria-label="' + esc(item.id + " iş önizlemesi") + '"><header class="backlog-preview-header"><div><span class="backlog-preview-id">' + esc(item.id) + ' · ' + esc(item.type) + '</span><h2>' + esc(item.title) + '</h2></div><button type="button" class="backlog-preview-close" data-close-backlog-preview aria-label="Önizlemeyi kapat">×</button></header><div class="backlog-preview-badges"><span class="status-pill ' + statusClass(item.status) + '"><i></i>' + esc(item.status) + '</span><span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span><span class="backlog-preview-area">' + esc(item.area || "Ürün alanı yok") + '</span></div><p class="backlog-preview-description">' + esc(description) + '</p><div class="backlog-preview-details"><div><span>PROJE</span><strong>' + esc(item.project) + '</strong></div><div><span>TAKIM / ÜYE</span><strong>' + esc(assignmentText) + '</strong></div>' + (dates ? '<div><span>PLAN</span><strong>' + esc(dates) + '</strong></div>' : '') + (item.estimate != null ? '<div><span>TAHMİN</span><strong>' + esc(item.estimate) + ' saat</strong></div>' : '') + (assets.length ? '<div><span>BİLEŞENLER</span><strong>' + esc(assets.join(", ")) + '</strong></div>' : '') + '<div><span>SON GÜNCELLEME</span><strong>' + esc(activity ? activity.message : item.updated) + '</strong></div></div>' + (labels.length ? '<div class="backlog-preview-labels">' + labels.map((label) => '<span>' + esc(label) + '</span>').join("") + ((item.labels || []).length > labels.length ? '<small>+' + ((item.labels || []).length - labels.length) + '</small>' : '') + '</div>' : '') + '<footer><span>' + (item.acceptance?.length || 0) + ' kabul kriteri · ' + (item.attachments?.length || 0) + ' ek</span><button type="button" class="button button-primary button-small" data-open-item="' + esc(item.id) + '">İş ayrıntılarını aç </button></footer></section>';
+  return '<section class="backlog-preview-card" data-preview-card="' + esc(item.id) + '" role="dialog" aria-label="' + esc(item.id + " iş önizlemesi") + '"><header class="backlog-preview-header"><div><span class="backlog-preview-id">' + esc(item.id) + ' · ' + esc(item.type) + '</span><h2>' + esc(item.title) + '</h2></div><button type="button" class="backlog-preview-close" data-close-backlog-preview aria-label="Önizlemeyi kapat">×</button></header><div class="backlog-preview-badges"><span class="status-pill ' + statusClass(item.status) + '"><i></i>' + esc(item.status) + '</span><span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span><span class="backlog-preview-area">' + esc(item.area || "Ürün alanı yok") + '</span></div><p class="backlog-preview-description">' + esc(description) + '</p><div class="backlog-preview-details"><div><span>PROJE</span><strong>' + esc(item.project) + '</strong></div><div><span>TAKIM / ÜYE</span><strong>' + esc(assignmentText) + '</strong></div>' + (dates ? '<div><span>PLAN</span><strong>' + esc(dates) + '</strong></div>' : '') + (item.estimate != null ? '<div><span>TAHMİN</span><strong>' + esc(item.estimate) + ' ' + esc(state.estimateUnit || "saat") + '</strong></div>' : '') + (assets.length ? '<div><span>BİLEŞENLER</span><strong>' + esc(assets.join(", ")) + '</strong></div>' : '') + '<div><span>SON GÜNCELLEME</span><strong>' + esc(activity ? activity.message : item.updated) + '</strong></div></div>' + (labels.length ? '<div class="backlog-preview-labels">' + labels.map((label) => '<span>' + esc(label) + '</span>').join("") + ((item.labels || []).length > labels.length ? '<small>+' + ((item.labels || []).length - labels.length) + '</small>' : '') + '</div>' : '') + '<footer><span>' + (item.acceptance?.length || 0) + ' kabul kriteri · ' + (item.attachments?.length || 0) + ' ek</span><button type="button" class="button button-primary button-small" data-open-item="' + esc(item.id) + '">İş ayrıntılarını aç </button></footer></section>';
 }
 
 function positionBacklogPreview(anchor: HTMLElement, card: HTMLElement): void {
@@ -2437,13 +2574,6 @@ function saveNewSprint(event: SubmitEvent): void {
   closeModal();
   renderBacklog();
   toast(sprint.name + " oluşturuldu · " + selectedItems.length + " iş · " + (state.teams.find((team) => team.id === teamId)?.name || "takım"));
-}
-
-function renderFocus(): void {
-  const openTasks = state.tasks.filter((task) => !task.done);
-  root.innerHTML = '<div class="page-content focus-page"><section class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>KİŞİSEL ÇALIŞMA ALANI</div><h1>Kendi ritmin</h1><p>Backlog’la ilişkili veya bağımsız görev ve notların bir arada.</p></div><div class="button-row"><button class="button button-secondary" data-action="new" data-type="Not">＋ Not ekle</button><button class="button button-primary" data-action="new" data-type="Kişisel görev"><span class="button-plus">+</span> Görev ekle</button></div></section>' +
-    notificationCenterMarkup() + '<div class="focus-grid"><section class="panel focus-tasks"><div class="panel-heading"><div><div class="panel-kicker">TAKİP LİSTESİ <span class="count-chip">' + openTasks.length + '</span></div><h2>Görevlerin</h2><p>Günlük işlerini ve bekleyen adımları takip et.</p></div><button class="round-add" data-action="new" data-type="Kişisel görev">+</button></div><div class="focus-task-list">' + (state.tasks.length ? state.tasks.map((task) => '<div class="focus-task-row ' + (task.done ? "task-complete" : "") + '" data-context-task-id="' + esc(task.id) + '"><button class="task-check ' + (task.done ? "checked" : "") + '" data-toggle-task="' + esc(task.id) + '">' + (task.done ? "✓" : "") + '</button><div class="focus-task-copy"><button data-open-task="' + esc(task.id) + '">' + esc(task.title) + '</button><small>' + (task.linked && itemById(task.linked) ? '<span class="linked-badge">' + esc(task.linked) + '</span>' : '<span class="independent-label">Bağımsız görev</span>') + (task.attachments?.length ? ' <span class="attachment-indicator">▤ ' + task.attachments.length + '</span>' : "") + '</small></div><span class="task-due ' + (task.due === "Bugün" ? "due-today" : "") + '">' + esc(task.due) + '</span><button class="dots-button task-more">···</button></div>').join("") : '<div class="empty-state">Henüz görev yok. İlk görevini ekleyebilirsin.</div>') + '</div></section>' +
-    '<section class="panel focus-notes"><div class="panel-heading"><div><div class="panel-kicker">NOT DEFTERİ <span class="count-chip">' + state.notes.length + '</span></div><h2>Notların</h2><p>Kararları, soruları ve aklına takılanları kaydet.</p></div><button class="round-add" data-action="new" data-type="Not">+</button></div><div class="focus-note-list">' + (state.notes.length ? state.notes.map((note) => '<article class="focus-note" data-context-note-id="' + esc(note.id) + '"><div class="focus-note-top"><span class="note-pin">✳</span><span class="note-date">' + esc(note.updated) + '</span><button class="dots-button" data-action="note-to-task" data-id="' + esc(note.id) + '" title="Göreve dönüştür">☑</button></div><button class="focus-note-title" data-note="' + esc(note.id) + '">' + esc(note.title) + '</button><p>' + esc(note.body) + '</p>' + (note.linked && itemById(note.linked) ? '<button class="linked-badge" data-open-item="' + esc(note.linked) + '">' + esc(note.linked) + ' · ilişkili iş</button>' : '<span class="independent-label">Bağımsız not</span>') + '</article>').join("") : '<div class="empty-state">Henüz not yok. Bir not ekleyerek başlayabilirsin.</div>') + '</div></section></div></div>';
 }
 
 function renderAssets(): void {
@@ -2662,7 +2792,8 @@ function openQuickCreateModal(defaultType?: string, linkedItemId = ""): void {
   const quickAssignments = state.teams.flatMap((team) => team.members.map((member) => ({ team, member, value: team.id + "::" + member })));
   quickAssignments.sort((left, right) => Number(right.value === lastAssignment) - Number(left.value === lastAssignment));
   const quickAssignmentOptions = '<option value="">Atama yok</option>' + quickAssignments.map(({ team, member, value }) => '<option value="' + esc(value) + '" ' + (lastAssignment === value ? "selected" : "") + '>' + esc((value === lastAssignment ? "Son kullanılan · " : "") + team.name + " · " + member) + '</option>').join("");
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal work-record-modal quick-create-modal" role="dialog" aria-modal="true" aria-labelledby="quick-create-title"><header class="modal-header"><div><div class="panel-kicker">HIZLI KAYIT · Ctrl+Shift+N</div><h2 id="quick-create-title">Yeni kayıt oluştur</h2></div><button class="modal-close" data-close-modal aria-label="Kapat">×</button></header><form id="quick-create-form" class="settings-form work-record-form"><label class="field-label">Kayıt türü<select class="field-input" name="kind"><option ' + (defaultKind === "Backlog işi" ? "selected" : "") + '>Backlog işi</option><option ' + (defaultKind === "Kişisel görev" ? "selected" : "") + '>Kişisel görev</option><option ' + (defaultKind === "Not" ? "selected" : "") + '>Not</option></select></label><label class="field-label record-primary-field">Başlık<input class="field-input" name="title" maxlength="120" required autocomplete="off" placeholder="Kısa ve eylem odaklı bir başlık yaz…"></label><label class="field-label">Açıklama <small>(isteğe bağlı)</small><textarea class="field-input field-textarea" name="description" rows="3" placeholder="Bağlamı veya sıradaki adımı ekle…"></textarea></label><details class="record-collapsible"><summary><span><strong>Detaylar</strong><small>Proje, atama, ilişki ve planlama</small></span><i aria-hidden="true"></i></summary><div class="record-collapsible-content"><div class="form-two-col"><label class="field-label">Proje<select class="field-input" name="project">' + projects.map((project) => '<option value="' + esc(project.name) + '" ' + (project.name === activeProject?.name ? "selected" : "") + '>' + esc(project.name) + '</option>').join("") + '</select></label><label class="field-label">İş türü<select class="field-input" name="workType"><option>Story</option><option>Bug</option><option>Task</option></select></label><label class="field-label">Varsayılan atama<select class="field-input" name="assignment">' + quickAssignmentOptions + '</select></label><label class="field-label">İlişkili backlog işi<select class="field-input" name="linked"><option value="">Bağımsız</option>' + state.items.map((item) => '<option value="' + esc(item.id) + '" ' + (item.id === linkedItemId ? "selected" : "") + '>' + esc(item.id + " · " + item.title) + '</option>').join("") + '</select></label><label class="field-label">Son tarih<input class="field-input" name="due" type="date"></label></div></div></details><div class="quick-create-hint">Enter ile kaydet · Kaydet ve yenisini aç ile seri kayıt oluştur</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-secondary" name="mode" value="continue">Kaydet ve yenisini aç</button><button type="submit" class="button button-primary" name="mode" value="close">Kaydet</button></footer></form></section></div>';
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal work-record-modal quick-create-modal" role="dialog" aria-modal="true" aria-labelledby="quick-create-title"><header class="modal-header"><div><div class="panel-kicker">HIZLI KAYIT · Ctrl+Shift+N</div><h2 id="quick-create-title">Yeni kayıt oluştur</h2></div><button class="modal-close" data-close-modal aria-label="Kapat">×</button></header><form id="quick-create-form" class="settings-form work-record-form"><label class="field-label">Kayıt türü<select class="field-input" name="kind"><option ' + (defaultKind === "Backlog işi" ? "selected" : "") + '>Backlog işi</option><option ' + (defaultKind === "Kişisel görev" ? "selected" : "") + ' value="Kişisel görev">Görev</option><option ' + (defaultKind === "Not" ? "selected" : "") + '>Not</option></select></label><label class="field-label record-primary-field">Başlık<input class="field-input" name="title" maxlength="120" required autocomplete="off" placeholder="Kısa ve eylem odaklı bir başlık yaz…"></label><label class="field-label">Açıklama <small>(isteğe bağlı)</small><textarea class="field-input field-textarea" name="description" rows="3" placeholder="Bağlamı veya sıradaki adımı ekle…"></textarea></label><details class="record-collapsible"><summary><span><strong>Detaylar</strong><small>Proje, atama, ilişki ve planlama</small></span><i aria-hidden="true"></i></summary><div class="record-collapsible-content"><div class="form-two-col"><label class="field-label">Proje<select class="field-input" name="project">' + projects.map((project) => '<option value="' + esc(project.name) + '" ' + (project.name === activeProject?.name ? "selected" : "") + '>' + esc(project.name) + '</option>').join("") + '</select></label><label class="field-label">İş türü<select class="field-input" name="workType"><option>Story</option><option>Bug</option><option>Task</option></select></label><label class="field-label">Varsayılan atama<select class="field-input" name="assignment">' + quickAssignmentOptions + '</select></label><label class="field-label">İlişkili backlog işi<select class="field-input" name="linked"><option value="">Bağımsız</option>' + state.items.map((item) => '<option value="' + esc(item.id) + '" ' + (item.id === linkedItemId ? "selected" : "") + '>' + esc(item.id + " · " + item.title) + '</option>').join("") + '</select></label><label class="field-label">Son tarih<input class="field-input" name="due" type="date"></label></div></div></details><div class="quick-create-hint">Enter ile kaydet · Kaydet ve yenisini aç ile seri kayıt oluştur</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-secondary" name="mode" value="continue">Kaydet ve yenisini aç</button><button type="submit" class="button button-primary" name="mode" value="close">Kaydet</button></footer></form></section></div>';
+  modalRoot.querySelector("#quick-create-form .modal-footer")?.insertAdjacentHTML("afterbegin", '<button type="button" class="button button-quiet" data-action="expand-create-form">Ayrıntılı form' + ((state.formDrafts || []).length ? ' · Taslak var' : '') + '</button>');
   modalRoot.querySelector('input[name="due"]')?.closest(".field-label")?.insertAdjacentHTML("afterend", '<label class="field-label">Hatırlat <input class="field-input" name="remindAt" type="datetime-local"></label>');
   modalRoot.querySelector<HTMLInputElement>('input[name="title"]')?.focus();
 }
@@ -2716,13 +2847,15 @@ function saveQuickCreate(event: SubmitEvent): void {
     activeView = "backlog";
   } else if (kind === "Kişisel görev") {
     state.tasks.unshift({ id: nextId("TASK"), title, due: dueDate || "Tarih belirlenmedi", done: false, linked, description, attachments: [], remindAt: remindAt || undefined });
-    activeView = "focus";
+
   } else {
     state.notes.unshift({ id: nextId("NOTE"), title, body: description, linked, updated: "Az önce", attachments: [] });
-    activeView = "focus";
+
   }
   if (kind === "Backlog işi" && assignmentValue) localStorage.setItem(QUICK_ASSIGNMENT_PREFERENCE_KEY, assignmentValue);
+  state.formDrafts = []; window.clearTimeout(formDraftTimer);
   save();
+  syncWorkspaceToolbar();
   toast(kind === "Backlog işi" ? "Backlog işi oluşturuldu." : kind === "Kişisel görev" ? "Görev oluşturuldu." : "Not oluşturuldu.");
   if ((event.submitter as HTMLButtonElement | null)?.value === "continue") {
     form.querySelector<HTMLInputElement>('input[name="title"]')?.value && (form.querySelector<HTMLInputElement>('input[name="title"]')!.value = "");
@@ -2734,7 +2867,7 @@ function saveQuickCreate(event: SubmitEvent): void {
   }
   const createdProjectId = kind === "Backlog işi" ? state.projects.find((entry) => entry.name === project)?.id : undefined;
   closeModal(true);
-  setView(activeView);
+  if (kind === "Backlog işi") setView("backlog"); else render();
   if (createdProjectId) setProject(createdProjectId);
 }
 
@@ -2745,7 +2878,7 @@ function openNewModal(defaultType?: string, linkedAssetId?: string): void {
   draftAttachments = [];
   draftAssetIds = linkedAssetId ? [linkedAssetId] : [];
   attachmentTarget = { kind: "draft" };
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal work-record-modal new-modal" role="dialog" aria-modal="true" aria-labelledby="new-title"><header class="modal-header"><div><div class="panel-kicker">YENİ KAYIT</div><h2 id="new-title">Çalışma alanına ekle</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="new-form" class="work-record-form"><label class="field-label">Kayıt türü<select id="new-kind" class="field-input"><option>Backlog işi</option><option>Kişisel görev</option><option>Not</option></select></label><label class="field-label">Başlık<input id="new-title-input" class="field-input" maxlength="120" placeholder="Örn. EFT iptal penceresini netleştir" required></label><label class="field-label">Açıklama<textarea id="new-description" class="field-input field-textarea" rows="3" placeholder="Bağlamı, yapılacak işi veya önemli noktaları yaz…"></textarea></label><div id="backlog-fields" class="form-two-col"><label class="field-label">Proje<select id="new-project" class="field-input"><option>Ödeme Platformu</option><option>Dijital Kanallar</option><option>Kredi Yaşam Döngüsü</option></select></label><label class="field-label">Öncelik<select id="new-priority" class="field-input"><option>Orta</option><option>Yüksek</option><option>Kritik</option><option>Düşük</option></select></label><label class="field-label">İş türü<select id="new-item-type" class="field-input"><option>Story</option><option>Bug</option><option>Task</option></select></label><label class="field-label">Ürün alanı<input id="new-area" class="field-input" placeholder="Örn. Para Transferleri"></label><label class="field-label acceptance-field">Kabul kriterleri<textarea id="new-acceptance" class="field-input field-textarea" rows="2" placeholder="Her kriteri ayrı satıra yaz"></textarea></label></div><div id="task-fields" class="form-two-col hidden"><label class="field-label">Son tarih<select id="new-due" class="field-input"><option>Bugün</option><option>Yarın</option><option>Bu hafta</option><option>Tarih belirlenmedi</option></select></label><label class="field-label">İlişkili backlog işi<select id="new-linked-task" class="field-input"><option value="">Bağımsız</option>' + state.items.map((item) => '<option value="' + esc(item.id) + '">' + esc(item.id + " · " + item.title) + '</option>').join("") + '</select></label></div><div id="note-fields" class="form-two-col hidden"><label class="field-label">İlişkili backlog işi<select id="new-linked-note" class="field-input"><option value="">Bağımsız not</option>' + state.items.map((item) => '<option value="' + esc(item.id) + '">' + esc(item.id + " · " + item.title) + '</option>').join("") + '</select></label></div><div class="attachment-box"><div class="attachment-box-heading"><div><strong>Dosyalar</strong><small>İlgili belgeleri, görselleri veya akışları ekle.</small></div><button type="button" class="button button-secondary button-small" data-pick-files>＋ Dosya ekle</button><input id="file-fallback" type="file" multiple hidden></div><div id="draft-files" class="draft-files"></div></div><div class="privacy-note"><span>ⓘ</span> Müşteri, hesap veya kart bilgisi içeren dosyaları ekleme. Ekler bu cihazda saklanır.</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Kaydet <span>✓</span></button></footer></form></section></div>';
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal work-record-modal new-modal" role="dialog" aria-modal="true" aria-labelledby="new-title"><header class="modal-header"><div><div class="panel-kicker">YENİ KAYIT</div><h2 id="new-title">Çalışma alanına ekle</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="new-form" class="work-record-form"><label class="field-label">Kayıt türü<select id="new-kind" class="field-input"><option>Backlog işi</option><option value="Kişisel görev">Görev</option><option>Not</option></select></label><label class="field-label">Başlık<input id="new-title-input" class="field-input" maxlength="120" placeholder="Örn. EFT iptal penceresini netleştir" required></label><label class="field-label">Açıklama<textarea id="new-description" class="field-input field-textarea" rows="3" placeholder="Bağlamı, yapılacak işi veya önemli noktaları yaz…"></textarea></label><div id="backlog-fields" class="form-two-col"><label class="field-label">Proje<select id="new-project" class="field-input"><option>Ödeme Platformu</option><option>Dijital Kanallar</option><option>Kredi Yaşam Döngüsü</option></select></label><label class="field-label">Öncelik<select id="new-priority" class="field-input"><option>Orta</option><option>Yüksek</option><option>Kritik</option><option>Düşük</option></select></label><label class="field-label">İş türü<select id="new-item-type" class="field-input"><option>Story</option><option>Bug</option><option>Task</option></select></label><label class="field-label">Ürün alanı<input id="new-area" class="field-input" placeholder="Örn. Para Transferleri"></label><label class="field-label acceptance-field">Kabul kriterleri<textarea id="new-acceptance" class="field-input field-textarea" rows="2" placeholder="Her kriteri ayrı satıra yaz"></textarea></label></div><div id="task-fields" class="form-two-col hidden"><label class="field-label">Son tarih<select id="new-due" class="field-input"><option>Bugün</option><option>Yarın</option><option>Bu hafta</option><option>Tarih belirlenmedi</option></select></label><label class="field-label">İlişkili backlog işi<select id="new-linked-task" class="field-input"><option value="">Bağımsız</option>' + state.items.map((item) => '<option value="' + esc(item.id) + '">' + esc(item.id + " · " + item.title) + '</option>').join("") + '</select></label></div><div id="note-fields" class="form-two-col hidden"><label class="field-label">İlişkili backlog işi<select id="new-linked-note" class="field-input"><option value="">Bağımsız not</option>' + state.items.map((item) => '<option value="' + esc(item.id) + '">' + esc(item.id + " · " + item.title) + '</option>').join("") + '</select></label></div><div class="attachment-box"><div class="attachment-box-heading"><div><strong>Dosyalar</strong><small>İlgili belgeleri, görselleri veya akışları ekle.</small></div><button type="button" class="button button-secondary button-small" data-pick-files>＋ Dosya ekle</button><input id="file-fallback" type="file" multiple hidden></div><div id="draft-files" class="draft-files"></div></div><div class="privacy-note"><span>ⓘ</span> Müşteri, hesap veya kart bilgisi içeren dosyaları ekleme. Ekler bu cihazda saklanır.</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Kaydet <span>✓</span></button></footer></form></section></div>';
   const descriptionLabel = document.getElementById("new-description")?.closest(".field-label");
   descriptionLabel?.insertAdjacentHTML("beforeend", structuredEditorToolbar("new-description"));
   descriptionLabel?.insertAdjacentHTML("beforebegin", '<label class="field-label work-template-picker">İş şablonu<select id="new-work-template" class="field-input"><option value="">Boş kayıt</option>' + (state.workTemplates || []).map((template) => '<option value="' + esc(template.id) + '">' + esc(template.name) + '</option>').join("") + '</select></label>');
@@ -2755,7 +2888,7 @@ function openNewModal(defaultType?: string, linkedAssetId?: string): void {
   projectSelect.innerHTML = state.projects.filter((project) => !project.archived).map((project) => '<option>' + esc(project.name) + '</option>').join("");
   const linkedAsset = linkedAssetId ? state.assets.find((asset) => asset.id === linkedAssetId) : undefined;
   projectSelect.value = linkedAsset?.project || state.projects.find((project) => project.id === activeProjectId && !project.archived)?.name || state.projects.find((project) => !project.archived)?.name || "";
-  document.getElementById("new-area")?.closest(".field-label")?.insertAdjacentHTML("afterend", '<label class="field-label">Başlangıç tarihi<input id="new-start-date" class="field-input" type="date"></label><label class="field-label">Hedef bitiş tarihi<input id="new-target-date" class="field-input" type="date"></label><label class="field-label">Planlanan dönem<input id="new-target-period" class="field-input" maxlength="40" placeholder="Örn. 2026 Q4"></label><label class="field-label">Tahmini efor (saat)<input id="new-estimate" class="field-input" type="number" min="0" step="0.5" placeholder="İsteğe bağlı"></label>');
+  document.getElementById("new-area")?.closest(".field-label")?.insertAdjacentHTML("afterend", '<label class="field-label">Başlangıç tarihi<input id="new-start-date" class="field-input" type="date"></label><label class="field-label">Hedef bitiş tarihi<input id="new-target-date" class="field-input" type="date"></label><label class="field-label">Planlanan dönem<input id="new-target-period" class="field-input" maxlength="40" placeholder="Örn. 2026 Q4"></label><label class="field-label">Tahmini efor (' + esc(state.estimateUnit || "saat") + ')<input id="new-estimate" class="field-input" type="number" min="0" step="0.5" placeholder="İsteğe bağlı"></label>');
   document.getElementById("new-due")?.closest(".field-label")?.insertAdjacentHTML("afterend", '<label class="field-label">Hatırlat<input id="new-remind-at" class="field-input" type="datetime-local"></label>');
   document.querySelector('#new-form label.field-label:has(#new-title-input)')?.insertAdjacentHTML("beforeend", '<small class="field-help">Kısa ve eylem odaklı yaz. Örn. “Havale iptal nedeni raporunu ekle”.</small>');
   document.querySelector('#new-form label.field-label:has(#new-title-input)')?.insertAdjacentHTML("afterend", '<div id="duplicate-candidates" class="duplicate-candidates" hidden></div>');
@@ -2767,6 +2900,7 @@ function openNewModal(defaultType?: string, linkedAssetId?: string): void {
   renderNewAssetOptions();
   if (linkedAsset) (document.getElementById("new-area") as HTMLInputElement).value = linkedAsset.area;
   document.getElementById("backlog-fields")?.insertAdjacentHTML("afterend", assignmentEditorMarkup("new-assignment-list"));
+  document.getElementById("new-area")?.closest(".field-label")?.insertAdjacentHTML("afterend", '<label class="field-label">Etiketler<input id="new-labels" class="field-input" placeholder="Virgülle ayır"></label>');
   const kind = field("new-kind");
   if (defaultType) kind.value = defaultType;
   updateNewForm();
@@ -2776,13 +2910,18 @@ function openNewModal(defaultType?: string, linkedAssetId?: string): void {
 
 let formDraftTimer = 0;
 function persistCurrentFormDraft(): void {
-  const form = document.getElementById("new-form") as HTMLFormElement | null;
+  const form = (document.getElementById("new-form") || document.getElementById("quick-create-form")) as HTMLFormElement | null;
   if (!form) return;
+  if (form.id === "quick-create-form") {
+    const data = new FormData(form); const title = String(data.get("title") || ""); const description = String(data.get("description") || ""); if (!title.trim() && !description.trim()) return;
+    const [teamId, member] = String(data.get("assignment") || "").split("::");
+    state.formDrafts = [{ id: state.formDrafts?.[0]?.id || nextId("DRAFT"), kind: String(data.get("kind")) as FormDraft["kind"], values: { "new-kind": String(data.get("kind")), "new-title-input": title, "new-description": description, "new-project": String(data.get("project") || ""), "new-item-type": String(data.get("workType") || "Story"), "new-remind-at": String(data.get("remindAt") || ""), "new-linked-task": String(data.get("linked") || ""), "new-linked-note": String(data.get("linked") || "") }, assignments: teamId && member ? [{ teamId, member }] : [], attachments: [], updatedAt: new Date().toISOString() }]; save(); return;
+  }
   const values: Record<string, string> = {};
   form.querySelectorAll<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("input[id], textarea[id], select[id]").forEach((control) => { if (control.type !== "file") values[control.id] = control.value; });
-  if (!Object.values(values).some((value) => value.trim()) && !draftAttachments.length) return;
+  if (!values["new-title-input"]?.trim() && !values["new-description"]?.trim() && !draftAttachments.length) return;
   const existing = state.formDrafts?.[0];
-  state.formDrafts = [{ id: existing?.id || nextId("DRAFT"), kind: (values["new-kind"] || "Backlog işi") as FormDraft["kind"], values, attachments: structuredClone(draftAttachments), updatedAt: new Date().toISOString() }];
+  state.formDrafts = [{ id: existing?.id || nextId("DRAFT"), kind: (values["new-kind"] || "Backlog işi") as FormDraft["kind"], values, attachments: structuredClone(draftAttachments), assignments: readAssignmentRows("new-assignment-list").assignments, assetIds: [...draftAssetIds], sourceEmail: pendingDroppedEmailSource || undefined, updatedAt: new Date().toISOString() }];
   save();
 }
 
@@ -2799,6 +2938,11 @@ function restoreFormDraft(id: string): void {
     if (control) control.value = value;
   }
   draftAttachments = structuredClone(draft.attachments || []);
+  draftAssetIds = [...(draft.assetIds || [])];
+  pendingDroppedEmailSource = draft.sourceEmail || null;
+  const assignmentList = document.getElementById("new-assignment-list");
+  if (assignmentList) assignmentList.innerHTML = (draft.assignments?.length ? draft.assignments : [{ teamId: "", member: "" }]).map((entry) => assignmentRowMarkup(entry)).join("");
+  renderNewAssetSelection(); renderNewAssetOptions();
   updateNewForm(); renderDraftFiles();
   modalRoot.querySelector(".draft-recovery")?.remove();
   toast("Taslak geri getirildi.");
@@ -3378,7 +3522,9 @@ function openWorkspaceSettings(panel?: string): void {
   document.querySelector(".backup-settings")?.insertAdjacentHTML("beforebegin", '<section class="appearance-settings"><h3>Görünüm ve erişilebilirlik</h3><div class="form-two-col"><label class="field-label">Tema<select id="workspace-theme" class="field-input"><option value="system">Sistem</option><option value="light">Açık</option><option value="dark">Koyu</option></select></label><label class="field-label">Yakınlaştırma<select id="workspace-app-zoom" class="field-input">' + appZoomOptionsHtml() + '</select></label><label class="field-label">Yüksek kontrast<select id="workspace-high-contrast" class="field-input"><option value="false">Kapalı</option><option value="true">Açık</option></select></label><label class="field-label">Animasyonları azalt<select id="workspace-reduced-motion" class="field-input"><option value="false">Kapalı</option><option value="true">Açık</option></select></label></div><div class="accent-settings-field"><div><strong>Vurgu rengi</strong><small>Butonlar, avatarlar ve seçili öğelerde kullanılır. Seçim anında uygulanır ve bu cihazda saklanır.</small></div>' + accentPickerFields() + '<button type="button" class="button button-quiet button-small" data-accent-reset>Varsayılana dön</button></div><button type="button" class="button button-secondary button-small" data-action="reset-backlog-preferences">Backlog görünüm ve kolon tercihlerini sıfırla</button></section>');
   const lastAutomaticBackup = localStorage.getItem(AUTO_BACKUP_AT_KEY);
   document.querySelector(".backup-settings")?.insertAdjacentHTML("afterend", '<section class="backup-settings"><h3>Otomatik yedekler</h3><p>Uygulama açıkken 24 saatte bir ekleriyle birlikte seçilen klasöre yedek alınır. Son 7 kopya saklanır.</p><p>Son başarılı yedek: ' + esc(lastAutomaticBackup ? new Date(lastAutomaticBackup).toLocaleString("tr-TR") : "Henüz yok") + '</p>' + (automaticBackupError ? '<p class="jira-error">' + esc(automaticBackupError) + '</p>' : '') + '<label class="field-label">Yedek klasörü<input id="automatic-backup-directory" class="field-input" placeholder="C:\\Yedekler"></label><button type="button" class="button button-secondary" data-action="backup-auto-folder-save">Klasörü kaydet</button><button type="button" class="button button-secondary" data-action="backup-auto-now">Şimdi otomatik yedek oluştur</button></section>');
-  document.querySelector(".dictionary-settings")?.insertAdjacentHTML("beforebegin", '<section class="backup-settings estimate-settings"><h3>Tahmin standardı</h3><p>Çalışma alanındaki tüm efor toplamları aynı birimi kullanır.</p><label class="field-label">Tahmin birimi<select id="workspace-estimate-unit" class="field-input"><option value="saat" ' + (state.estimateUnit !== "puan" ? "selected" : "") + '>Saat</option><option value="puan" ' + (state.estimateUnit === "puan" ? "selected" : "") + '>Puan</option></select></label></section>');
+  document.querySelector(".backup-settings")?.insertAdjacentHTML("beforeend", '<button type="button" class="button button-secondary button-small" data-action="open-diagnostics">Tanılama raporu</button>');
+  document.querySelector(".dictionary-settings")?.insertAdjacentHTML("beforebegin", '<section class="backup-settings estimate-settings"><h3>Tahmin standardı</h3><p>Çalışma alanındaki tüm efor toplamları aynı birimi kullanır.</p><label class="field-label">Tahmin birimi<select id="workspace-estimate-unit" ' + (state.items.some((item) => item.estimate !== undefined) ? 'disabled title="Mevcut tahminler varken birim değiştirilemez"' : '') + ' class="field-input"><option value="saat" ' + (state.estimateUnit !== "puan" ? "selected" : "") + '>Saat</option><option value="puan" ' + (state.estimateUnit === "puan" ? "selected" : "") + '>Puan</option></select></label></section>');
+  document.querySelector(".estimate-settings")?.insertAdjacentHTML("beforeend", '<div class="button-row"><button type="button" class="button button-secondary button-small" data-action="work-template-editor">İş şablonu ekle</button><button type="button" class="button button-secondary button-small" data-action="risk-center">Risk takibi</button></div>');
   if (desktop?.getAutomaticBackupDirectory) void desktop.getAutomaticBackupDirectory().then((directory) => { const input = document.getElementById("automatic-backup-directory") as HTMLInputElement | null; if (input) input.value = directory; }).catch(() => undefined);
   (document.getElementById("workspace-theme") as HTMLSelectElement).value = localStorage.getItem(THEME_KEY) || "system";
   (document.getElementById("workspace-app-zoom") as HTMLSelectElement).value = String(appZoom);
@@ -3491,36 +3637,61 @@ async function createAutomaticBackup(force = false): Promise<void> {
   } finally { automaticBackupBusy = false; }
 }
 
-async function openBacklogExcelImport(): Promise<void> {
-  try {
-    const imported = await desktop.pickBacklogExcelImport();
-    if (!imported) return;
-    pendingBacklogImport = imported;
-    const projects = state.projects.filter((project) => !project.archived);
-    const selectedProject = projects.find((project) => project.id === activeProjectId) || projects[0];
-    const preview = imported.rows.slice(0, 6).map((row) => '<li><strong>' + esc(row.title) + '</strong>' + (row.description ? '<small>' + esc(row.description) + '</small>' : '') + '</li>').join("");
-    modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal backlog-import-modal" role="dialog" aria-modal="true" aria-labelledby="backlog-import-title"><header class="modal-header"><div><div class="panel-kicker">BACKLOG · EXCEL</div><h2 id="backlog-import-title">İşleri içe aktar</h2></div><button class="modal-close" data-close-modal aria-label="Kapat">×</button></header><div class="settings-form"><p class="settings-intro"><strong>' + esc(imported.filename) + '</strong> dosyasından ' + imported.rows.length + ' iş bulundu.</p><div class="form-two-col"><label class="field-label">Proje<select id="backlog-import-project" class="field-input">' + projects.map((project) => '<option value="' + esc(project.id) + '" ' + (project.id === selectedProject?.id ? 'selected' : '') + '>' + esc(project.name) + '</option>').join("") + '</select></label><label class="field-label">Varsayılan tür<select id="backlog-import-type" class="field-input"><option>Task</option><option>Story</option><option>Bug</option></select></label></div><div class="backlog-import-defaults">Durum: <strong>Yeni</strong><span>·</span> Öncelik: <strong>Orta</strong><span>·</span> Alan: <strong>Genel</strong></div><section class="backlog-import-preview"><h3>Önizleme <small>' + Math.min(imported.rows.length, 6) + ' / ' + imported.rows.length + '</small></h3><ul>' + preview + '</ul>' + (imported.rows.length > 6 ? '<p class="metric-empty">ve ' + (imported.rows.length - 6) + ' iş daha</p>' : '') + '</section><p class="settings-note">Excel’de “Başlık” sütunu zorunludur; “Açıklama” sütunu isteğe bağlıdır. Başlık sütunu yoksa ilk sütun başlık, ikinci sütun açıklama olarak alınır.</p><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="button" class="button button-primary" data-action="confirm-backlog-import" ' + (projects.length ? '' : 'disabled') + '>' + imported.rows.length + ' işi oluştur</button></footer></div></section></div>';
-  } catch (error) { toast(error instanceof Error ? error.message : "Excel dosyası içe aktarılamadı."); }
+const importFields = { id: "Rota iş ID", title: "Başlık", description: "Açıklama", type: "Tür", priority: "Öncelik", targetDate: "Hedef tarih", labels: "Etiketler" };
+function initializeImportMapping(): void {
+  const header = pendingBacklogImport?.sheets?.[importSheetIndex]?.rows[0] || [];
+  const aliases: Record<string, string[]> = { id: ["id", "iş id", "rota iş id"], title: ["başlık", "title", "summary"], description: ["açıklama", "description"], type: ["tür", "type", "iş türü"], priority: ["öncelik", "priority"], targetDate: ["hedef tarih", "hedef bitiş", "target date"], labels: ["etiketler", "labels"] };
+  importMapping = Object.fromEntries(Object.entries(aliases).map(([key, names]) => [key, header.findIndex((name) => names.includes(name.trim().toLocaleLowerCase("tr-TR")))]));
+  importHasHeader = importMapping.title >= 0;
+  if (!importHasHeader) { importMapping.title = 0; importMapping.description = 1; }
 }
-
+function importCandidates(): { row: number; values: Record<string, string>; error: string; existing?: WorkItem; duplicate: boolean }[] {
+  const imported = pendingBacklogImport; if (!imported) return [];
+  const rows = imported.sheets?.[importSheetIndex]?.rows || imported.rows.map((row) => [row.title, row.description]);
+  return rows.map((cells, index) => {
+    const values = Object.fromEntries(Object.keys(importFields).map((key) => [key, cells[importMapping[key]]?.trim() || ""]));
+    const existing = values.id ? itemById(values.id) : undefined;
+    const validDate = !values.targetDate || /^\d{4}-\d{2}-\d{2}$/.test(values.targetDate) && Number.isFinite(Date.parse(values.targetDate)) && new Date(values.targetDate).toISOString().slice(0, 10) === values.targetDate;
+    const error = !values.title ? "Başlık boş" : values.title.length > 120 ? "Başlık 120 karakteri aşıyor" : values.id && !existing ? "Rota iş ID bulunamadı" : values.type && !["Story", "Bug", "Task"].includes(values.type) ? "Geçersiz tür" : values.priority && !["Kritik", "Yüksek", "Orta", "Düşük"].includes(values.priority) ? "Geçersiz öncelik" : !validDate ? "Tarih YYYY-AA-GG olmalı" : "";
+    return { row: index + 1, values, error, existing, duplicate: Boolean(imported.fingerprint && state.items.some((item) => item.importSource?.fingerprint === imported.fingerprint && item.importSource?.row === index + 1 && item.importSource?.filename === imported.filename + " · " + (imported.sheets?.[importSheetIndex]?.name || ""))) };
+  }).filter((entry, index) => !(importHasHeader && index === 0) && Object.values(entry.values).some(Boolean));
+}
+function renderExcelImport(): void {
+  const imported = pendingBacklogImport; if (!imported) return;
+  const projects = state.projects.filter((project) => !project.archived);
+  const projectId = modalRoot.querySelector<HTMLSelectElement>("#backlog-import-project")?.value || activeProjectId;
+  const rows = imported.sheets?.[importSheetIndex]?.rows || [];
+  const candidates = importCandidates();
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal backlog-import-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">EXCEL · EŞLEME VE ÖNİZLEME</div><h2>İşleri içe aktar</h2></div><button class="modal-close" data-close-modal aria-label="Kapat">×</button></header><div class="settings-form"><p class="settings-intro">' + esc(imported.filename) + ' · ' + candidates.length + ' satır</p><div class="form-two-col"><label class="field-label">Sayfa<select id="import-sheet" class="field-input">' + (imported.sheets || [{ name: "İlk sayfa", rows: [] }]).map((sheet, index) => '<option value="' + index + '" ' + (index === importSheetIndex ? 'selected' : '') + '>' + esc(sheet.name) + '</option>').join("") + '</select></label><label class="field-label">Yeni işlerin projesi<select id="backlog-import-project" class="field-input">' + projects.map((project) => '<option value="' + esc(project.id) + '" ' + (project.id === projectId ? 'selected' : '') + '>' + esc(project.name) + '</option>').join("") + '</select></label></div><label class="completed-filter"><input id="import-header" type="checkbox" ' + (importHasHeader ? 'checked' : '') + '> İlk satır sütun başlığı</label><div class="form-two-col">' + Object.entries(importFields).map(([key, label]) => '<label class="field-label">' + label + '<select class="field-input" data-import-map="' + key + '"><option value="-1">Aktarma</option>' + Array.from({ length: Math.max(...rows.map((row) => row.length), 2) }, (_, column) => '<option value="' + column + '" ' + (importMapping[key] === column ? 'selected' : '') + '>' + (column + 1) + ' · ' + esc(rows[0]?.[column] || "Sütun") + '</option>').join("") + '</select></label>').join("") + '</div><p class="settings-note">ID eşleşen kayıtlar yalnızca seçilirse güncellenir. Tekrar alınan satırlar seçili gelmez. Eşlenmeyen alanlar korunur.</p><div class="bulk-preview-scroll"><table><thead><tr><th>Seç</th><th>Satır</th><th>Başlık</th><th>İşlem / hata</th></tr></thead><tbody>' + candidates.map((entry) => '<tr><td><input type="checkbox" data-import-row="' + entry.row + '" aria-label="Satır ' + entry.row + '" ' + (entry.error ? 'disabled' : entry.duplicate || entry.existing ? '' : 'checked') + '></td><td>' + entry.row + '</td><td>' + esc(entry.values.title) + '</td><td>' + esc(entry.error || (entry.duplicate ? "Tekrar alınan satır · " : "") + (entry.existing ? "Güncelle · " + entry.existing.id : "Yeni kayıt")) + '</td></tr>').join("") + '</tbody></table></div><footer class="modal-footer"><button class="button button-quiet" data-close-modal>Vazgeç</button><button class="button button-primary" data-action="confirm-backlog-import">Seçili satırları aktar</button></footer></div></section></div>';
+}
+async function openBacklogExcelImport(): Promise<void> {
+  try { const imported = await desktop.pickBacklogExcelImport(); if (!imported) return; pendingBacklogImport = imported; importSheetIndex = 0; initializeImportMapping(); renderExcelImport(); }
+  catch { recordDiagnostic("import", "Excel dosyası okunamadı."); toast("Excel dosyası okunamadı. Dosya biçimini ve boyutunu kontrol et."); }
+}
 function confirmBacklogExcelImport(): void {
   const imported = pendingBacklogImport;
-  const project = state.projects.find((entry) => entry.id === (modalRoot.querySelector<HTMLSelectElement>("#backlog-import-project")?.value || "") && !entry.archived);
-  const type = modalRoot.querySelector<HTMLSelectElement>("#backlog-import-type")?.value as WorkType | undefined;
-  if (!imported || !project || !["Task", "Story", "Bug"].includes(type || "")) { toast("İçe aktarma ayarlarını kontrol et."); return; }
-  const knownIds = new Set(state.items.map((item) => item.id));
-  const items = imported.rows.map((row) => {
-    let id = nextId("PAY"); while (knownIds.has(id)) id = nextId("PAY"); knownIds.add(id);
-    const item: WorkItem = { id, type: type!, title: row.title, status: "Yeni", priority: "Orta", project: project.name, area: "Genel", updated: "Az önce", description: row.description, acceptance: [], attachments: [], labels: [], dependsOnIds: [], activity: [] };
-    addWorkActivity(item, "created", "Excel dosyasından eklendi: " + imported.filename);
-    return item;
-  });
-  state.items.unshift(...items);
-  activeProjectId = project.id;
-  activeView = "backlog";
-  pendingBacklogImport = null;
-  save(); closeModal(); render();
-  toast(items.length + " backlog işi oluşturuldu.");
+  const project = state.projects.find((entry) => entry.id === modalRoot.querySelector<HTMLSelectElement>("#backlog-import-project")?.value && !entry.archived);
+  if (!imported || !project) { toast("Geçerli bir proje seç."); return; }
+  const selected = new Set([...modalRoot.querySelectorAll<HTMLInputElement>("[data-import-row]:checked")].map((input) => Number(input.dataset.importRow)));
+  const candidates = importCandidates().filter((entry) => !entry.error && selected.has(entry.row));
+  if (!candidates.length) { toast("Aktarılacak geçerli satır seç."); return; }
+  const repeatedIds = candidates.map((entry) => entry.existing?.id).filter(Boolean);
+  if (new Set(repeatedIds).size !== repeatedIds.length) { toast("Aynı iş ID'si birden fazla satırda seçilemez."); return; }
+  const before = structuredClone(state);
+  const now = new Date().toISOString();
+  for (const entry of candidates) {
+    const item: WorkItem = entry.existing || { id: nextId("PAY"), title: "", description: "", type: "Task", status: "Yeni", statusEnteredAt: now, priority: "Orta", project: project.name, projectId: project.id, area: "Genel", updated: "Az önce", acceptance: [], attachments: [], labels: [], activity: [] };
+    item.title = entry.values.title;
+    if (importMapping.description >= 0) item.description = entry.values.description;
+    if (entry.values.type) item.type = entry.values.type as WorkType;
+    if (entry.values.priority) item.priority = entry.values.priority as Priority;
+    if (importMapping.targetDate >= 0) item.targetDate = entry.values.targetDate || undefined;
+    if (importMapping.labels >= 0) item.labels = [...new Set(entry.values.labels.split(/[;,]/).map((label) => label.trim()).filter(Boolean))];
+    item.importSource = { fingerprint: imported.fingerprint || "", filename: imported.filename + " · " + (imported.sheets?.[importSheetIndex]?.name || ""), row: entry.row, importedAt: now };
+    item.updated = "Az önce"; addWorkActivity(item, entry.existing ? "change" : "created", "Excel aktarımı: " + imported.filename + " · satır " + entry.row);
+    if (!entry.existing) state.items.unshift(item);
+  }
+  pendingBacklogImport = null; save(); closeModal(); render(); toastUndoDeletion(candidates.length + " satır aktarıldı.", before);
 }
 
 async function exportBacklogExcel(): Promise<void> {
@@ -3705,6 +3876,8 @@ function saveWorkspaceSettings(event: SubmitEvent): void {
   state.profile = { organization: String(values.get("organization") || "").trim(), workspace: String(values.get("workspace") || "").trim(), userName: String(values.get("userName") || "").trim(), userRole: String(values.get("userRole") || "").trim(), ...(jiraBaseUrl ? { jiraBaseUrl } : {}) };
   if (!jiraBaseUrl) { jiraBoards = []; jiraProjects = []; jiraSprints = []; jiraIssueTypes = []; jiraIssues = []; jiraCatalogLoadedFor = ""; }
   else if (jiraCatalogLoadedFor !== jiraBaseUrl) jiraCatalogLoadedFor = "";
+  const unit = document.getElementById("workspace-estimate-unit") as HTMLSelectElement | null;
+  if (unit && !state.items.some((item) => item.estimate !== undefined)) state.estimateUnit = unit.value === "puan" ? "puan" : "saat";
   save(); closeModal(); render(); toast("Ayarlar kaydedildi.");
 }
 
@@ -3765,6 +3938,7 @@ async function pickFiles(): Promise<void> {
 }
 
 function renderDraftFiles(): void {
+  if (document.getElementById("new-form")) scheduleFormDraftSave();
   const target = document.getElementById("draft-files");
   if (target) target.innerHTML = attachmentListMarkup(draftAttachments, "draft");
 }
@@ -3808,7 +3982,7 @@ async function importDroppedAttachments(files: File[], destination: DropImportDe
       const item = itemById(destination.id); if (!item) return;
       item.attachments.push(...imported);
       addWorkActivity(item, "attachment", imported.length + " dosya eki eklendi: " + imported.map((file) => file.name).join(", "));
-      save(); render(); openItem(item.id);
+      save(); render(); refreshItemDetail(item);
     } else if (destination.kind === "task" && destination.id) {
       const task = state.tasks.find((entry) => entry.id === destination.id); if (!task) return;
       task.attachments = [...(task.attachments ?? []), ...imported]; save(); openTask(task.id);
@@ -3828,6 +4002,31 @@ async function importDroppedAttachments(files: File[], destination: DropImportDe
   }
 }
 
+function renderEmailDestination(): void {
+  if (!pendingDroppedEmailSource) return;
+  const source = pendingDroppedEmailSource;
+  const subject = field("new-title-input").value.toLocaleLowerCase("tr-TR").replace(/^(re|fw|fwd|ynt|ilt):\s*/g, "");
+  const candidates = state.items.filter((item) => !item.archived).map((item) => ({ item, score: item.sourceEmail?.fingerprint === source.fingerprint || item.sourceEmails?.some((entry) => entry.fingerprint === source.fingerprint) ? 3 : subject.includes(item.id.toLocaleLowerCase("tr-TR")) ? 2 : item.title.toLocaleLowerCase("tr-TR").includes(subject) || subject.includes(item.title.toLocaleLowerCase("tr-TR")) ? 1 : 0 })).sort((a, b) => b.score - a.score);
+  document.getElementById("email-destination")?.remove();
+  modalRoot.querySelector("#new-form")?.insertAdjacentHTML("afterbegin", '<section id="email-destination" class="draft-recovery"><div><strong>E-postayı mevcut işe ekle</strong><small>Yeni kayıt oluşturmak için aşağıdaki formu kullanabilirsin.</small></div><label class="field-label">Hedef iş<select id="email-existing-item" class="field-input"><option value="">İş seç</option>' + candidates.map(({ item, score }) => '<option value="' + esc(item.id) + '">' + esc((score ? "Öneri · " : "") + item.id + " · " + item.title) + '</option>').join("") + '</select></label><button type="button" class="button button-secondary button-small" data-action="attach-email-existing">Önizlenen içeriği işe ekle</button></section>');
+}
+async function attachEmailToExisting(): Promise<void> {
+  const item = itemById(modalRoot.querySelector<HTMLSelectElement>("#email-existing-item")?.value || "");
+  const source = pendingDroppedEmailSource;
+  if (!item || !source) { toast("E-postanın ekleneceği işi seç."); return; }
+  if (item.sourceEmail?.fingerprint === source.fingerprint || item.sourceEmails?.some((entry) => entry.fingerprint === source.fingerprint)) { toast("Bu e-posta seçilen işte zaten var. Aynı içerik yeniden eklenmedi."); return; }
+  const button = modalRoot.querySelector<HTMLButtonElement>('[data-action="attach-email-existing"]'); if (button) button.disabled = true;
+  try {
+    const selected = [...modalRoot.querySelectorAll<HTMLInputElement>("[data-email-attachment]:checked")].map((input) => input.dataset.emailAttachment!);
+    const imported = pendingEmailAttachmentToken && selected.length ? await desktop.importSelectedEmailAttachments(pendingEmailAttachmentToken, selected) : [];
+    const files = [...draftAttachments, ...imported];
+    item.attachments.push(...files);
+    (item.sourceEmails ||= []).push({ ...source });
+    (item.activity ||= []).unshift({ id: nextId("ACT"), kind: "comment", message: "E-posta: " + field("new-title-input").value + "\n" + field("new-description").value, actor: source.from, occurredAt: new Date().toISOString(), attachments: files });
+    state.formDrafts = []; save(); closeModal(true); render(); openItem(item.id); toast("E-posta ve seçilen ekler işe eklendi.");
+  } catch { recordDiagnostic("attachment", ""); toast("E-posta ekleri alınamadı. Önizlemeyi koruyarak yeniden deneyebilirsin."); }
+  finally { if (button?.isConnected) button.disabled = false; }
+}
 function renderEmailAttachmentChoices(): void {
   const box = document.querySelector(".attachment-box");
   box?.querySelector(".email-attachment-choices")?.remove();
@@ -3839,6 +4038,9 @@ function renderEmailAttachmentChoices(): void {
 }
 
 function closeModal(preserveDraftAttachments = false): void {
+  if (detailEdit && !commitDetailEdit()) return;
+  detailEdit = null;
+  window.clearTimeout(formDraftTimer);
   disposeWorkDiagramGraph();
   modalRoot.innerHTML = "";
   activeModalDialog = null;
@@ -3848,7 +4050,8 @@ function closeModal(preserveDraftAttachments = false): void {
   statusUpdateReturnToBoard = false;
   attachmentTarget = null;
   if (!preserveDraftAttachments && desktop) {
-    const storedNames = draftAttachments.flatMap((file) => file.storedName ? [file.storedName] : []);
+    const retained = new Set((state.formDrafts || []).flatMap((draft) => draft.attachments.map((file) => file.storedName)));
+    const storedNames = draftAttachments.flatMap((file) => file.storedName && !retained.has(file.storedName) ? [file.storedName] : []);
     void Promise.all(storedNames.map((name) => desktop.removeAttachment(name).catch(() => false)));
   }
   draftAttachments = [];
@@ -4002,10 +4205,360 @@ function deleteWorkDiagram(id: string): void {
   toast("Diyagram silindi.");
 }
 
-function openItem(id: string): void {
+type DetailEditState = { itemId: string; field: string; host: HTMLElement; pendingStatus?: WorkStatus };
+let detailEdit: DetailEditState | null = null;
+const detailLabels: Record<string, string> = {
+  title: "Başlık", description: "İşin bağlamı", acceptance: "Kabul kriterleri", type: "Tür", project: "Proje", status: "Durum", priority: "Öncelik", area: "Ürün alanı", labels: "Etiketler", assignments: "Takım ve sorumlular", startDate: "Başlangıç", targetDate: "Hedef tarih", targetPeriod: "Planlanan dönem", estimate: "Tahmini efor", releaseId: "Release", sprintId: "Sprint", roadmapNodeId: "Ürün hedefi", productStage: "Ürün aşaması", assetIds: "Ürün bileşenleri", dependsOnIds: "Beklenen işler", blocker: "Blokaj bilgileri", actualStartDate: "Gerçek başlangıç", completedAt: "Tamamlanma tarihi", relatedRecords: "İlişkili kayıtlar"
+};
+function detailChoices(item: WorkItem, field: string): { value: string; label: string }[] | null {
+  const values = (entries: string[]) => entries.map((value) => ({ value, label: value }));
+  if (field === "type") return values(["Story", "Bug", "Task"]);
+  if (field === "status") return values(["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Bloke", "Tamamlandı"]);
+  if (field === "priority") return values(["Kritik", "Yüksek", "Orta", "Düşük"]);
+  if (field === "project") return state.projects.filter((project) => !project.archived || project.name === item.project).map((project) => ({ value: project.name, label: project.name }));
+  if (field === "productStage") return values(["Fikirler", "Keşif", "Sırada", "Planlandı", "Teslimatta", "Tamamlandı"]);
+  if (field === "releaseId") return [{ value: "", label: "Release seçilmedi" }, ...state.releases.filter((release) => release.project === item.project).map((release) => ({ value: release.id, label: release.name }))];
+  if (field === "sprintId") return [{ value: "", label: "Sprint seçilmedi" }, ...state.sprints.filter((sprint) => !sprint.closedAt || sprint.id === item.sprintId).map((sprint) => ({ value: sprint.id, label: sprint.name }))];
+  if (field === "roadmapNodeId") return [{ value: "", label: "Ürün hedefi seçilmedi" }, ...state.roadmap.filter((node) => node.project === item.project).map((node) => ({ value: node.id, label: node.title }))];
+  if (field === "assetIds") return state.assets.filter((asset) => asset.active || item.assetIds?.includes(asset.id)).map((asset) => ({ value: asset.id, label: asset.code + " · " + asset.name }));
+  if (field === "relatedRecords") {
+    const entries = [
+      ...state.items.filter((entry) => entry.id !== item.id && !entry.archived).map((entry) => ({ value: "item::" + entry.id, label: "İş · " + entry.id + " · " + entry.title })),
+      ...state.assets.map((entry) => ({ value: "asset::" + entry.id, label: "Bileşen · " + entry.code + " · " + entry.name })),
+      ...state.releases.map((entry) => ({ value: "release::" + entry.id, label: "Release · " + entry.name })),
+      ...state.notes.map((entry) => ({ value: "note::" + entry.id, label: "Not · " + entry.title })),
+      ...(state.openQuestions || []).map((entry) => ({ value: "question::" + entry.id, label: "Soru · " + entry.text })),
+      ...(state.risks || []).map((entry) => ({ value: "risk::" + entry.id, label: "Risk · " + entry.title }))
+    ];
+    for (const link of item.relatedRecords || []) { const value = link.type + "::" + link.targetId; if (!entries.some((entry) => entry.value === value)) entries.push({ value, label: link.label || relatedRecordLabel(link.type, link.targetId) }); }
+    return entries;
+  }
+  if (field === "dependsOnIds") return state.items.filter((entry) => entry.id !== item.id && !entry.mergedIntoId).map((entry) => ({ value: entry.id, label: entry.id + " · " + entry.title }));
+  return null;
+}
+function detailFieldValue(item: WorkItem, field: string): string {
+  if (field.startsWith("comment:")) return item.activity?.find((entry) => entry.id === field.slice(8))?.message || "";
+  const value = item[field as keyof WorkItem];
+  return Array.isArray(value) ? value.join(field === "acceptance" ? "\n" : ", ") : String(value ?? "");
+}
+function detailFieldMarkup(item: WorkItem, field: string): string {
+  const raw = detailFieldValue(item, field);
+  if (field === "description") return structuredTextMarkup(raw || "Açıklama ekle…");
+  if (field === "acceptance") return item.acceptance.length ? '<ul class="criteria-list">' + item.acceptance.map((criterion) => '<li><span class="criterion-check">✓</span>' + esc(criterion) + '</li>').join("") + '</ul>' : '<span class="asset-muted">Kabul kriteri ekle…</span>';
+  if (field === "labels") return item.labels.length ? '<span class="tag-row">' + item.labels.map((label) => '<span class="tag">' + esc(label) + '</span>').join("") + '</span>' : '<span class="asset-muted">Etiket ekle…</span>';
+  if (field === "relatedRecords") return '<span class="asset-muted">İlişkileri seç…</span>';
+  if (field === "assignments") return getWorkAssignments(item).map((entry) => '<span class="detail-assignment-person"><strong>' + esc(entry.member) + '</strong><small>' + esc(state.teams.find((team) => team.id === entry.teamId)?.name || "Takım") + (entry.scope ? ' · ' + esc(entry.scope) : '') + '</small></span>').join("") || '<span class="asset-muted">Henüz takım üyesi atanmadı.</span>';
+  if (field === "assetIds" || field === "dependsOnIds") {
+    const selected = (item[field] || []);
+    return selected.map((id) => esc(detailChoices(item, field)?.find((entry) => entry.value === id)?.label || id)).join('<br>') || '<span class="asset-muted">Seçim ekle…</span>';
+  }
+  if (field === "blocker") return '<span>' + esc(item.blocker?.reason || "Blokaj bilgisi ekle…") + '</span>' + (item.blocker?.nextStep ? '<small>Sonraki adım: ' + esc(item.blocker.nextStep) + '</small>' : '') + (item.blocker?.expectedAction ? '<small>Beklenen: ' + esc(item.blocker.expectedAction) + '</small>' : '') + (item.blocker?.owner ? '<small>Sahip: ' + esc(item.blocker.owner) + '</small>' : '') + (item.blocker?.followUpAt ? '<small>Takip: ' + esc(item.blocker.followUpAt.replace("T", " ")) + '</small>' : '');
+  const choice = detailChoices(item, field)?.find((entry) => entry.value === raw);
+  return esc(choice?.label || (field === "estimate" && raw ? raw + " " + (state.estimateUnit || "saat") : raw.replace("T", " ")) || "Ekle…");
+}
+function detailField(item: WorkItem, field: string): string {
+  return '<div class="detail-inline-slot" data-detail-slot="' + esc(field) + '"><button type="button" class="detail-inline-value" data-detail-edit="' + esc(field) + '" aria-label="' + esc((detailLabels[field] || "Not") + ' alanını değiştir') + '">' + detailFieldMarkup(item, field) + '</button></div>';
+}
+function detailProperty(item: WorkItem, field: string): string {
+  return '<div class="detail-property"><span>' + esc(detailLabels[field]) + '</span>' + detailField(item, field) + '</div>';
+}
+function refreshItemBackground(): void {
+  if (activeView === "backlog") {
+    const counter = document.getElementById("nav-backlog-count");
+    if (counter) counter.textContent = String(state.items.filter((item) => isItemInActiveProject(item) && item.status !== "Tamamlandı").length);
+    updateBacklogRows();
+  } else render();
+}
+function detailFeedback(message: string, error = false): void {
+  const status = modalRoot.querySelector<HTMLElement>(".detail-save-status");
+  if (status) { status.textContent = message; status.classList.toggle("is-error", error); }
+}
+function refreshItemDetail(item: WorkItem): void {
+  const dialog = modalRoot.querySelector<HTMLElement>('.detail-modal[data-open-item="' + CSS.escape(item.id) + '"]');
+  if (!dialog) return;
+  dialog.querySelectorAll<HTMLElement>("[data-detail-slot]").forEach((host) => {
+    if (detailEdit?.host === host) return;
+    const field = host.dataset.detailSlot!;
+    const markup = '<button type="button" class="detail-inline-value" data-detail-edit="' + esc(field) + '" aria-label="' + esc((detailLabels[field] || "Not") + ' alanını değiştir') + '">' + detailFieldMarkup(item, field) + '</button>';
+    const template = document.createElement("template"); template.innerHTML = markup;
+    const desired = template.content.firstElementChild!;
+    const button = host.querySelector<HTMLElement>(":scope > .detail-inline-value");
+    if (button) { if (button.innerHTML !== desired.innerHTML) button.innerHTML = desired.innerHTML; }
+    else host.replaceChildren(desired);
+  });
+  for (const [id, value] of [["detail-status", item.status], ["detail-priority", item.priority]]) {
+    const select = dialog.querySelector<HTMLSelectElement>("#" + id);
+    if (select && !(id === "detail-status" && detailEdit?.pendingStatus)) select.value = value;
+  }
+  const badges = dialog.querySelectorAll<HTMLElement>("[data-detail-badge]");
+  badges.forEach((badge) => {
+    if (badge.dataset.detailBadge === "status") { badge.className = "status-pill " + statusClass(item.status); badge.innerHTML = '<i></i>' + esc(item.status); }
+    else { badge.className = "priority " + priorityClass(item.priority); badge.innerHTML = '<b>' + priorityMark(item.priority) + '</b>' + esc(item.priority); }
+  });
+  const typeIcon = dialog.querySelector(".detail-identity .table-type");
+  if (typeIcon) { typeIcon.className = "table-type " + (item.type === "Bug" ? "bug-type" : item.type === "Task" ? "task-type" : "story-type"); typeIcon.innerHTML = itemIcon(item.type); }
+  const byline = dialog.querySelector(".detail-byline");
+  if (byline) byline.innerHTML = '<span class="profile-avatar small-avatar">PO</span><span>' + esc(state.profile.userName || "PO") + '</span><span>·</span><span>Son güncelleme ' + esc(itemLastActivityLabel(item)) + '</span>';
+  const activity = dialog.querySelector<HTMLElement>(".work-activity");
+  if (activity && !detailEdit?.field.startsWith("comment:")) {
+    const filter = activity.querySelector<HTMLSelectElement>("#activity-kind-filter")?.value || "all";
+    const template = document.createElement("div"); template.innerHTML = activityMarkup(item);
+    activity.innerHTML = template.firstElementChild!.innerHTML;
+    item.activity?.forEach((entry, index) => { if (entry.kind === "comment") { const body = activity.querySelectorAll(".activity-entry > div > p")[index]; if (body) body.outerHTML = detailField(item, "comment:" + entry.id); } });
+    const select = activity.querySelector<HTMLSelectElement>("#activity-kind-filter"); if (select) { select.value = filter; select.dispatchEvent(new Event("change", { bubbles: true })); }
+  }
+  const relationships = dialog.querySelector<HTMLElement>(".item-relationships");
+  if (relationships && detailEdit?.field !== "relatedRecords") {
+    const content = document.createElement("div"); content.innerHTML = itemRelationshipsMarkup(item);
+    relationships.innerHTML = content.firstElementChild!.innerHTML;
+    relationships.querySelector('[data-action="add-related-record"]')?.remove();
+    relationships.insertAdjacentHTML("beforeend", detailField(item, "relatedRecords"));
+  }
+  const files = dialog.querySelector(".detail-files");
+  if (files) files.innerHTML = item.attachments.length ? attachmentListMarkup(item.attachments, "item:" + item.id) : '<p class="asset-muted">Bu iş için henüz dosya yok.</p>';
+  const fileCount = files?.closest(".detail-section")?.querySelector(".count-chip"); if (fileCount) fileCount.textContent = String(item.attachments.length);
+  const archive = dialog.querySelector<HTMLButtonElement>('[data-action="archive-item"]');
+  if (archive?.classList.contains("detail-tool")) detailTool(archive, item.archived ? "Arşivden çıkar" : "Arşivle", item.archived ? "restore" : "archive");
+  const summaries: Record<string, string> = { properties: item.status + " · " + item.priority, team: getWorkAssignments(item).length ? getWorkAssignments(item).length + " kişi" : "Atama yok", planning: [item.targetDate, item.estimate !== undefined ? item.estimate + " " + (state.estimateUnit || "saat") : ""].filter(Boolean).join(" · ") || "Tarih, efor ve bağlantılar" };
+  dialog.querySelectorAll<HTMLElement>("[data-detail-group-summary]").forEach((node) => { node.textContent = summaries[node.dataset.detailGroupSummary!] || ""; });
+  dialog.querySelector<HTMLElement>('[data-detail-slot="blocker"]')?.closest<HTMLElement>(".detail-property")?.classList.toggle("hidden", item.status !== "Bloke" && detailEdit?.field !== "blocker");
+}
+function beginDetailEdit(field: string, pendingStatus?: WorkStatus): void {
+  const item = activeItemId ? itemById(activeItemId) : undefined;
+  if (detailEdit?.field === field && detailEdit.itemId === item?.id) return;
+  if (!item || (detailEdit && !commitDetailEdit())) return;
+  const host = modalRoot.querySelector<HTMLElement>('[data-detail-slot="' + CSS.escape(field) + '"]'); if (!host) return;
+  revealDetailControl(host);
+  detailEdit = { itemId: item.id, field, host, pendingStatus };
+  host.classList.add("is-editing"); host.closest<HTMLElement>(".detail-property")?.classList.remove("hidden");
+  const raw = detailFieldValue(item, field);
+  const choices = detailChoices(item, field);
+  const multiple = field === "assetIds" || field === "dependsOnIds" || field === "relatedRecords";
+  let markup: string;
+  if (field === "assignments") markup = assignmentEditorMarkup("detail-assignment-list", getWorkAssignments(item));
+  else if (field === "blocker") markup = '<div class="detail-blocker-fields">' + ([['reason', 'Blokaj nedeni'], ['expectedAction', 'Beklenen karar veya iş'], ['nextStep', 'Sonraki adım'], ['owner', 'Takip sahibi'], ['followUpAt', 'Takip tarihi']] as const).map(([key, label]) => '<label class="field-label">' + label + '<input class="field-input" data-detail-blocker="' + key + '" type="' + (key === 'followUpAt' ? 'datetime-local' : 'text') + '" value="' + esc(item.blocker?.[key] || '') + '" ' + (key !== 'followUpAt' ? 'required maxlength="1000"' : '') + '></label>').join("") + '</div>';
+  else if (choices) markup = '<select class="field-input" data-detail-input aria-label="' + esc(detailLabels[field]) + '" ' + (multiple ? 'multiple size="6"' : '') + '>' + choices.map((entry) => '<option value="' + esc(entry.value) + '" ' + ((multiple ? (field === "relatedRecords" ? (item.relatedRecords || []).map((link) => link.type + "::" + link.targetId) : item[field as "assetIds" | "dependsOnIds"] || []).includes(entry.value) : raw === entry.value) ? 'selected' : '') + '>' + esc(entry.label) + '</option>').join("") + '</select>';
+  else if (field === "description" || field === "acceptance" || field.startsWith("comment:")) markup = '<textarea class="field-input field-textarea" data-detail-input rows="' + (field === 'description' ? 5 : 3) + '" aria-label="' + esc(detailLabels[field] || 'Not') + '">' + esc(raw) + '</textarea>';
+  else markup = '<input class="field-input" data-detail-input type="' + (field === "estimate" ? "number" : field === "startDate" || field === "targetDate" ? "date" : field === "actualStartDate" || field === "completedAt" ? "datetime-local" : "text") + '" value="' + esc(raw && (field === "actualStartDate" || field === "completedAt") ? new Date(Date.parse(raw) - new Date(raw).getTimezoneOffset() * 60000).toISOString().slice(0, 16) : raw) + '" ' + (field === "title" ? 'required maxlength="120"' : field === "estimate" ? 'min="0" step="0.5"' : 'maxlength="500"') + ' aria-label="' + esc(detailLabels[field]) + '">';
+  if (field === "description" || field.startsWith("comment:")) markup = structuredEditorToolbar("detail-inline-text") + markup.replace('data-detail-input', 'id="detail-inline-text" data-detail-input');
+  host.innerHTML = '<div class="detail-inline-editor">' + markup + '<div class="detail-inline-actions"><button type="button" class="inline-icon-action inline-icon-confirm" data-detail-commit aria-label="Kaydet" title="Kaydet">✓</button><button type="button" class="inline-icon-action inline-icon-dismiss" data-detail-cancel aria-label="İptal" title="İptal">×</button></div><small class="detail-inline-error" role="alert"></small></div>';
+  host.querySelector<HTMLElement>("input:not([type=hidden]):not([disabled]), textarea:not([disabled]), select:not([disabled]), button:not([disabled])")?.focus();
+}
+function cancelDetailEdit(): void {
+  if (!detailEdit) return;
+  closeActionTooltip();
+  const { itemId, field, host } = detailEdit; detailEdit = null; host.classList.remove("is-editing");
+  const item = itemById(itemId); if (item) refreshItemDetail(item);
+  modalRoot.querySelector<HTMLElement>('[data-detail-slot="' + CSS.escape(field) + '"] [data-detail-edit]')?.focus({ preventScroll: true });
+  detailFeedback("");
+}
+function restoreDetailSnapshot(item: WorkItem, snapshot: WorkItem): void {
+  for (const key of Object.keys(item)) delete (item as unknown as Record<string, unknown>)[key];
+  Object.assign(item, snapshot);
+}
+function commitDetailEdit(): boolean {
+  const edit = detailEdit; if (!edit) return true;
+  const item = itemById(edit.itemId); if (!item) return false;
+  const input = edit.host.querySelector<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>("[data-detail-input]");
+  const before = structuredClone(item);
+  const restoreFocus = edit.host.contains(document.activeElement);
+  const fail = (message: string) => { const error = edit.host.querySelector(".detail-inline-error"); if (error) error.textContent = message; detailFeedback(message, true); return false; };
+  if (input && !input.checkValidity()) return fail(input.validationMessage || "Alanı kontrol et.");
+  const raw = input?.value.trim() || "";
+  if (edit.field === "assignments") {
+    const result = readAssignmentRows("detail-assignment-list"); if (result.invalid) return fail("Üyeyi listeden seç; eksik atamayı düzelt veya kaldır.");
+    item.assignments = result.assignments; syncLegacyAssignmentFields(item);
+  } else if (edit.field === "blocker") {
+    const get = (key: string) => edit.host.querySelector<HTMLInputElement>('[data-detail-blocker="' + key + '"]')?.value.trim() || "";
+    if (!get("reason") || !get("nextStep") || !get("expectedAction") || !get("owner")) return fail("Blokaj nedeni, beklenen karar/iş, sonraki adım ve sahip gerekli.");
+    const blocker = { reason: get("reason"), nextStep: get("nextStep"), expectedAction: get("expectedAction"), owner: get("owner"), followUpAt: get("followUpAt"), remindedAt: item.blocker?.followUpAt === get("followUpAt") ? item.blocker?.remindedAt : undefined };
+    applyWorkStatus(item, edit.pendingStatus || item.status, blocker);
+  } else if (edit.field === "status") {
+    if (raw === "Bloke" && (!item.blocker?.reason || !item.blocker?.nextStep || !item.blocker?.owner || !item.blocker?.expectedAction)) { detailEdit = null; edit.host.classList.remove("is-editing"); refreshItemDetail(item); beginDetailEdit("blocker", "Bloke"); return true; }
+    applyWorkStatus(item, raw as WorkStatus, item.blocker);
+  } else if (edit.field.startsWith("comment:")) {
+    if (!raw) return fail("Not boş olamaz.");
+    const entry = item.activity?.find((entry) => entry.id === edit.field.slice(8)); if (entry) entry.message = raw;
+  } else {
+    let value: unknown = raw;
+    if (edit.field === "title" && !raw) return fail("Başlık boş olamaz.");
+    if (edit.field === "acceptance") value = raw.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    if (edit.field === "labels") value = [...new Set(raw.split(/[,;]/).map((line) => line.trim()).filter(Boolean))];
+    if (edit.field === "assetIds" || edit.field === "dependsOnIds") value = [...(input as HTMLSelectElement).selectedOptions].map((option) => option.value);
+    if (edit.field === "dependsOnIds" && dependencyWouldCycle(item.id, value as string[])) return fail("Bu seçim bağımlılık döngüsü oluşturuyor.");
+    if (edit.field === "relatedRecords") value = [...(input as HTMLSelectElement).selectedOptions].map((option) => {
+      const [type, targetId] = option.value.split("::") as [WorkRecordLink["type"], string];
+      return item.relatedRecords?.find((link) => link.type === type && link.targetId === targetId) || { id: nextId("LINK"), type, targetId };
+    });
+    if (edit.field === "estimate") { value = raw ? Number(raw) : undefined; if (value !== undefined && (!Number.isFinite(value) || Number(value) < 0)) return fail("Tahmin sıfır veya pozitif olmalı."); }
+    if (edit.field === "actualStartDate" || edit.field === "completedAt") value = raw ? new Date(raw).toISOString() : undefined;
+    (item as unknown as Record<string, unknown>)[edit.field] = value;
+    if (item.startDate && item.targetDate && item.targetDate < item.startDate) { restoreDetailSnapshot(item, before); return fail("Hedef tarih başlangıç tarihinden önce olamaz."); }
+    if (edit.field === "project") {
+      item.projectId = state.projects.find((project) => project.name === raw)?.id;
+      if (item.releaseId && state.releases.find((release) => release.id === item.releaseId)?.project !== raw) item.releaseId = undefined;
+      if (item.roadmapNodeId && state.roadmap.find((node) => node.id === item.roadmapNodeId)?.project !== raw) item.roadmapNodeId = undefined;
+    }
+  }
+  if (JSON.stringify(before) !== JSON.stringify(item)) {
+    if (edit.field !== "status" && edit.field !== "blocker") logWorkChange(item, detailLabels[edit.field] || "İlerleme notu", before[edit.field as keyof WorkItem], item[edit.field as keyof WorkItem]);
+    item.updated = "Az önce";
+    if (!save()) { restoreDetailSnapshot(item, before); return fail("Kaydedilemedi. Alanı açık bıraktık; yeniden deneyebilirsin."); }
+    refreshItemBackground();
+  }
+  closeActionTooltip();
+  detailEdit = null; edit.host.classList.remove("is-editing"); refreshItemDetail(item); detailFeedback("Kaydedildi");
+  if (restoreFocus) modalRoot.querySelector<HTMLElement>('[data-detail-slot="' + CSS.escape(edit.field) + '"] [data-detail-edit]')?.focus({ preventScroll: true });
+  return true;
+}
+function revealDetailControl(element: HTMLElement): void {
+  const section = element.closest<HTMLElement>("[data-detail-tab-section]");
+  if (section?.hidden) modalRoot.querySelector<HTMLButtonElement>('[data-detail-tab="' + section.dataset.detailTabSection + '"]')?.click();
+  for (let parent = element.parentElement; parent; parent = parent.parentElement) if (parent instanceof HTMLDetailsElement) parent.open = true;
+}
+function groupDetailProperties(dialog: HTMLElement): void {
+  const aside = dialog.querySelector<HTMLElement>(".detail-aside"); if (!aside) return;
+  const property = (field: string) => aside.querySelector<HTMLElement>('[data-detail-slot="' + field + '"]')?.closest<HTMLElement>(".detail-property");
+  const tasks = [...aside.querySelectorAll<HTMLElement>(":scope > .detail-property")].find((node) => node.querySelector(":scope > span")?.textContent === "Bağlı kişisel görev");
+  const groups: { key: string; label: string; nodes: (HTMLElement | null | undefined)[] }[] = [
+    { key: "properties", label: "Özellikler", nodes: [aside.querySelector<HTMLSelectElement>("#detail-status")?.closest("label"), aside.querySelector<HTMLSelectElement>("#detail-priority")?.closest("label"), property("area"), property("labels"), property("blocker")] },
+    { key: "team", label: "Takım ve sorumlular", nodes: [property("assignments"), tasks] },
+    { key: "planning", label: "Planlama ve ürün", nodes: ["startDate", "targetDate", "targetPeriod", "estimate", "releaseId", "sprintId", "roadmapNodeId", "productStage", "actualStartDate", "completedAt"].map(property) }
+  ];
+  const sections = groups.map((group) => {
+    const details = document.createElement("details"); details.className = "detail-property-group"; details.dataset.detailGroup = group.key;
+    details.innerHTML = '<summary><span>' + group.label + '</span><small data-detail-group-summary="' + group.key + '"></small>' + icon("chevronDown") + '</summary><div class="detail-group-content"></div>';
+    const content = details.querySelector(".detail-group-content")!;
+    group.nodes.forEach((node) => { if (node) content.append(node); });
+    return details;
+  });
+  aside.replaceChildren(...sections); aside.dataset.detailTabSection = "overview";
+  dialog.querySelector(".detail-main")?.append(aside);
+}
+function detailTool(button: HTMLButtonElement, label: string, name: string, danger = false): void {
+  button.className = "detail-tool icon-action" + (danger ? " is-destructive" : "");
+  button.setAttribute("aria-label", label); button.dataset.tooltip = label; button.removeAttribute("title");
+  button.innerHTML = icon(name);
+}
+function compactDetailFooter(dialog: HTMLElement, item: WorkItem): void {
+  const footer = dialog.querySelector<HTMLElement>(".detail-footer"); if (!footer) return;
+  const actions = document.createElement("div"); actions.className = "detail-footer-actions";
+  for (const [action, label, name] of [["archive-item", item.archived ? "Arşivden çıkar" : "Arşivle", item.archived ? "restore" : "archive"], ["merge-item", "Benzer işle birleştir", "merge"], ["delete-item", "İşi sil", "delete"]]) {
+    const button = footer.querySelector<HTMLButtonElement>('[data-action="' + action + '"]');
+    if (button) { detailTool(button, label, name, action === "delete-item"); actions.append(button); }
+  }
+  const nav = document.createElement("div"); nav.className = "detail-footer-nav";
+  footer.querySelectorAll<HTMLButtonElement>(".button-row button").forEach((button, index) => { detailTool(button, index === 0 ? "Önceki iş" : "Sonraki iş", index === 0 ? "chevronLeft" : "chevronRight"); nav.append(button); });
+  const status = footer.querySelector<HTMLElement>(".detail-save-status")!;
+  footer.replaceChildren(status, actions); if (nav.children.length) footer.append(nav);
+}
+
+function installDetailInline(item: WorkItem): void {
+  const dialog = modalRoot.querySelector<HTMLElement>(".detail-modal"); if (!dialog) return;
+  dialog.querySelectorAll('[data-action="edit-item"]').forEach((button) => button.remove());
+  const title = dialog.querySelector(".detail-title-wrap h2"); if (title) title.innerHTML = detailField(item, "title");
+  const project = dialog.querySelector(".detail-identity > span:last-child"); if (project) project.innerHTML = detailField(item, "project");
+  const type = dialog.querySelector(".type-label"); if (type) type.innerHTML = detailField(item, "type");
+  for (const field of ["status", "priority"] as const) {
+    const badge = dialog.querySelector<HTMLElement>(field === "status" ? ".detail-badges .status-pill" : ".detail-badges .priority");
+    if (!badge) continue;
+    badge.dataset.detailBadge = field; badge.tabIndex = 0; badge.setAttribute("role", "button"); badge.setAttribute("aria-label", detailLabels[field] + " alanını değiştir");
+    badge.addEventListener("click", () => { const control = document.getElementById("detail-" + field); if (control) { revealDetailControl(control); control.focus(); } });
+    badge.addEventListener("keydown", (event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); const control = document.getElementById("detail-" + field); if (control) { revealDetailControl(control); control.focus(); } } });
+  }
+  const context = dialog.querySelector(".detail-main > .detail-section"); if (context) context.innerHTML = '<h3>İşin bağlamı</h3>' + detailField(item, "description");
+  let acceptance = dialog.querySelector(".criteria-list")?.closest(".detail-section");
+  if (!acceptance) { context?.insertAdjacentHTML("afterend", '<section class="detail-section" data-detail-tab-section="overview"><h3>Kabul kriterleri</h3>' + detailField(item, "acceptance") + '</section>'); }
+  else acceptance.innerHTML = '<h3>Kabul kriterleri</h3>' + detailField(item, "acceptance");
+  const assignments = dialog.querySelector(".detail-assignment-people"); if (assignments) assignments.innerHTML = detailField(item, "assignments");
+  const aside = dialog.querySelector(".detail-aside");
+  aside?.querySelectorAll<HTMLElement>(":scope > .detail-property:not(.detail-assignment)").forEach((node) => { const label = node.querySelector(":scope > span")?.textContent; if (label === "Ürün alanı") node.innerHTML = '<span>Ürün alanı</span>' + detailField(item, "area"); else if (label === "Etiketler") node.innerHTML = '<span>Etiketler</span>' + detailField(item, "labels"); else if (["Planlama", "Ürün hedefi", "Blokaj nedeni", "Blokajda geçen süre", "Gecikme"].includes(label || "")) node.remove(); });
+  aside?.insertAdjacentHTML("beforeend", '<section class="detail-inline-planning">' + ["startDate", "targetDate", "targetPeriod", "estimate", "releaseId", "sprintId", "roadmapNodeId", "productStage", "actualStartDate", "completedAt", "blocker"].map((field) => detailProperty(item, field)).join("") + '</section>');
+  const assets = dialog.querySelector(".linked-assets-section"); if (assets) assets.innerHTML = '<h3>Ürün bileşenleri</h3>' + detailField(item, "assetIds");
+  const dependencies = dialog.querySelector(".dependency-section"); if (dependencies) dependencies.innerHTML = '<h3>Beklenen işler</h3>' + detailField(item, "dependsOnIds");
+  dialog.querySelector(".detail-footer")?.insertAdjacentHTML("beforeend", '<span class="detail-save-status" role="status" aria-live="polite"></span>');
+  const diagramEmpty = dialog.querySelector(".work-diagrams-section > .asset-muted"); if (diagramEmpty) diagramEmpty.textContent = "Henüz diyagram yok.";
+  groupDetailProperties(dialog);
+  refreshItemDetail(item);
+}
+modalRoot.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null; if (!target) return;
+  if (target.closest("[data-detail-cancel]")) { event.preventDefault(); event.stopImmediatePropagation(); cancelDetailEdit(); return; }
+  if (target.closest("[data-detail-commit]")) { event.preventDefault(); event.stopImmediatePropagation(); commitDetailEdit(); return; }
+  if (detailEdit && !detailEdit.host.contains(target) && !commitDetailEdit()) { event.preventDefault(); event.stopImmediatePropagation(); return; }
+  const edit = target.closest<HTMLElement>("[data-detail-edit]"); if (edit) { event.preventDefault(); event.stopImmediatePropagation(); beginDetailEdit(edit.dataset.detailEdit!); }
+}, true);
+document.addEventListener("pointerdown", (event) => {
+  if (!detailEdit || !(event.target instanceof Element)) return;
+  if (event.target.closest("[data-detail-cancel], [data-detail-commit]")) { event.preventDefault(); return; }
+  if (!detailEdit.host.contains(event.target)) {
+    const next = event.target.closest<HTMLElement>("[data-detail-edit]")?.dataset.detailEdit;
+    const saved = commitDetailEdit();
+    if (!saved || next) { event.preventDefault(); event.stopImmediatePropagation(); }
+    if (saved && next) beginDetailEdit(next);
+  }
+}, true);
+modalRoot.addEventListener("focusout", (event) => {
+  const edit = detailEdit; if (!edit || !(event.target instanceof Element) || !edit.host.contains(event.target)) return;
+  if (event.relatedTarget instanceof window.Node && edit.host.contains(event.relatedTarget)) return;
+  queueMicrotask(() => { if (detailEdit === edit && !edit.host.contains(document.activeElement)) commitDetailEdit(); });
+});
+modalRoot.addEventListener("keydown", (event) => {
+  if (!detailEdit) return;
+  if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); cancelDetailEdit(); }
+  else if (event.key === "Enter" && (!(event.target instanceof HTMLTextAreaElement) || event.ctrlKey || event.metaKey) && !(event.target instanceof HTMLSelectElement && event.target.multiple)) { event.preventDefault(); event.stopImmediatePropagation(); commitDetailEdit(); }
+}, true);
+modalRoot.addEventListener("change", (event) => {
+  const target = event.target; if (!(target instanceof HTMLSelectElement)) return;
+  if (target.matches("[data-detail-input]") && !target.multiple) { commitDetailEdit(); return; }
+  if (target.id !== "detail-status" && target.id !== "detail-priority") return;
+  const item = activeItemId ? itemById(activeItemId) : undefined; if (!item) return;
+  const key = target.id === "detail-status" ? "status" : "priority";
+  if (key === "status" && target.value === "Bloke" && (!item.blocker?.reason || !item.blocker?.nextStep || !item.blocker?.expectedAction || !item.blocker?.owner)) { beginDetailEdit("blocker", "Bloke"); return; }
+  const before = structuredClone(item);
+  if (key === "status") applyWorkStatus(item, target.value as WorkStatus, item.blocker);
+  else { const previous = item.priority; item.priority = target.value as Priority; logWorkChange(item, "Öncelik", previous, item.priority); }
+  item.updated = "Az önce";
+  if (!save()) { restoreDetailSnapshot(item, before); refreshItemDetail(item); detailFeedback("Kaydedilemedi; yeniden deneyebilirsin.", true); return; }
+  refreshItemBackground();
+  refreshItemDetail(item); detailFeedback("Kaydedildi");
+});
+
+function mountItemDetail(markup: string, current: HTMLElement | null, item: WorkItem): void {
+  const template = document.createElement("template"); template.innerHTML = markup;
+  const next = template.content.querySelector<HTMLElement>(".detail-modal")!;
+  if (current?.isConnected) {
+    current.classList.add("detail-record-view");
+    current.closest(".modal-backdrop")?.classList.add("detail-record-backdrop");
+    current.classList.remove("detail-record-next", "detail-record-previous");
+    current.dataset.openItem = item.id;
+    current.replaceChildren(...next.childNodes);
+    current.setAttribute("aria-label", item.id + " · " + item.title);
+  } else {
+    next.setAttribute("aria-label", item.id + " · " + item.title);
+    modalRoot.replaceChildren(template.content);
+  }
+}
+
+function openItem(id: string, direction?: "previous" | "next"): void {
+  const current = modalRoot.querySelector<HTMLElement>(".detail-modal");
+  if (current?.dataset.openItem === id) { const item = itemById(id); if (item) refreshItemDetail(item); return; }
+  const item = itemById(id); if (!item) return;
+  if (detailEdit && !commitDetailEdit()) return;
+  const selectedTab = current?.querySelector<HTMLElement>("[data-detail-tab].selected")?.dataset.detailTab || "overview";
+  const openGroups = [...(current?.querySelectorAll<HTMLDetailsElement>("[data-detail-group][open]") || [])].map((group) => group.dataset.detailGroup!);
+  closeActionTooltip();
+  detailEdit = null;
+  queueMicrotask(() => {
+    const dialog = modalRoot.querySelector<HTMLElement>(".detail-modal"); if (!dialog || dialog.dataset.openItem !== id) return;
+    dialog.querySelector('[data-detail-group="planning"] .detail-group-content')?.insertAdjacentHTML("beforeend", '<button class="detail-integration-button" data-action="linked-jira" data-id="' + esc(id) + '">Jira bağlantısı</button>');
+    const ids = [...root.querySelectorAll<HTMLElement>(".backlog-work-row[data-open-item], .board-card[data-open-item]")].map((row) => row.dataset.openItem!);
+    const index = ids.indexOf(id);
+    if (index >= 0) dialog.querySelector(".detail-footer")?.insertAdjacentHTML("beforeend", '<div class="button-row"><button class="button button-quiet button-small" ' + (index === 0 ? 'disabled' : 'data-open-item="' + esc(ids[index - 1]) + '"') + ' data-detail-nav="previous">Önceki</button><button class="button button-quiet button-small" ' + (index >= ids.length - 1 ? 'disabled' : 'data-open-item="' + esc(ids[index + 1]) + '"') + ' data-detail-nav="next">Sonraki</button></div>');
+    const item = itemById(id); if (item) compactDetailFooter(dialog, item);
+    if (current) (dialog.querySelector<HTMLButtonElement>('[data-detail-nav="' + direction + '"]:not(:disabled)') || dialog.querySelector<HTMLButtonElement>("[data-detail-nav]:not(:disabled)") || dialog.querySelector<HTMLButtonElement>(".modal-close"))?.focus({ preventScroll: true });
+  });
   disposeWorkDiagramGraph();
-  const item = itemById(id);
-  if (!item) return;
   globalLastRecord = { kind: "item", id };
   recentItemIds = [id, ...recentItemIds.filter((entry) => entry !== id)].slice(0, 8);
   localStorage.setItem(RECENT_ITEMS_KEY, JSON.stringify(recentItemIds));
@@ -4014,8 +4567,9 @@ function openItem(id: string): void {
   attachmentTarget = { kind: "item", id };
   const acceptance = item.acceptance?.length ? '<div class="detail-section"><h3>Kabul kriterleri</h3><ul class="criteria-list">' + item.acceptance.map((criterion) => '<li><span class="criterion-check">✓</span>' + esc(criterion) + '</li>').join("") + '</ul></div>' : "";
   const files = item.attachments || [];
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal work-record-modal detail-modal" data-open-item="' + esc(item.id) + '" role="dialog" aria-modal="true"><header class="detail-header"><div class="detail-identity"><span class="table-type ' + (item.type === "Bug" ? "bug-type" : item.type === "Task" ? "task-type" : "story-type") + '">' + itemIcon(item.type) + '</span><span>' + esc(item.id) + '</span><span class="crumb-separator">/</span><span>' + esc(item.project) + '</span></div><button class="modal-close" data-close-modal>×</button></header><div class="detail-title-wrap"><div class="detail-badges"><span class="type-label">' + esc(item.type) + '</span><span class="status-pill ' + statusClass(item.status) + '"><i></i>' + esc(item.status) + '</span><span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span></div><h2>' + esc(item.title) + '</h2><div class="detail-byline"><span class="profile-avatar small-avatar">DA</span><span>Deniz Arslan</span><span>·</span><span>Güncellendi ' + esc(item.updated) + '</span></div></div><div class="detail-body"><div class="detail-main"><div class="detail-section"><h3>İşin bağlamı</h3>' + structuredTextMarkup(item.description || "Açıklama eklenmedi.") + '</div>' + acceptance + '<div class="detail-section"><div class="section-title-row"><h3>Dosya ekleri <span class="count-chip">' + files.length + '</span></h3><button class="text-button" data-add-to-item="' + esc(item.id) + '">+ Dosya ekle</button></div><div class="detail-files">' + (files.length ? attachmentListMarkup(files, "item:" + item.id) : '<div class="attachment-empty"><span>▤</span><span>Bu iş için henüz dosya yok.<small>Gereksinim, ekran görüntüsü veya akış ekleyebilirsin.</small></span></div>') + '</div><input id="detail-file-fallback" type="file" multiple hidden></div></div><aside class="detail-aside"><label class="field-label">Durum<select id="detail-status" class="field-input">' + ["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Bloke", "Tamamlandı"].map((status) => '<option ' + (status === item.status ? "selected" : "") + '>' + status + '</option>').join("") + '</select></label><label class="field-label">Öncelik<select id="detail-priority" class="field-input">' + ["Kritik", "Yüksek", "Orta", "Düşük"].map((priority) => '<option ' + (priority === item.priority ? "selected" : "") + '>' + priority + '</option>').join("") + '</select></label><div class="detail-property"><span>Ürün alanı</span><strong>' + esc(item.area) + '</strong></div><div class="detail-property"><span>Etiketler</span><div class="tag-row">' + (item.labels || []).map((label) => '<span class="tag">' + esc(label) + '</span>').join("") + '</div></div><div class="detail-property"><span>Bağlı kişisel görev</span><strong>' + state.tasks.filter((task) => task.linked === item.id).length + ' görev</strong><button class="text-button" data-action="quick-related-task" data-id="' + esc(item.id) + '">+ Takip görevi oluştur</button></div></aside></div><footer class="detail-footer"><span class="privacy-note-inline">⌑ Dosyalar bu cihazda saklanır</span></footer></section></div>';
-  if (activeView === "backlog") { modalRoot.querySelector(".modal-backdrop")?.classList.add("detail-backdrop-sidepanel"); modalRoot.querySelector(".detail-modal")?.classList.add("detail-modal-sidepanel"); }
+  mountItemDetail('<div class="modal-backdrop" data-close-modal><section class="modal work-record-modal detail-modal" data-open-item="' + esc(item.id) + '" role="dialog" aria-modal="true"><header class="detail-header"><div class="detail-identity"><span class="table-type ' + (item.type === "Bug" ? "bug-type" : item.type === "Task" ? "task-type" : "story-type") + '">' + itemIcon(item.type) + '</span><span>' + esc(item.id) + '</span><span class="crumb-separator">/</span><span>' + esc(item.project) + '</span></div><button class="modal-close" data-close-modal>×</button></header><div class="detail-title-wrap"><div class="detail-badges"><span class="type-label">' + esc(item.type) + '</span><span class="status-pill ' + statusClass(item.status) + '"><i></i>' + esc(item.status) + '</span><span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span></div><h2>' + esc(item.title) + '</h2><div class="detail-byline"><span class="profile-avatar small-avatar">DA</span><span>Deniz Arslan</span><span>·</span><span>Güncellendi ' + esc(item.updated) + '</span></div></div><div class="detail-body"><div class="detail-main"><div class="detail-section"><h3>İşin bağlamı</h3>' + structuredTextMarkup(item.description || "Açıklama eklenmedi.") + '</div>' + acceptance + '<div class="detail-section"><div class="section-title-row"><h3>Dosya ekleri <span class="count-chip">' + files.length + '</span></h3><button class="text-button" data-add-to-item="' + esc(item.id) + '">+ Dosya ekle</button></div><div class="detail-files">' + (files.length ? attachmentListMarkup(files, "item:" + item.id) : '<div class="attachment-empty"><span>▤</span><span>Bu iş için henüz dosya yok.<small>Gereksinim, ekran görüntüsü veya akış ekleyebilirsin.</small></span></div>') + '</div><input id="detail-file-fallback" type="file" multiple hidden></div></div><aside class="detail-aside"><label class="field-label">Durum<select id="detail-status" class="field-input">' + ["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Bloke", "Tamamlandı"].map((status) => '<option ' + (status === item.status ? "selected" : "") + '>' + status + '</option>').join("") + '</select></label><label class="field-label">Öncelik<select id="detail-priority" class="field-input">' + ["Kritik", "Yüksek", "Orta", "Düşük"].map((priority) => '<option ' + (priority === item.priority ? "selected" : "") + '>' + priority + '</option>').join("") + '</select></label><div class="detail-property"><span>Ürün alanı</span><strong>' + esc(item.area) + '</strong></div><div class="detail-property"><span>Etiketler</span><div class="tag-row">' + (item.labels || []).map((label) => '<span class="tag">' + esc(label) + '</span>').join("") + '</div></div><div class="detail-property"><span>Bağlı kişisel görev</span><strong>' + state.tasks.filter((task) => task.linked === item.id).length + ' görev</strong><button class="text-button" data-action="quick-related-task" data-id="' + esc(item.id) + '">+ Takip görevi oluştur</button></div></aside></div><footer class="detail-footer"><span class="privacy-note-inline">⌑ Dosyalar bu cihazda saklanır</span></footer></section></div>', current, item);
+  modalRoot.querySelector(".modal-backdrop")?.classList.add("detail-backdrop-sidepanel");
+  modalRoot.querySelector(".detail-modal")?.classList.add("detail-modal-sidepanel");
   const byline = modalRoot.querySelector(".detail-byline");
   if (byline) byline.innerHTML = '<span class="profile-avatar small-avatar">PO</span><span>' + esc(state.profile.userName || "PO") + '</span><span>·</span><span>Son güncelleme ' + esc(itemLastActivityLabel(item)) + '</span>';
   if (item.sourceEmail) {
@@ -4043,7 +4597,7 @@ function openItem(id: string): void {
   document.querySelector(".detail-aside")?.prepend(assignment);
   const roadmapNode = state.roadmap.find((node) => node.id === item.roadmapNodeId);
   const itemRelease = state.releases.find((release) => release.id === item.releaseId);
-  const planningDetails = [item.startDate ? "Başlangıç: " + item.startDate : "", item.targetDate ? "Hedef: " + item.targetDate : "", item.targetPeriod ? "Dönem: " + item.targetPeriod : "", item.estimate !== undefined ? "Tahmini efor: " + item.estimate + " saat" : "", item.actualStartDate ? "Gerçek başlangıç: " + new Date(item.actualStartDate).toLocaleDateString("tr-TR") : "", item.completedAt ? "Tamamlandı: " + new Date(item.completedAt).toLocaleDateString("tr-TR") : "", itemRelease ? "Release: " + itemRelease.name + " · " + itemRelease.status : ""].filter(Boolean);
+  const planningDetails = [item.startDate ? "Başlangıç: " + item.startDate : "", item.targetDate ? "Hedef: " + item.targetDate : "", item.targetPeriod ? "Dönem: " + item.targetPeriod : "", item.estimate !== undefined ? "Tahmini efor: " + item.estimate + " " + (state.estimateUnit || "saat") : "", item.actualStartDate ? "Gerçek başlangıç: " + new Date(item.actualStartDate).toLocaleDateString("tr-TR") : "", item.completedAt ? "Tamamlandı: " + new Date(item.completedAt).toLocaleDateString("tr-TR") : "", itemRelease ? "Release: " + itemRelease.name + " · " + itemRelease.status : ""].filter(Boolean);
   if (planningDetails.length) document.querySelector(".detail-aside")?.insertAdjacentHTML("beforeend", '<div class="detail-property"><span>Planlama</span>' + planningDetails.map((line) => '<strong>' + esc(line) + '</strong>').join("") + '</div>');
   if (roadmapNode) document.querySelector(".detail-aside")?.insertAdjacentHTML("beforeend", '<div class="detail-property"><span>Ürün hedefi</span><strong>' + esc(roadmapNode.title) + '</strong><strong class="roadmap-product-stage">Ürün aşaması: ' + esc(item.productStage || "Sırada") + '</strong></div>');
   const lateBy = overdueDays(item);
@@ -4056,8 +4610,12 @@ function openItem(id: string): void {
     section.dataset.detailTabSection = tab;
     section.hidden = tab !== "overview";
   });
-  document.getElementById("detail-status")?.addEventListener("change", (event) => { const next = (event.target as HTMLSelectElement).value as WorkItem["status"]; if (next === item.status) return; openStatusUpdateModal(id, next); });
-  document.getElementById("detail-priority")?.addEventListener("change", (event) => { const previous = item.priority; item.priority = (event.target as HTMLSelectElement).value as WorkItem["priority"]; logWorkChange(item, "Öncelik", previous, item.priority); save(); render(); openItem(id); });
+  installDetailInline(item);
+  if (current) {
+    for (const group of modalRoot.querySelectorAll<HTMLDetailsElement>("[data-detail-group]")) group.open = openGroups.includes(group.dataset.detailGroup!);
+    modalRoot.querySelector<HTMLButtonElement>('[data-detail-tab="' + selectedTab + '"]')?.click();
+    current.classList.add(direction === "previous" ? "detail-record-previous" : "detail-record-next");
+  }
 }
 
 let detailTabWheelCooldownUntil = 0;
@@ -4094,8 +4652,8 @@ async function addFilesToItem(id: string): Promise<void> {
   item.attachments = [...(item.attachments || []), ...files];
   if (files.length) addWorkActivity(item, "attachment", files.length + " dosya eki eklendi: " + files.map((file) => file.name).join(", "));
   save();
-  render();
-  openItem(id);
+  refreshItemBackground();
+  refreshItemDetail(item);
   toast(files.length + " dosya eklendi.");
 }
 
@@ -4115,12 +4673,15 @@ function saveProgressNote(id: string): void {
   const text = (document.getElementById("progress-note-text") as HTMLTextAreaElement | null)?.value.trim() || "";
   if (!item || !text) { toast("İlerleme notunu yaz."); return; }
   const visibility = (document.getElementById("progress-note-visibility") as HTMLSelectElement | null)?.value === "private" ? "private" : "team";
+  const previousActivity = structuredClone(item.activity || []);
   item.activity ||= [];
   item.activity.unshift({ id: nextId("ACT"), kind: "comment", message: text, actor: state.profile.userName || "PO", occurredAt: new Date().toISOString(), visibility, attachments: [...progressAttachments] });
+  if (!save()) { item.activity = previousActivity; detailFeedback("Not kaydedilemedi; metin ve ekler korundu.", true); return; }
   progressAttachments = [];
-  save();
-  render();
-  openItem(id);
+  const composer = document.getElementById("progress-note-text") as HTMLTextAreaElement | null; if (composer) composer.value = "";
+  const files = document.getElementById("progress-note-files"); if (files) files.innerHTML = "";
+  refreshItemBackground();
+  refreshItemDetail(item);
   toast("İlerleme notu eklendi.");
 }
 
@@ -4225,7 +4786,7 @@ async function saveNewRecord(event: SubmitEvent): Promise<void> {
       updated: "Az önce",
       acceptance: field("new-acceptance").value.split("\n").map((line) => line.trim()).filter(Boolean),
       attachments: [...draftAttachments],
-      labels: [],
+      labels: [...new Set(field("new-labels").value.split(",").map((label) => label.trim()).filter(Boolean))],
       teamId: firstAssignment?.teamId || "",
       assignee: firstAssignment?.member || "",
       assignments: assignmentResult.assignments,
@@ -4242,12 +4803,12 @@ async function saveNewRecord(event: SubmitEvent): Promise<void> {
     activeView = "backlog";
   } else if (kind === "Kişisel görev") {
     state.tasks.unshift({ id: nextId("TASK"), title, due: field("new-due").value, done: false, linked: field("new-linked-task").value, description, attachments: [...draftAttachments], sourceEmail: pendingDroppedEmailSource || undefined, remindAt: field("new-remind-at").value || undefined });
-    toast("Görev kişisel alanına eklendi.");
-    activeView = "focus";
+    toast("Görev çalışma alanına eklendi.");
+
   } else {
     state.notes.unshift({ id: nextId("NOTE"), title, body: description, linked: field("new-linked-note").value, updated: "Az önce", attachments: [...draftAttachments], sourceEmail: pendingDroppedEmailSource || undefined });
-    toast("Not kişisel alanına eklendi.");
-    activeView = "focus";
+    toast("Not çalışma alanına eklendi.");
+
   }
   if (pendingDroppedEmailSource) {
     localStorage.setItem("rota-email-create-kind", kind);
@@ -4259,7 +4820,7 @@ async function saveNewRecord(event: SubmitEvent): Promise<void> {
   pendingEmailAttachmentToken = "";
   pendingEmailAttachmentChoices = [];
   closeModal(true);
-  setView(activeView);
+  if (kind === "Backlog işi") setView("backlog"); else render();
 }
 
 function toggleTask(id: string): void {
@@ -4267,7 +4828,7 @@ function toggleTask(id: string): void {
   if (!task) return;
   task.done = !task.done;
   save();
-  render();
+  if (workspaceShelf) { refreshItemBackground(); syncWorkspaceToolbar(); } else render();
 }
 
 function openTask(id: string): void {
@@ -4276,7 +4837,7 @@ function openTask(id: string): void {
   attachmentTarget = { kind: "task", id };
   const related = task.linked && itemById(task.linked);
   const files = task.attachments || [];
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal work-record-modal task-detail-modal note-modal" data-context-task-id="' + esc(task.id) + '" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">KİŞİSEL GÖREV · ' + esc(task.due) + '</div><h2>' + esc(task.title) + '</h2></div><button class="modal-close" data-close-modal>×</button></header><p class="note-detail-body">' + esc(task.description || "Bu görev için ek bir açıklama yok.") + '</p>' + (related ? '<button class="linked-badge" data-open-item="' + esc(related.id) + '">' + esc(related.id) + ' · ilişkili iş</button>' : '<span class="independent-label">Bağımsız görev</span>') + '<div class="detail-section"><div class="section-title-row"><h3>Dosya ekleri <span class="count-chip">' + files.length + '</span></h3><button class="text-button" data-add-to-task="' + esc(task.id) + '">+ Dosya ekle</button></div>' + (files.length ? attachmentListMarkup(files, "task:" + task.id) : '<div class="attachment-empty"><span>▤</span><span>Bu görevde dosya eki yok.</span></div>') + '<input id="task-file-fallback" type="file" multiple hidden></div></section></div>';
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal work-record-modal task-detail-modal note-modal" data-context-task-id="' + esc(task.id) + '" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">GÖREV · ' + esc(task.due) + '</div><h2>' + esc(task.title) + '</h2></div><button class="modal-close" data-close-modal>×</button></header><p class="note-detail-body">' + esc(task.description || "Bu görev için ek bir açıklama yok.") + '</p>' + (related ? '<button class="linked-badge" data-open-item="' + esc(related.id) + '">' + esc(related.id) + ' · ilişkili iş</button>' : '<span class="independent-label">Bağımsız görev</span>') + '<div class="detail-section"><div class="section-title-row"><h3>Dosya ekleri <span class="count-chip">' + files.length + '</span></h3><button class="text-button" data-add-to-task="' + esc(task.id) + '">+ Dosya ekle</button></div>' + (files.length ? attachmentListMarkup(files, "task:" + task.id) : '<div class="attachment-empty"><span>▤</span><span>Bu görevde dosya eki yok.</span></div>') + '<input id="task-file-fallback" type="file" multiple hidden></div></section></div>';
   if (task.remindAt) modalRoot.querySelector(".note-detail-body")?.insertAdjacentHTML("afterend", '<div class="detail-property reminder-property"><span>Hatırlatma</span><strong>' + esc(new Date(task.remindAt).toLocaleString("tr-TR")) + '</strong></div>');
   if (task.sourceEmail) { const source = task.sourceEmail; const sourceFile = files.find((file) => file.name === source.name); modalRoot.querySelector(".note-detail-body")?.insertAdjacentHTML("afterend", '<div class="email-source-card"><span class="email-source-icon">✉</span><span><strong>E-postadan oluşturuldu</strong><small>' + esc(source.name + (source.from ? " · " + source.from : "") + (source.date ? " · " + source.date : "")) + '</small></span>' + (sourceFile?.storedName ? '<button type="button" class="text-button" data-open-source-email="' + esc(sourceFile.storedName) + '">Özgün e-postayı aç</button>' : '') + '</div>'); }
   modalRoot.querySelector(".modal-header")?.insertAdjacentHTML("beforeend", '<span class="detail-actions"><button class="button button-secondary" data-action="edit-task" data-id="' + esc(task.id) + '">Düzenle</button><button class="button button-danger" data-action="delete-task" data-id="' + esc(task.id) + '">Sil</button></span>');
@@ -4287,46 +4848,23 @@ function showNote(id: string): void {
   if (!note) return;
   attachmentTarget = { kind: "note", id };
   const related = note.linked && itemById(note.linked);
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal note-modal" data-context-note-id="' + esc(note.id) + '" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">KİŞİSEL NOT · ' + esc(note.updated) + '</div><h2>' + esc(note.title) + '</h2></div><button class="modal-close" data-close-modal>×</button></header><div class="note-detail-body structured-content">' + structuredTextMarkup(note.body) + '</div>' + (related ? '<button class="linked-badge" data-open-item="' + esc(related.id) + '">' + esc(related.id) + ' · ilişkili iş</button>' : '<span class="independent-label">Bağımsız not</span>') + '<div class="detail-section"><div class="section-title-row"><h3>Dosya ekleri <span class="count-chip">' + (note.attachments?.length || 0) + '</span></h3><button class="text-button" data-add-to-note="' + esc(note.id) + '">+ Dosya ekle</button></div>' + (note.attachments?.length ? attachmentListMarkup(note.attachments, "note:" + note.id) : '<div class="attachment-empty"><span>▤</span><span>Bu notta dosya eki yok.</span></div>') + '<input id="note-file-fallback" type="file" multiple hidden></div></section></div>';
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal note-modal" data-context-note-id="' + esc(note.id) + '" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">NOT · ' + esc(note.updated) + '</div><h2>' + esc(note.title) + '</h2></div><button class="modal-close" data-close-modal>×</button></header><div class="note-detail-body structured-content">' + structuredTextMarkup(note.body) + '</div>' + (related ? '<button class="linked-badge" data-open-item="' + esc(related.id) + '">' + esc(related.id) + ' · ilişkili iş</button>' : '<span class="independent-label">Bağımsız not</span>') + '<div class="detail-section"><div class="section-title-row"><h3>Dosya ekleri <span class="count-chip">' + (note.attachments?.length || 0) + '</span></h3><button class="text-button" data-add-to-note="' + esc(note.id) + '">+ Dosya ekle</button></div>' + (note.attachments?.length ? attachmentListMarkup(note.attachments, "note:" + note.id) : '<div class="attachment-empty"><span>▤</span><span>Bu notta dosya eki yok.</span></div>') + '<input id="note-file-fallback" type="file" multiple hidden></div></section></div>';
   if (note.sourceEmail) { const source = note.sourceEmail; const sourceFile = (note.attachments || []).find((file) => file.name === source.name); modalRoot.querySelector(".note-detail-body")?.insertAdjacentHTML("afterend", '<div class="email-source-card"><span class="email-source-icon">✉</span><span><strong>E-postadan oluşturuldu</strong><small>' + esc(source.name + (source.from ? " · " + source.from : "") + (source.date ? " · " + source.date : "")) + '</small></span>' + (sourceFile?.storedName ? '<button type="button" class="text-button" data-open-source-email="' + esc(sourceFile.storedName) + '">Özgün e-postayı aç</button>' : '') + '</div>'); }
   modalRoot.querySelector(".detail-section")?.insertAdjacentHTML("beforebegin", diagramSectionMarkup("note", note.id));
   modalRoot.querySelector(".modal-header")?.insertAdjacentHTML("beforeend", '<span class="detail-actions"><button class="button button-secondary" data-action="edit-note" data-id="' + esc(note.id) + '">Düzenle</button><button class="button button-danger" data-action="delete-note" data-id="' + esc(note.id) + '">Sil</button></span>');
 }
 
 function openRecordEditor(kind: "item" | "task" | "note", id: string): void {
+  queueMicrotask(() => { const textarea = modalRoot.querySelector<HTMLTextAreaElement>('textarea[name="description"], textarea[name="body"]'); if (textarea) { textarea.id ||= "record-body-editor"; textarea.insertAdjacentHTML("afterend", structuredEditorToolbar(textarea.id)); } });
   const linkedOptions = (selected: string) => '<option value="">Bağımsız</option>' + state.items.map((item) => '<option value="' + esc(item.id) + '" ' + (item.id === selected ? "selected" : "") + '>' + esc(item.id + " · " + item.title) + '</option>').join("");
-  if (kind === "item") {
-    const item = itemById(id); if (!item) return;
-    draftAssetIds = [...(item.assetIds || [])];
-    const editableProjects = state.projects.filter((project) => !project.archived || project.name === item.project);
-    modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal work-record-modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">BACKLOG İŞİ · ' + esc(item.id) + '</div><h2>İşi düzenle</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="edit-item-form" class="settings-form work-record-form"><label class="field-label">Başlık<input class="field-input" name="title" maxlength="120" required value="' + esc(item.title) + '"></label><div class="form-two-col"><label class="field-label">Proje<select class="field-input" name="project">' + editableProjects.map((project) => '<option ' + (project.name === item.project ? "selected" : "") + '>' + esc(project.name) + (project.archived ? ' · Arşivde' : '') + '</option>').join("") + '</select></label><label class="field-label">İş türü<select class="field-input" name="type">' + (["Story", "Bug", "Task"] as const).map((type) => '<option ' + (type === item.type ? "selected" : "") + '>' + type + '</option>').join("") + '</select></label><label class="field-label">Durum<select class="field-input" name="status">' + (["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Bloke", "Tamamlandı"] as const).map((status) => '<option ' + (status === item.status ? "selected" : "") + '>' + status + '</option>').join("") + '</select></label><label class="field-label">Öncelik<select class="field-input" name="priority">' + (["Kritik", "Yüksek", "Orta", "Düşük"] as const).map((priority) => '<option ' + (priority === item.priority ? "selected" : "") + '>' + priority + '</option>').join("") + '</select></label><label class="field-label">Ürün alanı<input class="field-input" name="area" maxlength="80" value="' + esc(item.area) + '"></label></div><label class="field-label">Açıklama<textarea class="field-input field-textarea" name="description" rows="4">' + esc(item.description) + '</textarea></label><label class="field-label">Kabul kriterleri <small>(her kriter ayrı satırda)</small><textarea class="field-input field-textarea" name="acceptance" rows="4">' + esc((item.acceptance || []).join("\n")) + '</textarea></label><input type="hidden" name="id" value="' + esc(id) + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-open-item="' + esc(id) + '">Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
-    const editStatusField = modalRoot.querySelector('label.field-label:has(select[name="status"])');
-    const templateCategory: AcceptanceTemplate["category"] = item.type === "Story" || item.type === "Bug" ? item.type : "Genel";
-    modalRoot.querySelector('textarea[name="acceptance"]')?.insertAdjacentHTML("afterend", acceptanceTemplateControls("edit-acceptance", templateCategory));
-    modalRoot.querySelector("#edit-item-form .form-two-col")?.insertAdjacentHTML("afterend", '<div class="form-two-col planning-fields"><label class="field-label">Başlangıç tarihi<input class="field-input" type="date" name="startDate" value="' + esc(item.startDate || "") + '"></label><label class="field-label">Hedef bitiş tarihi<input class="field-input" type="date" name="targetDate" value="' + esc(item.targetDate || "") + '"></label><label class="field-label">Planlanan dönem<input class="field-input" name="targetPeriod" maxlength="40" value="' + esc(item.targetPeriod || "") + '" placeholder="Örn. 2026 Q4"></label><label class="field-label">Tahmini efor (saat)<input class="field-input" type="number" name="estimate" min="0" step="0.5" value="' + esc(item.estimate ?? "") + '"></label></div><label class="field-label release-link-field">Release<select class="field-input" name="releaseId"><option value="">Release seçilmedi</option>' + state.releases.filter((release) => release.project === item.project || release.id === item.releaseId).map((release) => '<option value="' + esc(release.id) + '" ' + (release.id === item.releaseId ? 'selected' : '') + '>' + esc(release.name + " · " + release.project + " · " + release.status) + '</option>').join("") + '</select></label>');
-    const dependencyOptions = state.items.filter((candidate) => candidate.id !== item.id).map((candidate) => '<option value="' + esc(candidate.id) + '" ' + ((item.dependsOnIds || []).includes(candidate.id) ? "selected" : "") + '>' + esc(candidate.id + " · " + candidate.title + " (" + candidate.status + ")") + '</option>').join("");
-    modalRoot.querySelector("#edit-item-form .planning-fields")?.insertAdjacentHTML("afterend", '<div class="form-two-col roadmap-link-fields"><label class="field-label">Ürün hedefi<select class="field-input" name="roadmapNodeId">' + roadmapNodeOptions(item.roadmapNodeId || "") + '</select></label><label class="field-label">Ürün aşaması<select class="field-input" name="productStage">' + productStageOptions(item.productStage || "Sırada") + '</select></label></div><label class="field-label dependency-picker-label">Beklenen işler <small>(bir iş bekliyorsa seç; döngüye izin verilmez)</small><select class="field-input dependency-picker" name="dependsOnIds" multiple size="5">' + dependencyOptions + '</select></label>');
-    editStatusField?.insertAdjacentHTML("afterend", '<div id="edit-blocker-fields" class="edit-blocker-fields ' + (item.status === "Bloke" ? "" : "hidden") + '"><label class="field-label">Blokaj nedeni<textarea class="field-input field-textarea" name="blockerReason" rows="2" maxlength="1000" ' + (item.status === "Bloke" ? "required" : "") + '>' + esc(item.blocker?.reason || "") + '</textarea></label><label class="field-label">Sonraki adım<textarea class="field-input field-textarea" name="blockerNextStep" rows="2" maxlength="1000" ' + (item.status === "Bloke" ? "required" : "") + '>' + esc(item.blocker?.nextStep || "") + '</textarea></label></div>');
-    modalRoot.querySelector('[name="blockerNextStep"]')?.parentElement?.insertAdjacentHTML("afterend", '<label class="field-label blocker-extra-field">Beklenen karar veya iş<textarea class="field-input field-textarea" name="blockerExpected" rows="2" maxlength="1000" ' + (item.status === "Bloke" ? "required" : "") + '>' + esc(item.blocker?.expectedAction || "") + '</textarea></label><label class="field-label blocker-extra-field">Takip sahibi<select class="field-input" name="blockerOwner" ' + (item.status === "Bloke" ? "required" : "") + '>' + blockerOwnerOptions(item.blocker?.owner || "") + '</select></label><label class="field-label blocker-extra-field">Takip hatırlatması<input class="field-input" name="blockerFollowUpAt" type="datetime-local" value="' + esc(item.blocker?.followUpAt || "") + '"></label>');
-    editStatusField?.insertAdjacentHTML("afterend", '<label class="field-label edit-status-note">Güncelleme notu <small>(durum değişince isteğe bağlı)</small><textarea class="field-input field-textarea" name="statusUpdateNote" rows="2" maxlength="2000" placeholder="İlerleme veya karar notu…"></textarea></label>');
-    editStatusField?.querySelector<HTMLSelectElement>('select[name="status"]')?.addEventListener("change", (event) => {
-      const blocked = (event.target as HTMLSelectElement).value === "Bloke";
-      const blockerFields = document.getElementById("edit-blocker-fields");
-      blockerFields?.classList.toggle("hidden", !blocked);
-      blockerFields?.querySelectorAll<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>('textarea[name="blockerReason"], textarea[name="blockerNextStep"], textarea[name="blockerExpected"], select[name="blockerOwner"]').forEach((field) => { field.required = blocked; });
-    });
-    modalRoot.querySelector('label.field-label:has(textarea[name="description"])')?.insertAdjacentHTML("beforebegin", assignmentEditorMarkup("edit-assignment-list", getWorkAssignments(item)));
-    modalRoot.querySelector('label.field-label:has(textarea[name="acceptance"])')?.insertAdjacentHTML("beforebegin", assetPickerMarkup());
-    renderNewAssetSelection();
-    renderNewAssetOptions();
-    const description = modalRoot.querySelector<HTMLTextAreaElement>('textarea[name="description"]'); if (description) { description.id = "edit-item-description"; description.insertAdjacentHTML("beforebegin", structuredEditorToolbar(description.id)); }
-  } else if (kind === "task") {
+  if (kind === "item") { openItem(id); return; }
+  if (kind === "task") {
     const task = state.tasks.find((entry) => entry.id === id); if (!task) return;
-    modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">KİŞİSEL GÖREV</div><h2>Görevi düzenle</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="edit-task-form" class="settings-form"><label class="field-label">Başlık<input class="field-input" name="title" maxlength="120" required value="' + esc(task.title) + '"></label><label class="field-label">Son tarih<input class="field-input" name="due" maxlength="40" value="' + esc(task.due) + '"></label><label class="field-label">Açıklama<textarea class="field-input field-textarea" name="description" rows="4">' + esc(task.description || "") + '</textarea></label><label class="field-label">İlişkili backlog işi<select class="field-input" name="linked">' + linkedOptions(task.linked) + '</select></label><input type="hidden" name="id" value="' + esc(id) + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-open-task="' + esc(id) + '">Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
+    modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">GÖREV</div><h2>Görevi düzenle</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="edit-task-form" class="settings-form"><label class="field-label">Başlık<input class="field-input" name="title" maxlength="120" required value="' + esc(task.title) + '"></label><label class="field-label">Son tarih<input class="field-input" name="due" maxlength="40" value="' + esc(task.due) + '"></label><label class="field-label">Açıklama<textarea class="field-input field-textarea" name="description" rows="4">' + esc(task.description || "") + '</textarea></label><label class="field-label">İlişkili backlog işi<select class="field-input" name="linked">' + linkedOptions(task.linked) + '</select></label><input type="hidden" name="id" value="' + esc(id) + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-open-task="' + esc(id) + '">Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
     modalRoot.querySelector('input[name="due"]')?.closest(".field-label")?.insertAdjacentHTML("afterend", '<label class="field-label">Hatırlat<input class="field-input" type="datetime-local" name="remindAt" value="' + esc(task.remindAt || "") + '"></label>');
   } else {
     const note = state.notes.find((entry) => entry.id === id); if (!note) return;
-    modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">KİŞİSEL NOT</div><h2>Notu düzenle</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="edit-note-form" class="settings-form"><label class="field-label">Başlık<input class="field-input" name="title" maxlength="120" required value="' + esc(note.title) + '"></label><label class="field-label">Not' + structuredEditorToolbar("edit-note-body") + '<textarea id="edit-note-body" class="field-input field-textarea" name="body" rows="7" required>' + esc(note.body) + '</textarea></label><label class="field-label">İlişkili backlog işi<select class="field-input" name="linked">' + linkedOptions(note.linked) + '</select></label><input type="hidden" name="id" value="' + esc(id) + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-open-note="' + esc(id) + '">Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
+    modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">NOT</div><h2>Notu düzenle</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="edit-note-form" class="settings-form"><label class="field-label">Başlık<input class="field-input" name="title" maxlength="120" required value="' + esc(note.title) + '"></label><label class="field-label">Not' + structuredEditorToolbar("edit-note-body") + '<textarea id="edit-note-body" class="field-input field-textarea" name="body" rows="7" required>' + esc(note.body) + '</textarea></label><label class="field-label">İlişkili backlog işi<select class="field-input" name="linked">' + linkedOptions(note.linked) + '</select></label><input type="hidden" name="id" value="' + esc(id) + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-open-note="' + esc(id) + '">Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
   }
 }
 
@@ -4406,8 +4944,17 @@ function openMergeWorkItem(sourceId: string): void {
 function confirmMergeWorkItem(sourceId: string): void {
   const source = itemById(sourceId); const target = itemById(modalRoot.querySelector<HTMLSelectElement>("#merge-target")?.value || "");
   if (!source || !target || source === target) { toast("Ana kaydı seç."); return; }
+  const proposed = new Map(state.items.filter((item) => item !== source).map((item) => [item.id, [...new Set([...(item.dependsOnIds || []), ...(item === target ? source.dependsOnIds || [] : [])].map((id) => id === source.id ? target.id : id).filter((id) => id !== item.id))]]));
+  const cyclic = (id: string, path = new Set<string>()): boolean => { if (path.has(id)) return true; return (proposed.get(id) || []).some((next) => cyclic(next, new Set([...path, id]))); };
+  if ([...proposed.keys()].some((id) => cyclic(id))) { toast("Birleştirme bağımlılık döngüsü oluşturuyor. Önce bağımlılıkları düzenle."); return; }
   const workspaceBefore = structuredClone(state);
+  target.activity = [...(target.activity || []), ...(source.activity || []).map((entry) => ({ ...entry, id: nextId("ACT"), message: "[" + source.id + "] " + entry.message }))];
+  for (const decision of state.decisions || []) decision.workItemIds = [...new Set(decision.workItemIds.map((id) => id === source.id ? target.id : id))];
+  for (const risk of state.risks || []) risk.workItemIds = [...new Set((risk.workItemIds || []).map((id) => id === source.id ? target.id : id))];
+  for (const question of state.openQuestions || []) if (question.linkedItemId === source.id) question.linkedItemId = target.id;
+  for (const item of state.items) item.relatedRecords = (item.relatedRecords || []).map((link) => link.type === "item" && link.targetId === source.id ? { ...link, targetId: target.id } : link).filter((link) => link.type !== "item" || link.targetId !== item.id);
   target.attachments = [...(target.attachments || []), ...(source.attachments || []).filter((file) => !(target.attachments || []).some((existing) => existing.storedName && existing.storedName === file.storedName))];
+  target.sourceEmails = [...(target.sourceEmails || []), ...(source.sourceEmails || []), ...(source.sourceEmail ? [source.sourceEmail] : [])];
   target.labels = [...new Set([...(target.labels || []), ...(source.labels || [])])];
   target.assetIds = [...new Set([...(target.assetIds || []), ...(source.assetIds || [])])];
   target.dependsOnIds = [...new Set([...(target.dependsOnIds || []), ...(source.dependsOnIds || []).filter((id) => id !== target.id)])].filter((id) => id !== target.id);
@@ -4489,77 +5036,8 @@ function saveEditedRecord(event: SubmitEvent, kind: "item" | "task" | "note"): v
   event.preventDefault();
   const values = new FormData(event.target as HTMLFormElement);
   const id = String(values.get("id") || "");
-  if (kind === "item") {
-    const item = itemById(id); if (!item) return;
-    const previous = { title: item.title, type: item.type, project: item.project, status: item.status, priority: item.priority, area: item.area, description: item.description, acceptance: [...item.acceptance], assetIds: [...(item.assetIds || [])], assignments: getWorkAssignments(item).map((assignment) => ({ ...assignment })), dependencies: [...(item.dependsOnIds || [])], roadmapNodeId: item.roadmapNodeId || "", productStage: item.productStage || "Sırada", releaseId: item.releaseId || "" };
-    const nextType = String(values.get("type")) as WorkItem["type"];
-    const nextStatus = String(values.get("status")) as WorkItem["status"];
-    const blockerReason = String(values.get("blockerReason") || "").trim();
-    const blockerNextStep = String(values.get("blockerNextStep") || "").trim();
-    const blockerExpected = String(values.get("blockerExpected") || "").trim();
-    const blockerOwner = String(values.get("blockerOwner") || "");
-    const blockerFollowUpAt = String(values.get("blockerFollowUpAt") || "");
-    const statusUpdateNote = String(values.get("statusUpdateNote") || "").trim();
-    const startDate = String(values.get("startDate") || "");
-    const targetDate = String(values.get("targetDate") || "");
-    const targetPeriod = String(values.get("targetPeriod") || "").trim();
-    const estimateValue = String(values.get("estimate") || "");
-    const dependencyIds = [...new Set(values.getAll("dependsOnIds").map(String))];
-    const roadmapNodeId = String(values.get("roadmapNodeId") || "");
-    const productStage = String(values.get("productStage") || "Sırada") as ProductStage;
-    const releaseId = String(values.get("releaseId") || "");
-    if (releaseId && state.releases.find((release) => release.id === releaseId)?.project !== String(values.get("project") || "")) { toast("İşe yalnızca aynı projedeki release atanabilir."); return; }
-    if (dependencyWouldCycle(id, dependencyIds)) { toast("Bu bağlantı bağımlılık döngüsü oluşturuyor."); return; }
-    if (startDate && targetDate && targetDate < startDate) { toast("Hedef bitiş tarihi başlangıç tarihinden önce olamaz."); return; }
-    const previousStartDate = item.startDate || "";
-    const previousTargetDate = item.targetDate || "";
-    const previousEstimate = item.estimate;
-    const previousTargetPeriod = item.targetPeriod || "";
-    if (nextStatus === "Bloke" && (!blockerReason || !blockerNextStep || !blockerExpected || !blockerOwner)) { toast("Bloke iş için neden, beklenen karar/iş, sonraki adım ve takip sahibini doldur."); return; }
-    item.title = String(values.get("title") || "").trim();
-    item.project = String(values.get("project") || "");
-    item.type = nextType;
-    item.status = previous.status;
-    item.priority = String(values.get("priority")) as WorkItem["priority"];
-    item.area = String(values.get("area") || "").trim() || "Genel";
-    item.startDate = startDate;
-    item.targetDate = targetDate;
-    item.targetPeriod = targetPeriod;
-    item.estimate = estimateValue ? Number(estimateValue) : undefined;
-    item.dependsOnIds = dependencyIds;
-    item.roadmapNodeId = roadmapNodeId || undefined;
-    item.productStage = productStage;
-    item.releaseId = releaseId || undefined;
-    item.description = String(values.get("description") || "").trim();
-    item.acceptance = String(values.get("acceptance") || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
-    item.assetIds = [...new Set(draftAssetIds.filter((assetId) => state.assets.some((asset) => asset.id === assetId)))];
-    const assignmentResult = readAssignmentRows("edit-assignment-list");
-    if (assignmentResult.invalid) { toast("Her atama satırında hem takım hem üye seç; kullanılmayan satırları kaldır."); return; }
-    item.assignments = assignmentResult.assignments;
-    item.teamId = assignmentResult.assignments[0]?.teamId || "";
-    item.assignee = assignmentResult.assignments[0]?.member || "";
-    applyWorkStatus(item, nextStatus, nextStatus === "Bloke" ? { reason: blockerReason, nextStep: blockerNextStep, expectedAction: blockerExpected, owner: blockerOwner, followUpAt: blockerFollowUpAt } : item.blocker, previous.status !== nextStatus ? statusUpdateNote : "");
-    logWorkChange(item, "Başlık", previous.title, item.title);
-    logWorkChange(item, "Tür", previous.type, item.type);
-    logWorkChange(item, "Proje", previous.project, item.project);
-    logWorkChange(item, "Durum", previous.status, item.status);
-    logWorkChange(item, "Öncelik", previous.priority, item.priority);
-    logWorkChange(item, "Ürün alanı", previous.area, item.area);
-    logWorkChange(item, "Başlangıç tarihi", previousStartDate, item.startDate);
-    logWorkChange(item, "Hedef bitiş tarihi", previousTargetDate, item.targetDate);
-    logWorkChange(item, "Tahmini efor", previousEstimate, item.estimate);
-    logWorkChange(item, "Planlanan dönem", previousTargetPeriod, item.targetPeriod);
-    logWorkChange(item, "Bağımlılıklar", previous.dependencies, item.dependsOnIds);
-    logWorkChange(item, "Ürün hedefi", previous.roadmapNodeId, roadmapNodeId);
-    logWorkChange(item, "Ürün aşaması", previous.productStage, productStage);
-    if (previous.releaseId !== releaseId) addWorkActivity(item, "release", "Release ataması değişti: " + (state.releases.find((entry) => entry.id === releaseId)?.name || "Yok"));
-    logWorkChange(item, "Açıklama", previous.description, item.description);
-    logWorkChange(item, "Kabul kriterleri", previous.acceptance, item.acceptance);
-    logWorkChange(item, "Ürün bileşenleri", previous.assetIds, item.assetIds);
-    logWorkChange(item, "Takım ve sorumlular", previous.assignments, assignmentResult.assignments);
-    item.updated = "Az önce";
-    save(); render(); openItem(id); toast("Backlog işi güncellendi.");
-  } else if (kind === "task") {
+  if (kind === "item") { openItem(id); return; }
+  if (kind === "task") {
     const task = state.tasks.find((entry) => entry.id === id); if (!task) return;
     task.title = String(values.get("title") || "").trim();
     task.due = String(values.get("due") || "").trim() || "Tarih belirlenmedi";
@@ -4634,10 +5112,8 @@ function toggleAssetActive(id: string): void {
 function moveBoardItem(itemId: string, nextStatus: WorkStatus): void {
   const item = itemById(itemId);
   if (!item || item.status === nextStatus) return;
-  if (!checkWipBeforeBoardMove(item, nextStatus)) return;
   if (nextStatus === "Bloke") { openStatusUpdateModal(item.id, nextStatus, true); return; }
-  applyWorkStatus(item, nextStatus, item.blocker);
-  logWipException(item, nextStatus);
+  if (!applyWorkStatus(item, nextStatus, item.blocker)) return;
   item.updated = "Az önce";
   if (!save()) return;
   render();
@@ -4957,7 +5433,7 @@ document.addEventListener("click", async (event) => {
     else if (command === "edit-note") openRecordEditor("note", id);
     else if (command === "note-to-task") {
       const note = state.notes.find((entry) => entry.id === id);
-      if (note) { state.tasks.unshift({ id: nextId("TASK"), title: note.title, due: "Tarih belirlenmedi", done: false, linked: note.linked, description: note.body, sourceNoteId: note.id }); save(); renderFocus(); toast("Not içeriği ve bağlantısı korunarak görev oluşturuldu."); }
+      if (note) { state.tasks.unshift({ id: nextId("TASK"), title: note.title, due: "Tarih belirlenmedi", done: false, linked: note.linked, description: note.body, sourceNoteId: note.id }); save(); refreshItemBackground(); syncWorkspaceToolbar(); toast("Not içeriği ve bağlantısı korunarak görev oluşturuldu."); }
     }
     else if (command === "delete-note") await deleteRecord("note", id);
     else if (command === "open-asset") openAsset(id);
@@ -4993,6 +5469,7 @@ document.addEventListener("click", async (event) => {
   if (sprintRow) { /* Keep sprint-scope rows available to native drag and drop. */ }
   const detailTab = target.closest<HTMLButtonElement>("[data-detail-tab]");
   if (detailTab) {
+    closeActionTooltip();
     const tabName = detailTab.dataset.detailTab;
     modalRoot.querySelectorAll<HTMLButtonElement>("[data-detail-tab]").forEach((button) => button.classList.toggle("selected", button === detailTab));
     modalRoot.querySelectorAll<HTMLElement>("[data-detail-tab-section]").forEach((section) => { section.hidden = section.dataset.detailTabSection !== tabName; });
@@ -5079,8 +5556,7 @@ document.addEventListener("click", async (event) => {
     const followUpAt = (document.getElementById("blocker-follow-up") as HTMLInputElement | null)?.value || "";
     const updateNote = (document.getElementById("status-update-note") as HTMLTextAreaElement | null)?.value.trim() || "";
     if (!item || (status === "Bloke" && (!reason || !nextStep || !expectedAction || !owner))) { toast("Bloke iş için neden, beklenen karar/iş, sonraki adım ve takip sahibini doldur."); return; }
-    applyWorkStatus(item, status, status === "Bloke" ? { reason, nextStep, expectedAction, owner, followUpAt } : item.blocker, updateNote);
-    logWipException(item, status);
+    if (!applyWorkStatus(item, status, status === "Bloke" ? { reason, nextStep, expectedAction, owner, followUpAt } : item.blocker, updateNote)) return;
     item.updated = "Az önce";
     const returnToBoard = statusUpdateReturnToBoard;
     statusUpdateReturnToBoard = false;
@@ -5089,7 +5565,7 @@ document.addEventListener("click", async (event) => {
     toast("İşin durumu güncellendi.");
     return;
   }
-  if (target.closest("[data-cancel-status-update]")) { pendingWipException = null; const returnToBoard = statusUpdateReturnToBoard; statusUpdateReturnToBoard = false; if (returnToBoard) closeModal(); else if (activeItemId) openItem(activeItemId); else closeModal(); return; }
+  if (target.closest("[data-cancel-status-update]")) { const returnToBoard = statusUpdateReturnToBoard; statusUpdateReturnToBoard = false; if (returnToBoard) closeModal(); else if (activeItemId) openItem(activeItemId); else closeModal(); return; }
   const picker = document.getElementById("new-assets-picker");
   if (picker && !picker.contains(target)) {
     picker.classList.remove("open");
@@ -5175,7 +5651,7 @@ document.addEventListener("click", async (event) => {
   }
   const overviewFilter = target.closest<HTMLElement>("[data-overview-filter]");
   if (overviewFilter?.dataset.overviewFilter) {
-    if (overviewFilter.dataset.overviewFilter === "tasks") { setView("focus"); return; }
+    if (overviewFilter.dataset.overviewFilter === "tasks") { openWorkspaceShelf("tasks"); return; }
     activeProjectId = null;
     backlogMode = "list";
     query = "";
@@ -5217,16 +5693,17 @@ document.addEventListener("click", async (event) => {
     }
     else if (action.dataset.action === "merge-item" && action.dataset.id) openMergeWorkItem(action.dataset.id);
     else if (action.dataset.action === "confirm-merge-item" && action.dataset.sourceId) confirmMergeWorkItem(action.dataset.sourceId);
+    else if (action.dataset.action === "linked-jira" && action.dataset.id) await openLinkedJira(action.dataset.id);
+    else if (action.dataset.action === "fetch-linked-jira" && action.dataset.id) await openLinkedJira(action.dataset.id, modalRoot.querySelector<HTMLInputElement>("#linked-jira-key")?.value.trim().toUpperCase());
+    else if (action.dataset.action === "apply-linked-jira") await applyLinkedJira();
+    else if (action.dataset.action === "work-template-editor") openWorkTemplateEditor();
+    else if (action.dataset.action === "board-load-more" && action.dataset.status) { boardDrawLimits[action.dataset.status] = (boardDrawLimits[action.dataset.status] || 40) + 40; updateBacklogRows(); }
+    else if (action.dataset.action === "attach-email-existing") await attachEmailToExisting();
+    else if (action.dataset.action === "open-diagnostics") await openDiagnostics();
+    else if (action.dataset.action === "export-diagnostics") { const report = modalRoot.querySelector<HTMLTextAreaElement>("#diagnostic-report")?.value; if (report) await desktop.exportUnreadableWorkspace(report); }
     else if (action.dataset.action === "apply-bulk-preview") applyBulkImpactPreview();
     else if (action.dataset.action === "restore-form-draft" && action.dataset.id) restoreFormDraft(action.dataset.id);
     else if (action.dataset.action === "discard-form-draft" && action.dataset.id) { state.formDrafts = (state.formDrafts || []).filter((entry) => entry.id !== action.dataset.id); save(); action.closest(".draft-recovery")?.remove(); toast("Taslak silindi."); }
-    else if (["open-notification", "snooze-notification", "read-notification", "done-notification"].includes(action.dataset.action || "") && action.dataset.id) {
-      const notice = state.notifications?.find((row) => row.id === action.dataset.id); if (!notice) return;
-      if (action.dataset.action === "snooze-notification") { const tomorrow = new Date(); tomorrow.setDate(tomorrow.getDate() + 1); notice.snoozedUntil = tomorrow.toISOString(); notice.state = "read"; save(); renderFocus(); toast("Hatırlatma yarına ertelendi."); }
-      else if (action.dataset.action === "read-notification") { notice.state = notice.state === "read" ? "unread" : "read"; save(); renderFocus(); }
-      else if (action.dataset.action === "done-notification") { notice.state = "done"; save(); renderFocus(); }
-      else { notice.state = "read"; save(); if (notice.type === "task") openTask(notice.recordId); else if (notice.type === "blocker") openItem(notice.recordId); else if (notice.type === "question") { setView("questions"); } else { setView("decisions"); openDecisionDetail(notice.recordId); } }
-    }
     else if (action.dataset.action === "open-workspace-settings") openWorkspaceSettings(action.dataset.settingsPanel);
     else if (action.dataset.action === "jira-refresh") await refreshJiraCatalog();
     else if (action.dataset.action === "jira-save-token") await saveJiraPat();
@@ -5242,26 +5719,17 @@ document.addEventListener("click", async (event) => {
     else if (action.dataset.action === "jira-open-issue" && action.dataset.issueKey && state.profile.jiraBaseUrl) {
       try { await desktop.jiraOpenIssue(state.profile.jiraBaseUrl, action.dataset.issueKey); } catch (error) { toast(error instanceof Error ? error.message : "Jira işi açılamadı."); }
     }
-    else if (action.dataset.action === "new") openQuickCreateModal(action.dataset.type);
+    else if (action.dataset.action === "new") { if (state.formDrafts?.length) openNewModal(action.dataset.type); else openQuickCreateModal(action.dataset.type); }
+    else if (action.dataset.action === "expand-create-form") { persistCurrentFormDraft(); openNewModal(); if (state.formDrafts?.[0]) restoreFormDraft(state.formDrafts[0].id); }
     else if (action.dataset.action === "add-related-record" && action.dataset.id) openRelatedRecordPicker(action.dataset.id);
-    else if (action.dataset.action === "remove-related-record" && action.dataset.id && action.dataset.linkId) { const item = itemById(action.dataset.id); if (item) { item.relatedRecords = (item.relatedRecords || []).filter((link) => link.id !== action.dataset.linkId); save(); openItem(item.id); } }
+    else if (action.dataset.action === "remove-related-record" && action.dataset.id && action.dataset.linkId) { const item = itemById(action.dataset.id); if (item) { item.relatedRecords = (item.relatedRecords || []).filter((link) => link.id !== action.dataset.linkId); save(); refreshItemDetail(item); } }
     else if (action.dataset.action === "open-related-record" && action.dataset.type && action.dataset.targetId) {
       const type = action.dataset.type as WorkRecordLink["type"]; const id = action.dataset.targetId;
       if (type === "item") openItem(id); else if (type === "asset") openAsset(id); else if (type === "release") openReleaseEditor(id); else if (type === "note") showNote(id); else if (type === "question") { setView("questions"); const question = state.openQuestions?.find((entry) => entry.id === id); if (question) openQuestionForm(id); } else { const risk = state.risks?.find((entry) => entry.id === id); if (risk) { const score = (risk.impact || 0) * (risk.probability || 0); const level = risk.manualLevel || (score >= 16 ? "Kritik" : score >= 10 ? "Yüksek" : score >= 5 ? "Orta" : "Düşük"); modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal"><header class="modal-header"><div><div class="panel-kicker">RİSK · ' + esc(level) + '</div><h2>' + esc(risk.title) + '</h2></div><button class="modal-close" data-close-modal>×</button></header><div class="settings-form"><div class="risk-score"><strong>' + score + '</strong><span>Etki ' + (risk.impact || "—") + ' × Olasılık ' + (risk.probability || "—") + '</span></div><p>' + esc(risk.description || "Açıklama yok") + '</p><h3>Azaltma aksiyonu</h3><p>' + esc(risk.mitigation || "Aksiyon tanımlanmadı") + '</p><div class="detail-property"><span>Gözden geçirme</span><strong>' + esc(risk.reviewAt || "Tarih yok") + '</strong></div>' + (risk.manualLevelReason ? '<p class="settings-note">Elle verilen seviye gerekçesi: ' + esc(risk.manualLevelReason) + '</p>' : '') + '</div></section></div>'; } }
     }
-    else if (action.dataset.action === "create-risk-for-item" && action.dataset.id) {
-      const item = itemById(action.dataset.id); if (!item) return;
-      const title = window.prompt("Risk başlığı"); if (!title?.trim()) return;
-      const impact = Math.min(5, Math.max(1, Number(window.prompt("Etki (1–5)", "3")) || 3)) as ProductRisk["impact"];
-      const probability = Math.min(5, Math.max(1, Number(window.prompt("Olasılık (1–5)", "3")) || 3)) as ProductRisk["probability"];
-      const risk: ProductRisk = { id: nextId("RISK"), title: title.trim(), description: window.prompt("Risk açıklaması (isteğe bağlı)")?.trim() || "", project: item.project, owner: window.prompt("Risk sahibi")?.trim() || state.profile.userName, status: "Açık", updatedAt: new Date().toISOString(), impact, probability, mitigation: window.prompt("Azaltma aksiyonu")?.trim() || "", reviewAt: window.prompt("Gözden geçirme tarihi (YYYY-AA-GG)")?.trim() || "", workItemIds: [item.id] };
-      state.risks ||= []; state.risks.push(risk); item.relatedRecords ||= []; item.relatedRecords.push({ id: nextId("LINK"), type: "risk", targetId: risk.id, label: relatedRecordLabel("risk", risk.id) });
-      save(); closeModal(); openItem(item.id); toast("Risk oluşturuldu ve işe bağlandı.");
-    }
-else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
-      const type = action.dataset.type as "item" | "task"; const select = document.getElementById(type === "item" ? "daily-add-item" : "daily-add-task") as HTMLSelectElement | null;
-      if (select?.value) { const plan = getDailyPlan(); if (!plan.entries.some((entry) => entry.type === type && entry.id === select.value)) plan.entries.push({ type, id: select.value }); save(); renderDailyPlan(); }
-    }
+    else if (action.dataset.action === "create-risk-for-item" && action.dataset.id) openRiskEditor(undefined, action.dataset.id);
+    else if (action.dataset.action === "edit-risk" && action.dataset.id) openRiskEditor(action.dataset.id);
+    else if (action.dataset.action === "risk-center") openRiskCenter();
     else if (action.dataset.action === "remove-daily-entry" && action.dataset.type && action.dataset.id) {
       const plan = getDailyPlan(); plan.entries = plan.entries.filter((entry) => entry.type !== action.dataset.type || entry.id !== action.dataset.id); save(); renderDailyPlan();
     }
@@ -5338,7 +5806,7 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
     else if (action.dataset.action === "save-sprint-carryover" && action.dataset.sprintId) {
       const before = structuredClone(state.items);
       const closingSprint = state.sprints.find((sprint) => sprint.id === action.dataset.sprintId);
-      if (closingSprint) { const sprintItems = state.items.filter((item) => item.sprintId === closingSprint.id); closingSprint.closingSnapshot = { done: sprintItems.filter((item) => item.status === "Tamamlandı").map(({ id, title, status }) => ({ id, title, status })), carryover: sprintItems.filter((item) => item.status !== "Tamamlandı").map(({ id, title, status }) => ({ id, title, status })), blocked: sprintItems.filter((item) => item.status === "Bloke").map(({ id, title, status }) => ({ id, title, status })) }; closingSprint.closedAt ||= new Date().toISOString(); }
+      if (closingSprint) { const sprintItems = state.items.filter((item) => item.sprintId === closingSprint.id); closingSprint.closingSnapshot ||= { done: sprintItems.filter((item) => item.status === "Tamamlandı").map(({ id, title, status }) => ({ id, title, status })), carryover: sprintItems.filter((item) => item.status !== "Tamamlandı").map(({ id, title, status }) => ({ id, title, status })), blocked: sprintItems.filter((item) => item.status === "Bloke").map(({ id, title, status }) => ({ id, title, status })) }; closingSprint.closedAt ||= new Date().toISOString(); }
       modalRoot.querySelectorAll<HTMLSelectElement>("[data-carryover-item]").forEach((select) => {
         const item = itemById(select.dataset.carryoverItem || ""); if (!item) return;
         const oldSprint = state.sprints.find((sprint) => sprint.id === item.sprintId);
@@ -5394,10 +5862,10 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
       const note = state.notes.find((entry) => entry.id === action.dataset.id);
       if (!note) return;
       state.tasks.unshift({ id: nextId("TASK"), title: note.title, due: "Tarih belirlenmedi", done: false, linked: note.linked, description: note.body, sourceNoteId: note.id });
-      save(); renderFocus(); toast("Not içeriği ve bağlantısı korunarak görev oluşturuldu.");
+      save(); refreshItemBackground(); syncWorkspaceToolbar(); toast("Not içeriği ve bağlantısı korunarak görev oluşturuldu.");
     }
     else if (action.dataset.action === "clear-backlog-filters") {
-      query = ""; backlogStatus = ""; backlogType = ""; labelFilter = ""; teamFilterId = ""; assigneeFilter = ""; backlogSprintId = ""; backlogIncludeCompleted = false; backlogOverdueOnly = false; backlogStatusAgeMinDays = 0; backlogStatuses = []; backlogPriorities = []; backlogDateFrom = ""; backlogDateTo = ""; backlogNoEstimate = false; backlogConditionMode = "and";
+      query = ""; backlogStatus = ""; backlogType = ""; labelFilter = ""; teamFilterId = ""; assigneeFilter = ""; backlogSprintId = ""; backlogIncludeCompleted = false; backlogOverdueOnly = false; backlogStatusAgeMinDays = 0; backlogStatuses = []; backlogPriorities = []; backlogDateFrom = ""; backlogDateTo = ""; backlogNoEstimate = false; backlogOverdueCondition = false; backlogConditionMode = "and";
       renderBacklog();
     }
     else if (action.dataset.action === "toggle-title-wrap") {
@@ -5534,13 +6002,11 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
       save(); renderBacklog(); toastUndo(selected.length + " işin etiketleri güncellendi.", before);
     }
     else if (action.dataset.action === "bulk-remove-sprint") {
-      const selected = getSelectedBacklogItems();
-      const assigned = selected.filter((item) => item.sprintId);
-      if (!assigned.length) { toast("Seçili işlerin sprint ataması yok."); return; }
-      if (!window.confirm(assigned.length + " iş sprintten çıkarılsın mı?")) return;
-      const before = structuredClone(assigned);
-      assigned.forEach((item) => { const sprint = state.sprints.find((entry) => entry.id === item.sprintId); item.sprintId = undefined; item.updated = "Az önce"; addWorkActivity(item, "change", (sprint?.name || "Sprint") + " sprintinden çıkarıldı."); });
-      save(); renderBacklog(); toastUndo(assigned.length + " iş sprintten çıkarıldı.", before);
+      const items = getSelectedBacklogItems().filter((item) => item.sprintId);
+      if (!items.length) { toast("Seçili işlerin sprint ataması yok."); return; }
+      const before = structuredClone(items);
+      items.forEach((item) => { item.sprintId = undefined; item.sprintOrder = undefined; addWorkActivity(item, "change", "Sprint kapsamından çıkarıldı."); });
+      save(); renderBacklog(); toastUndo(items.length + " iş sprintten çıkarıldı.", before);
     }
     else if (action.dataset.action === "backup-export") await exportWorkspaceBackup();
     else if (action.dataset.action === "backup-auto-now") await createAutomaticBackup(true);
@@ -5627,7 +6093,7 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
   if (open?.dataset.openItem && !open.classList.contains("detail-modal")) {
     const backlogRow = target.closest<HTMLTableRowElement>("tr[data-open-item]");
     if (backlogRow && open === backlogRow && !target.closest(".backlog-title-open")) return;
-    openItem(open.dataset.openItem); return;
+    openItem(open.dataset.openItem, open.dataset.detailNav === "previous" ? "previous" : open.dataset.detailNav === "next" ? "next" : undefined); return;
   }
   const openAssetButton = target.closest<HTMLElement>("[data-open-asset]");
   if (openAssetButton?.dataset.openAsset) { openAsset(openAssetButton.dataset.openAsset); return; }
@@ -5638,7 +6104,7 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
   const toggle = target.closest<HTMLElement>("[data-toggle-task]");
   if (toggle?.dataset.toggleTask) { toggleTask(toggle.dataset.toggleTask); return; }
   const close = target.closest<HTMLElement>("[data-close-modal]");
-  if (close && (close === target || close.classList.contains("modal-close"))) { if (modalRoot.querySelector("#new-form")) { state.formDrafts = []; save(); } closeModal(); return; }
+  if (close && (close === target || close.classList.contains("modal-close"))) { if (modalRoot.querySelector("#new-form, #quick-create-form")) { state.formDrafts = []; save(); } closeModal(); return; }
   const pick = target.closest<HTMLElement>("[data-pick-files]");
   if (pick) { await pickFiles(); return; }
   const remove = target.closest<HTMLElement>("[data-remove-draft]");
@@ -5654,7 +6120,7 @@ else if (action.dataset.action === "add-daily-entry" && action.dataset.type) {
       if (file?.storedName && desktop) await desktop.removeAttachment(file.storedName);
       if (ownerType === "item" && file) addWorkActivity(owner as WorkItem, "attachment", "Dosya eki kaldırıldı: " + file.name);
       save();
-      if (ownerType === "item") { render(); openItem(ownerId); }
+      if (ownerType === "item") { render(); const item = itemById(ownerId); if (item) refreshItemDetail(item); }
       else if (ownerType === "note") showNote(ownerId);
       else openTask(ownerId);
       toast("Dosya eki kaldırıldı.");
@@ -5757,7 +6223,7 @@ document.addEventListener("input", (event) => {
     root.querySelectorAll<HTMLElement>(".team-member-card[data-member-name]").forEach((card) => { card.hidden = !card.dataset.memberName?.includes(query); });
     return;
   }
-  if (!(target instanceof HTMLTextAreaElement) || !target.matches('#new-form textarea, #edit-item-form textarea')) return;
+  if (!(target instanceof HTMLTextAreaElement) || !target.matches('#new-form textarea, .detail-inline-editor textarea')) return;
   target.style.height = "auto";
   target.style.height = Math.min(target.scrollHeight, 520) + "px";
 });
@@ -5779,26 +6245,14 @@ document.addEventListener("change", (event) => {
     backlogDateFrom = root.querySelector<HTMLInputElement>("#advanced-date-from")?.value || "";
     backlogDateTo = root.querySelector<HTMLInputElement>("#advanced-date-to")?.value || "";
     backlogNoEstimate = Boolean(root.querySelector<HTMLInputElement>("#advanced-no-estimate")?.checked);
+    backlogOverdueCondition = Boolean(root.querySelector<HTMLInputElement>("#advanced-overdue")?.checked);
     updateBacklogRows(); return;
-  }
-  if (event.target instanceof HTMLInputElement && event.target.dataset.wipStatus) {
-    const status = event.target.dataset.wipStatus as WorkStatus;
-    const key = wipScope().key + "::" + status;
-    state.wipLimits ||= {};
-    if (event.target.value.trim() === "") delete state.wipLimits[key];
-    else {
-      const value = Number(event.target.value);
-      if (!Number.isInteger(value) || value < 0 || value > 999) { event.target.setCustomValidity("0 ile 999 arasında bir tam sayı girin."); event.target.reportValidity(); return; }
-      state.wipLimits[key] = value;
-    }
-    event.target.setCustomValidity("");
-    if (save()) updateBacklogRows();
-    return;
   }
   if (event.target instanceof HTMLSelectElement && event.target.dataset.boardMove && event.target.value) { moveBoardItem(event.target.dataset.boardMove, event.target.value as WorkStatus); return; }
   if (event.target instanceof HTMLInputElement && event.target.id === "backlog-status-age-min") { backlogStatusAgeMinDays = Math.min(3650, Math.max(0, Number(event.target.value) || 0)); updateBacklogRows(); return; }
   if (event.target instanceof HTMLTextAreaElement && event.target.id === "daily-plan-note") { getDailyPlan().note = event.target.value.trim(); save(); return; }
-  if (event.target instanceof HTMLInputElement && event.target.id === "daily-focus-budget") { getDailyPlan().focusBudgetMinutes = Math.max(0, Number(event.target.value) || 0); save(); renderDailyPlan(); return; }
+  if (event.target instanceof HTMLInputElement && event.target.id === "risk-overdue-only") { openRiskCenter(event.target.checked); return; }
+  if (event.target instanceof HTMLInputElement && event.target.id === "import-header") { importHasHeader = event.target.checked; renderExcelImport(); return; }
   if (event.target instanceof HTMLInputElement && event.target.dataset.dailyDuration) { const [type, id] = event.target.dataset.dailyDuration.split("::"); const entry = getDailyPlan().entries.find((row) => row.type === type && row.id === id); if (entry) { entry.estimatedMinutes = Math.max(0, Number(event.target.value) || 0); save(); renderDailyPlan(); } return; }
   if (event.target instanceof HTMLSelectElement) {
     const select = event.target;
@@ -5807,13 +6261,13 @@ document.addEventListener("change", (event) => {
       if (source && target && host) { const rows = [["Başlık", source.title, target.title], ["Durum", source.status, target.status], ["Öncelik", source.priority, target.priority], ["Proje", source.project, target.project], ["Ek", String(source.attachments?.length || 0), String(target.attachments?.length || 0)]]; host.innerHTML = '<table><thead><tr><th>Alan</th><th>Birleşecek kayıt</th><th>Ana kayıt</th></tr></thead><tbody>' + rows.map(([label, left, right]) => '<tr class="' + (left === right ? "same" : "changed") + '"><th>' + esc(label) + '</th><td>' + esc(left) + '</td><td>' + esc(right) + '</td></tr>').join("") + '</tbody></table>'; }
       return;
     }
-    if (event.target.id === "board-lane") { boardLane = event.target.value as typeof boardLane; updateBacklogRows(); return; }
     if (select.id === "new-work-template") {
       const template = state.workTemplates?.find((entry) => entry.id === select.value);
       if (template) {
         (document.getElementById("new-item-type") as HTMLSelectElement).value = template.type;
         (document.getElementById("new-priority") as HTMLSelectElement).value = template.priority;
         (document.getElementById("new-description") as HTMLTextAreaElement).value = template.description;
+        (document.getElementById("new-labels") as HTMLInputElement).value = template.labels.join(", ");
         (document.getElementById("new-acceptance") as HTMLTextAreaElement).value = template.acceptance.join("\n");
         updateNewForm(); scheduleFormDraftSave(); toast("İş şablonu uygulandı; tüm alanları değiştirebilirsin.");
       }
@@ -5887,50 +6341,19 @@ document.addEventListener("change", (event) => {
     return;
   }
   if (target.id === "backlog-secondary-info") { backlogSecondaryInfo = target.value as BacklogSecondaryInfo; localStorage.setItem(BACKLOG_SECONDARY_INFO_KEY, backlogSecondaryInfo); updateBacklogRows(); return; }
-  if (target.id === "bulk-status" && target.value) {
-    openBulkImpactPreview("status", target.value); target.value = ""; return;
-    const selectedItems = getSelectedBacklogItems();
-    if (!selectedItems.length) { toast("Önce backlog işlerini seç."); renderBacklog(); return; }
-    if (!window.confirm(selectedItems.length + " işin durumu '" + target.value + "' olarak değiştirilsin mi?")) { target.value = ""; return; }
-    const before = structuredClone(selectedItems);
-    selectedItems.forEach((item) => { applyWorkStatus(item, target.value as WorkItem["status"], item.blocker); item.updated = "Az önce"; });
-    save(); renderBacklog(); toastUndo(selectedItems.length + " işin durumu güncellendi.", before); return;
+  if (target.id === "merge-target") {
+    const sourceId = modalRoot.querySelector<HTMLElement>('[data-action="confirm-merge-item"]')?.dataset.sourceId;
+    const source = itemById(sourceId || ""); const destination = itemById(target.value); const host = document.getElementById("merge-diff");
+    if (source && destination && host) host.innerHTML = '<div class="bulk-preview-scroll"><table><thead><tr><th>Alan</th><th>Arşivlenecek iş</th><th>Korunacak ana iş</th></tr></thead><tbody>' + (["title", "description", "status", "priority", "project"] as const).map((key) => '<tr><th>' + ({ title: "Başlık", description: "Açıklama", status: "Durum", priority: "Öncelik", project: "Proje" })[key] + '</th><td>' + esc(source[key]) + '</td><td>' + esc(destination[key]) + '</td></tr>').join("") + '</tbody></table></div><p class="settings-note">' + source.attachments.length + ' ek ve ' + (source.activity || []).length + ' aktivite ana işe taşınır. Ana işin başlık ve durum alanları korunur.</p>';
+    return;
   }
-  if (target.id === "bulk-assignment" && target.value) {
-    openBulkImpactPreview("assignment", target.value); target.value = ""; return;
-    const selectedItems = getSelectedBacklogItems();
-    const [teamId, member] = target.value.split("::");
-    if (!selectedItems.length || !state.teams.find((team) => team.id === teamId)?.members.includes(member)) { renderBacklog(); return; }
-    if (!window.confirm(member + " seçili " + selectedItems.length + " işe atansın mı?")) { target.value = ""; return; }
-    const before = structuredClone(selectedItems);
-    selectedItems.forEach((item) => {
-      const assignments = getWorkAssignments(item);
-      if (!assignments.some((assignment) => assignment.teamId === teamId && assignment.member === member)) assignments.push({ teamId, member });
-      item.assignments = assignments; syncLegacyAssignmentFields(item); item.updated = "Az önce";
-      addWorkActivity(item, "change", "Toplu atama: " + member + " · " + (state.teams.find((team) => team.id === teamId)?.name || "Takım"));
-    });
-    save(); renderBacklog(); toastUndo(member + " " + selectedItems.length + " işe atandı.", before); return;
-  }
-  if (target.id === "bulk-project" && target.value) {
-    openBulkImpactPreview("project", target.value); target.value = ""; return;
-    const selectedItems = getSelectedBacklogItems();
-    if (!selectedItems.length) return;
-    const projectName = target.value;
-    if (!window.confirm(selectedItems.length + " işi '" + projectName + "' projesine taşı? Projeye özgü release ve sprint atamaları kaldırılır.")) { target.value = ""; return; }
-    const before = structuredClone(selectedItems);
-    selectedItems.forEach((item) => { const oldProject = item.project; item.project = projectName; item.releaseId = undefined; item.sprintId = undefined; item.updated = "Az önce"; addWorkActivity(item, "change", "Proje: " + oldProject + " → " + projectName + "; proje kapsamı dışındaki release/sprint bağlantıları temizlendi."); });
-    save(); renderBacklog(); toastUndo(selectedItems.length + " iş taşındı.", before); return;
-  }
-  if (target.id === "bulk-release" && target.value) {
-    openBulkImpactPreview("release", target.value); target.value = ""; return;
-    const selectedItems = getSelectedBacklogItems();
-    const releaseId = target.value === "__none" ? "" : target.value;
-    const release = releaseId ? state.releases.find((entry) => entry.id === releaseId && selectedItems.every((item) => item.project === entry.project)) : undefined;
-    if (!selectedItems.length || (releaseId && !release)) { toast("Seçili işler aynı release projesinde olmalı."); renderBacklog(); return; }
-    const before = structuredClone(selectedItems);
-    selectedItems.forEach((item) => { const previous = state.releases.find((entry) => entry.id === item.releaseId); item.releaseId = releaseId || undefined; item.updated = "Az önce"; addWorkActivity(item, "release", release ? '"' + release.name + '" kapsamına toplu eklendi.' : (previous?.name || "Release") + " kapsamından toplu çıkarıldı."); });
-    save(); renderBacklog(); toastUndo(selectedItems.length + (release ? " iş release kapsamına alındı." : " iş release kapsamından çıkarıldı."), before); return;
-  }
+  if (target.id === "bulk-assignment-mode") { refreshBulkAssignmentPreview(); return; }
+  if (target.id === "import-sheet") { importSheetIndex = Number(target.value); initializeImportMapping(); renderExcelImport(); return; }
+  if (target.dataset.importMap) { importMapping[target.dataset.importMap] = Number(target.value); renderExcelImport(); return; }
+  if (target.id === "bulk-status" && target.value) { openBulkImpactPreview("status", target.value); target.value = ""; return; }
+  if (target.id === "bulk-assignment" && target.value) { openBulkImpactPreview("assignment", target.value); target.value = ""; return; }
+  if (target.id === "bulk-project" && target.value) { openBulkImpactPreview("project", target.value); target.value = ""; return; }
+  if (target.id === "bulk-release" && target.value) { openBulkImpactPreview("release", target.value); target.value = ""; return; }
   if (target.id === "question-filter") { questionFilter = target.value as typeof questionFilter; renderOpenQuestions(); return; }
   if (target.id === "team-filter-start") { teamPlanFilters.startFrom = target.value; renderTeamDashboard(); }
   if (target.id === "team-filter-target") { teamPlanFilters.targetTo = target.value; renderTeamDashboard(); }
@@ -5963,7 +6386,7 @@ document.addEventListener("change", (event) => {
       if (files.length) addWorkActivity(item, "attachment", files.length + " dosya eki eklendi: " + files.map((file) => file.name).join(", "));
       save();
       render();
-      openItem(activeItemId);
+      refreshItemDetail(item);
     } else if (target.id === "task-file-fallback" && target.dataset.taskId) {
       const task = state.tasks.find((entry) => entry.id === target.dataset.taskId);
       if (!task) return;
@@ -5990,7 +6413,7 @@ document.addEventListener("change", (event) => {
 
 document.addEventListener("input", (event) => {
   const target = event.target as HTMLInputElement;
-  if (target.closest?.("#new-form")) scheduleFormDraftSave();
+  if (target.closest?.("#new-form, #quick-create-form")) scheduleFormDraftSave();
   if (target.dataset?.inlineInsertTitle !== undefined) { target.setCustomValidity(""); return; }
   if (target.matches("[data-assignment-member]")) {
     const row = target.closest<HTMLElement>(".assignment-edit-row");
@@ -6012,7 +6435,7 @@ document.addEventListener("input", (event) => {
     target.setAttribute("aria-expanded", "true");
     return;
   }
-  if (target.id === "backlog-search") { query = target.value; rememberRecentBacklogFilter(); updateBacklogRows(); }
+  if (target.id === "backlog-search") { query = target.value; window.clearTimeout(backlogSearchTimer); backlogSearchTimer = window.setTimeout(() => { rememberRecentBacklogFilter(); updateBacklogRows(); }, 120); }
   if (target.id === "asset-search") { assetQuery = target.value; updateAssetGrid(); }
   if (target.id === "global-search") {
     renderGlobalSearch();
@@ -6077,6 +6500,8 @@ document.addEventListener("submit", (event) => {
     toast("İlişki etiketi güncellendi.");
     return;
   }
+  if (formId === "risk-form") { event.preventDefault(); const values = new FormData(event.target as HTMLFormElement); const value = (name: string) => String(values.get(name) || "").trim(); if (!value("title") || !value("owner") || value("manualLevel") && !value("manualLevelReason")) { toast("Başlık, sahip ve elle seviye için gerekçe gerekli."); return; } state.risks ||= []; const existing = state.risks.find((risk) => risk.id === value("id")); const risk: ProductRisk = { ...existing, id: existing?.id || nextId("RISK"), title: value("title"), description: value("description"), project: value("project"), owner: value("owner"), status: value("status") as ProductRisk["status"], impact: Number(value("impact")) as ProductRisk["impact"], probability: Number(value("probability")) as ProductRisk["probability"], mitigation: value("mitigation"), reviewAt: value("reviewAt"), manualLevel: value("manualLevel") as ProductRisk["manualLevel"] || undefined, manualLevelReason: value("manualLevelReason"), releaseIds: value("releaseId") ? [value("releaseId")] : [], workItemIds: existing?.workItemIds || (value("itemId") ? [value("itemId")] : []), updatedAt: new Date().toISOString() }; if (existing) Object.assign(existing, risk); else state.risks.push(risk); const item = itemById(value("itemId")); if (item) { item.relatedRecords ||= []; item.relatedRecords.push({ id: nextId("LINK"), type: "risk", targetId: risk.id }); } save(); openRiskCenter(); }
+  if (formId === "work-template-form") { event.preventDefault(); const values = new FormData(event.target as HTMLFormElement); state.workTemplates ||= []; state.workTemplates.push({ id: nextId("WTPL"), name: String(values.get("name")).trim(), type: String(values.get("type")) as WorkType, priority: String(values.get("priority")) as Priority, description: String(values.get("description") || ""), acceptance: String(values.get("acceptance") || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean), labels: String(values.get("labels") || "").split(",").map((line) => line.trim()).filter(Boolean) }); save(); openWorkspaceSettings("work"); toast("İş şablonu kaydedildi."); }
   if (formId === "new-form") saveNewRecord(event as SubmitEvent);
   if (formId === "workspace-form") saveWorkspaceSettings(event as SubmitEvent);
   if (formId === "project-form") saveProjectSettings(event as SubmitEvent);
@@ -6085,7 +6510,6 @@ document.addEventListener("submit", (event) => {
   if (formId === "setup-form") saveSetup(event as SubmitEvent);
   if (formId === "roadmap-form") saveRoadmapNode(event as SubmitEvent);
   if (formId === "release-form") saveRelease(event as SubmitEvent);
-  if (formId === "edit-item-form") saveEditedRecord(event as SubmitEvent, "item");
   if (formId === "edit-task-form") saveEditedRecord(event as SubmitEvent, "task");
   if (formId === "edit-note-form") saveEditedRecord(event as SubmitEvent, "note");
 });
@@ -6168,7 +6592,7 @@ window.addEventListener("drop", async (event) => {
       const email = await desktop.parseDroppedEmail(emailFiles);
       const fingerprint = await droppedEmailFingerprint(email.subject, email.from, email.to, email.date, email.body);
       const existingEmailRecord = [...state.items, ...state.tasks, ...state.notes].find((record) => record.sourceEmail?.fingerprint === fingerprint);
-      if (existingEmailRecord && !window.confirm('Bu e-postadan daha önce "' + existingEmailRecord.title + '" kaydı oluşturulmuş. Yine de yeni kayıt açmak istiyor musun?')) return;
+      if (existingEmailRecord) toast("Bu e-posta daha önce alındı: " + existingEmailRecord.title + ". Hedef kaydı kontrol et.");
       const rememberedKind = localStorage.getItem("rota-email-create-kind") || "Backlog işi";
       const rememberedProject = localStorage.getItem("rota-email-create-project") || "";
       openNewModal(rememberedKind);
@@ -6190,6 +6614,8 @@ window.addEventListener("drop", async (event) => {
       pendingDroppedEmailSource = { name: email.originalEmail.name, from: email.from, date: email.date, fingerprint };
       renderDraftFiles();
       renderEmailAttachmentChoices();
+      renderEmailDestination();
+      persistCurrentFormDraft();
       toast(cleanBody ? "E-posta önizlemesi hazır. Başlığı, kayıt türünü ve proje seçimini kontrol edip kaydet." : "E-posta gövdesi boş görünüyor. Başlık ve gönderen bilgisini kontrol et.");
     } catch (error) {
       toast(error instanceof Error ? error.message : "E-posta içe aktarılamadı.");
@@ -6278,9 +6704,10 @@ function updateNavIndicator(): void {
   const rect = active.getBoundingClientRect();
   const first = !pill.classList.contains("visible");
   if (first) pill.style.transition = "none";
-  pill.style.transform = "translate(" + (rect.left - navRect.left) + "px, " + (rect.top - navRect.top) + "px)";
-  pill.style.width = rect.width + "px";
-  pill.style.height = rect.height + "px";
+  // DOM rectangles include CSS zoom; the pill's CSS coordinates do not.
+  pill.style.transform = "translate(" + ((rect.left - navRect.left) / appZoom) + "px, " + ((rect.top - navRect.top) / appZoom) + "px)";
+  pill.style.width = rect.width / appZoom + "px";
+  pill.style.height = rect.height / appZoom + "px";
   if (first) pill.classList.add("visible");
   if (first) { void pill.offsetWidth; pill.style.transition = ""; }
 }
@@ -6294,7 +6721,7 @@ function trackNavIndicator(duration = 0): void {
 }
 
 function sidebarCustomizerBody(): string {
-  const groupTitles: Record<string, string> = { product: "Proje takip", personal: "Kişisel çalışma" };
+  const groupTitles: Record<string, string> = { product: "Proje takip", personal: "Çalışma akışı" };
   const groups = Object.entries(sidebarLayout.order).map(([group, views]) => '<section class="sidebar-custom-group"><h3>' + esc(groupTitles[group] || group) + '</h3><div class="sidebar-custom-list" data-sidebar-group="' + esc(group) + '">' + views.map((view, index) => {
     const visible = !sidebarLayout.hidden.includes(view);
     const iconMarkup = document.querySelector('.nav-item[data-view="' + view + '"] .nav-icon')?.innerHTML || "";
@@ -6570,6 +6997,7 @@ function toggleTheme(): void {
 syncThemeToggle();
 
 initSidebarCustomization();
+initWorkspaceToolbar();
 
 render();
 showWorkspaceRecovery();
@@ -6580,3 +7008,5 @@ window.setInterval(() => { void createAutomaticBackup(); }, 60 * 60_000);
 if (!hasStoredWorkspace) openSetupWizard(true);
 
 
+
+window.addEventListener("beforeunload", () => { window.clearTimeout(formDraftTimer); persistCurrentFormDraft(); });

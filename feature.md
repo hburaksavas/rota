@@ -11,7 +11,7 @@ Bu belge mevcut kaynak kod, veri modelleri ve ürün kararları incelenerek haz�
 | ROTA-IDEA-010 | Uygulandı: backlog altındaki sabit saat, iş aktivitesinden hesaplanan tarihle değiştirildi. | `npm run build` geçti. |
 | ROTA-IDEA-015 | Uygulandı: yeni işlerin durum başlangıcı ve sonraki geçişleri saklanıyor; Liste kolonunda, Board kartında ve eşik filtresinde durum süresi görünüyor. Eski kayıtların bilinmeyen başlangıcı tahmin edilmiyor. | Edge üzerinde yeni işin durum başlangıcının saklandığı doğrulandı; `npm run build` geçti. |
 | ROTA-IDEA-004 | Uygulandı: ortak dialog davranışı ilk alanı odaklıyor, Tab ve Shift+Tab odağını dialog içinde tutuyor, kapanınca açan düğmeye dönüyor. | Edge üzerinde açılış, ters Tab çevrimi ve Esc sonrası odak dönüşü doğrulandı; `npm run build` geçti. |
-| ROTA-IDEA-026 | Uygulandı: dashboard'daki altı özet kartı ilgili backlog veya kişisel alan görünümünü açıyor. Geciken ve atanmamış iş filtreleri görünür, temizlenebilir ve kayıtlı görünümde saklanır. | Edge üzerinde Hazır, geciken ve atanmamış filtreleri doğrulandı; `npm run build` geçti. |
+| ROTA-IDEA-026 | Uygulandı: dashboard'daki altı özet kartı ilgili backlog listesini veya çalışma alanı görev panelini açıyor. Geciken ve atanmamış iş filtreleri görünür, temizlenebilir ve kayıtlı görünümde saklanır. | Edge üzerinde Hazır, geciken ve atanmamış filtreleri doğrulandı; `npm run build` geçti. |
 | ROTA-IDEA-025 | Uygulandı: haftalık özette proje ve hafta seçimi, iş/release kaynağına bağlantı ve proje bazlı PO notu var. Hafta hesabı yerel takvime göre düzeltilmiştir. | Edge üzerinde proje filtresi ve iş kaynağına geçiş doğrulandı; `npm run build` geçti. |
 | ROTA-IDEA-030 | Uygulandı: karar detayında iki sürüm seçilip değişen alanlar önce/sonra karşılaştırılıyor; yalnızca boşluk düzeni değişikliği işaretleniyor. | Edge üzerinde örnek kararın iki alan farkı doğrulandı; `npm run build` geçti. |
 | ROTA-IDEA-034 | Uygulandı: Jira sonuçları sayfalanıyor, alınan/toplam sayı ve son başarılı sorgu zamanı gösteriliyor; sayfa hatasında önceki sonuçlar korunuyor. | Edge üzerinde sahte Jira yanıtlarıyla iki sayfa yüklendi; `npm run build` ve host sözdizimi kontrolü geçti. Canlı Jira doğrulaması bekliyor. |
@@ -24,11 +24,36 @@ Bu belge mevcut kaynak kod, veri modelleri ve ürün kararları incelenerek haz�
 | ROTA-IDEA-022 | Uygulandı: Ctrl+K arama/komut alanını açıyor; ok tuşları ve Enter ile yeni iş, görev, karar komutları ve kayıtlı görünümler çalıştırılabiliyor. | Edge üzerinde Türkçe “yeni backlog” komutuyla form açılışı doğrulandı; `npm run build` geçti. |
 | ROTA-IDEA-002 | Uygulandı: Liste dar pencerede sığmayan düşük öncelikli kolonları otomatik gizliyor ve gizlenen kolonları araç çubuğunda adlarıyla belirtiyor; pencere genişleyince kolonlar geri geliyor. | Edge üzerinde 1024×768 ve 1366×768 boyutlarında yatay kaydırma olmadığı, arama, seçim ve satır eylemlerinin erişilebilir olduğu doğrulandı; `npm run build` geçti. |
 | ROTA-IDEA-001 | Uygulandı: başlık, form, tablo ve tooltip metin rolleri ortak boyut ve satır yüksekliği değişkenlerini kullanıyor. %125 yakınlaştırma ayarlarda seçilebilir; pencere ve dialog yükseklikleri ölçeğe göre sığıyor. | Edge üzerinde 1024×768 ve 1366×768 boyutlarında %100/%125 ölçümleri, yatay kaydırmasız liste ve %125 ölçekte görünür yeni iş formu doğrulandı; `npm run build` geçti. |
-| ROTA-IDEA-011 | Uygulandı: Board sütunlarında takım kapsamına göre saklanan WIP sınırı, aşıldı işareti ve taşıma öncesi gerekçeli istisna var; mevcut kartlar korunuyor. | Edge üzerinde sıfır sınırda iptal/izin, gerekçenin iş geçmişine kaydı ve aşılmış sütun işareti doğrulandı; `npm run build` geçti. |
+| ROTA-IDEA-011 | Kaldırıldı: WIP sınırı, aşım göstergesi ve istisna akışı kullanıcı kararıyla kaldırıldı. | 4 Kasım 2026 kullanıcı kararı; eski kayıt alanları veri kaybı olmadan korunur. |
 | ROTA-IDEA-010.1 | Uygulandı: Liste satırlarının arasındaki + eylemi yalnızca ilgili iş hover/odak aldığında, son işin altındaki ise sürekli görünür. Eylem sol kolon çizgisi üzerinde açılır; kompakt başlık alanında kaydet/iptal kontrolleri girdinin yanında kalır. Kayıt ilgili satırdan sonra Task olarak eklenir, Esc ve × iptal eder. | Edge üzerinde ara/son satır görünürlüğü, sol çizgi hizası, kontrol yakınlığı ve yatay taşma olmadığı doğrulandı; `npm run build` geçti. |
 | ROTA-IDEA-003 | Uygulandı: ikon eylemleri ortak SVG boyut ve çizgi diline taşındı; oluşturma, düzenleme, silme, arşivleme, geri alma ve dialog eylemleri tutarlılaştırıldı. Açıklayıcı Türkçe tooltip fareyle ve klavye odağıyla ekran sınırları içinde açılıyor. | Edge üzerinde ortak ikonlar ile klavye odağındaki tooltip ve erişilebilir açıklama ilişkisi doğrulandı; `npm run build` geçti. |
 
-Diğer öneriler bekliyor. `npm run test:acceptance`, WebView2 test penceresine bağlanamadığından senaryolara başlamadan durdu.
+| ROTA-IDEA-005 | Uygulama eklendi/tamamlandı: Yüksek kontrastta tema değişkenleri, odak, seçim ve devre dışı eylemler bütünleştirildi; yeni akışlar mevcut yüzey/renk değişkenlerini kullanır. | `npm run build` ve hedefli tarayıcı testleri; ayrıntılar doğrulama notunda. |
+| ROTA-IDEA-006 | Güncellendi: Tek sütunlu iş detayı sayfa ortasında açılır; alanlar aynı panelde satır içi kaydedilir. Ayrı iş düzenleme formu kaldırıldı. | 4 Kasım 2026; panel kimliği, sekme, taslak ve hata/iptal akışları hedefli testlerle doğrulandı. |
+| ROTA-IDEA-008 | Uygulama eklendi/tamamlandı: Çoklu durum/öncelik, hedef tarih aralığı, tahminsiz/geciken koşulu ve VE/VEYA ilişkisi kayıtlı görünüme eklenir; atama kapsamı ayrı tutulur. | `npm run build` ve hedefli tarayıcı testleri; ayrıntılar doğrulama notunda. |
+| ROTA-IDEA-009 | Uygulama eklendi/tamamlandı: Önce/sonra ve değişen/atlanan kapsamı gösterilir; çoklu atamada ekle/değiştir/kaldır, uyumsuz release ve eksik blokaj kontrolü, geri alma vardır. | `npm run build` ve hedefli tarayıcı testleri; ayrıntılar doğrulama notunda. |
+| ROTA-IDEA-012 | Kaldırıldı: Board yüzme kulvarları kullanıcı kararıyla kaldırıldı; standart durum sütunları korunur. | 4 Kasım 2026 kullanıcı kararı; eski kayıt alanları veri kaybı olmadan korunur. |
+| ROTA-IDEA-014 | Kaldırıldı: Hazır/tamamlandı kontrol listeleri ve gerekçeli istisna zorunluluğu kaldırıldı. | 4 Kasım 2026 kullanıcı kararı; eski kayıt alanları veri kaybı olmadan korunur. |
+| ROTA-IDEA-016 | Uygulama eklendi/tamamlandı: Ayrıntılı ve hızlı yeni kayıt taslakları ayrı saklanır; ek, atama, bileşen ve e-posta kaynağı korunur. Açık iptal taslağı temizler. | `npm run build` ve hedefli tarayıcı testleri; ayrıntılar doğrulama notunda. |
+| ROTA-IDEA-017 | Uygulama eklendi/tamamlandı: Story/Bug/Task şablonları açıklama, kriter, etiket ve öncelik taşır; ayarlardan çalışma alanına özel şablon eklenir. | `npm run build` ve hedefli tarayıcı testleri; ayrıntılar doğrulama notunda. |
+| ROTA-IDEA-018 | Uygulama eklendi/tamamlandı: Alan farkı önizlemesi, not/ek/ilişki taşıma, gelen bağlantıları yönlendirme, döngü denetimi, arşiv yönlendirmesi ve geri alma vardır. | `npm run build` ve ilgili hedefli Edge senaryoları geçti; masaüstü kabulü ayrıca izleniyor. |
+| ROTA-IDEA-019 | Uygulama eklendi/tamamlandı: Mevcut tema uyumlu etiket/alan sözlüğü; kullanım sayısı, arama, yeniden adlandırma ve birleştirme akışları korundu. | `npm run build` ve ilgili hedefli Edge senaryoları geçti; masaüstü kabulü ayrıca izleniyor. |
+| ROTA-IDEA-020 | Uygulama eklendi/tamamlandı: Başlık, liste, kontrol maddesi, kalın metin ve güvenli HTTP(S) bağlantısı desteklenir; düz metin korunur. Yeni ve düzenleme formlarında araç çubuğu vardır. | `npm run build` ve hedefli tarayıcı testleri; ayrıntılar doğrulama notunda. |
+| ROTA-IDEA-023 | Kaldırıldı: Birleşik hatırlatma merkezi kaldırıldı; kişisel görev ve blokaj hatırlatmaları korunur. | 4 Kasım 2026 kullanıcı kararı; eski kayıt alanları veri kaybı olmadan korunur. |
+| ROTA-IDEA-024 | Kısmen korundu: Günlük odak bütçesi kaldırıldı; kişisel süre tahmini ve sonraki güne taşıma korunur. | 4 Kasım 2026 kullanıcı kararı; eski kayıt alanları veri kaybı olmadan korunur. |
+| ROTA-IDEA-027 | Kaldırıldı: Sprint kapsam değişikliği geçmişi ve kapsam gerekçesi alanları kaldırıldı; sprint planlama ve kapanış özeti korunur. | 4 Kasım 2026 kullanıcı kararı; eski kayıt alanları veri kaybı olmadan korunur. |
+| ROTA-IDEA-028 | Kısmen korundu: Tahmin gerekçesi, güven düzeyi ve bunlara ait geçmiş görünümü kaldırıldı; tahmin değeri ve birim standardı korunur. | 4 Kasım 2026 kullanıcı kararı; eski kayıt alanları veri kaybı olmadan korunur. |
+| ROTA-IDEA-029 | Uygulama eklendi/tamamlandı: Tema uyumlu risk formunda etki/olasılık ölçeği, aksiyon, gözden geçirme, elle seviye gerekçesi ve iş/release ilişkileri vardır; gecikenler filtrelenir. | `npm run build` ve hedefli tarayıcı testleri; ayrıntılar doğrulama notunda. |
+| ROTA-IDEA-031 | Uygulama eklendi/tamamlandı: Excel sayfa/sütun eşleme, tür/öncelik/tarih/etiket alanları ve satır numaralı hata önizlemesi; yalnızca seçili geçerli satırlar alınır. | `npm run build` ve hedefli tarayıcı testleri; ayrıntılar doğrulama notunda. |
+| ROTA-IDEA-032 | Uygulama eklendi/tamamlandı: Dosya özeti/sayfa/satır iziyle tekrar uyarısı; Rota ID üzerinden açık seçimle güncelleme ve tüm aktarımı geri alma vardır. | `npm run build` ve hedefli tarayıcı testleri; ayrıntılar doğrulama notunda. |
+| ROTA-IDEA-033 | Uygulama eklendi/tamamlandı: E-posta önizlemesinde konu/iş anahtarı/izden aday iş önerilir; gövde ve seçili ekler mevcut işe aktarılır, kaynak ve tekrar kontrolü saklanır. | Sahte e-posta verisiyle mevcut işe ekleme doğrulandı; klasik Outlook/native sürükle-bırak kabulü bekliyor. |
+| ROTA-IDEA-035 | Uygulama eklendi/tamamlandı: Mevcut Jira anahtarını bağlama, başlık/durum farkı, yön ve durum geçişi seçimi, güncellemeden önce tazelik denetimi ve işlem kaydı eklendi. | Sahte Jira yanıtıyla alan alma doğrulandı; canlı Jira yetki, geçiş ve eşzamanlılık kabulü bekliyor. |
+| ROTA-IDEA-039 | Uygulama eklendi/tamamlandı: Liste 200 kayıttan sonra 60 satırlık görünür pencere çizer; Board durum başına artımlı kart yükler. Arama 120 ms geciktirilir. Referans ölçüm [doğrulama notunda](docs/feature-dogrulama.md). | `npm run build` ve hedefli tarayıcı testleri; ayrıntılar doğrulama notunda. |
+| ROTA-IDEA-040 | Uygulama eklendi/tamamlandı: Yerel tanılama önizlemesi ve isteğe bağlı dışa aktarım; sürüm/ortam, kategori, zaman ve ilişkilendirme kimliği içerir. Çalışma alanı içeriği ve ham hata metni rapora girmez. | `npm run build` ve hedefli tarayıcı testleri; ayrıntılar doğrulama notunda. |
+
+3 Kasım 2026: Kalan 22 önerinin uygulama akışları ele alındı. Kod tamamlanması ile kabul doğrulaması ayrı izlenir; canlı/native ve kapsamlı kabul açıkları `docs/feature-takibi.md` içindedir.
+
+Önceki oturumda: `npm run test:acceptance`, WebView2 test penceresine bağlanamadığından senaryolara başlamadan durdu.
 
 ## Değerlendirme çerçevesi
 
@@ -126,12 +151,16 @@ Kayıtlı backlog görünümleri, kolon ayarları, yoğunluk seçenekleri, başl
 
 ### ROTA-IDEA-011 · Board sütunlarına WIP sınırı
 
+> **4 Kasım 2026 ürün kararı:** Kaldırıldı: WIP sınırı, aşım göstergesi ve istisna akışı kullanıcı kararıyla kaldırıldı. Aşağıdaki öneri tarihsel kayıttır.
+
 - **İhtiyaç:** Durum panosu işleri taşıyor; aynı anda başlanan iş yükünü sınırlayan görünür bir sınır eklenebilir.
 - **Öneri:** Takım ve durum bazında devam eden iş sınırı tanımla; aşımı sütun başlığında göster ve gerekçeli istisnaya izin ver.
 - **Kabul ölçütü:** Sınır aşan taşıma öncesinde uyarı görünür; mevcut işler silinmez veya gizlenmez.
 - **Öncelik / efor:** P2 / Orta.
 
 ### ROTA-IDEA-012 · Board yüzme kulvarları
+
+> **4 Kasım 2026 ürün kararı:** Kaldırıldı: Board yüzme kulvarları kullanıcı kararıyla kaldırıldı; standart durum sütunları korunur. Aşağıdaki öneri tarihsel kayıttır.
 
 - **İhtiyaç:** Durum sütunları tek başına proje veya takım kümelerini okumayı zorlaştırabilir.
 - **Öneri:** Takım, proje, sprint veya önceliğe göre seçilebilir kulvarlar ekle; çoklu atamada işin bir kez sayıldığı ve diğer takımlarla ilişkisinin gösterildiği bir kural kullan.
@@ -146,6 +175,8 @@ Kayıtlı backlog görünümleri, kolon ayarları, yoğunluk seçenekleri, başl
 - **Öncelik / efor:** P1 / Orta.
 
 ### ROTA-IDEA-014 · Hazır ve tamamlandı kontrol listeleri
+
+> **4 Kasım 2026 ürün kararı:** Kaldırıldı: Hazır/tamamlandı kontrol listeleri ve gerekçeli istisna zorunluluğu kaldırıldı. Aşağıdaki öneri tarihsel kayıttır.
 
 - **İhtiyaç:** Durum değişimi, işin analize veya teslimata gerçekten hazır olduğunu tek başına garanti etmez.
 - **Öneri:** İş türüne göre ayarlanabilir hazırlık/tamamlanma kontrolleri sun; eksikleri göster, yetkili süreç varsaymadan gerekçeli istisna kaydet.
@@ -214,12 +245,16 @@ Kayıtlı backlog görünümleri, kolon ayarları, yoğunluk seçenekleri, başl
 
 ### ROTA-IDEA-023 · Kalıcı takip ve hatırlatma merkezi
 
+> **4 Kasım 2026 ürün kararı:** Kaldırıldı: Birleşik hatırlatma merkezi kaldırıldı; kişisel görev ve blokaj hatırlatmaları korunur. Aşağıdaki öneri tarihsel kayıttır.
+
 - **İhtiyaç:** Kişisel görev ve blokaj hatırlatmaları mevcut; geçici bildirimin ardından bekleyen takipleri ortak bir yerde görmek yararlıdır.
 - **Öneri:** Görev, blokaj, açık soru ve karar gözden geçirme hatırlatmalarını ertele/okundu/tamamlandı durumlarıyla birleştir.
 - **Kabul ölçütü:** Aynı olay tekrar tekrar bildirilmez; uygulama kapalıyken geçen hatırlatmalar sonraki açılışta yakalanır ve kaydına gidilebilir.
 - **Öncelik / efor:** P2 / Orta. İlk kapsam uygulama açıkken ve açılışta kontroldür.
 
 ### ROTA-IDEA-024 · Günlük plana tahmini süre ve odak bütçesi
+
+> **4 Kasım 2026 ürün kararı:** Kısmen korundu: Günlük odak bütçesi kaldırıldı; kişisel süre tahmini ve sonraki güne taşıma korunur. Aşağıdaki öneri tarihsel kayıttır.
 
 - **İhtiyaç:** Günlük plan sıralı iş ve görev listesi sunuyor; günün kullanılabilir zamanıyla uyumu açık değil.
 - **Öneri:** Plan girdilerine kişisel süre tahmini, güne odak bütçesi ve sonraki güne taşıma ekle; takım efor tahmininden ayrı tut.
@@ -244,12 +279,16 @@ Kayıtlı backlog görünümleri, kolon ayarları, yoğunluk seçenekleri, başl
 
 ### ROTA-IDEA-027 · Sprint kapsam değişikliği geçmişi
 
+> **4 Kasım 2026 ürün kararı:** Kaldırıldı: Sprint kapsam değişikliği geçmişi ve kapsam gerekçesi alanları kaldırıldı; sprint planlama ve kapanış özeti korunur. Aşağıdaki öneri tarihsel kayıttır.
+
 - **İhtiyaç:** Sprint kapanış özeti ve devreden işler var; sprint içinde eklenen/çıkarılan kapsamın etkisi ayrıca izlenebilir.
 - **Öneri:** Başlangıç kapsamını sakla; eklenen/çıkarılan iş, tarih ve gerekçeyi göster. Kayıt adedi ve tahmini eforu ayrı ölçülerde sun.
 - **Kabul ölçütü:** Sprint sonunda başlangıç kapsamı, sonradan eklenenler ve tamamlananlar ayrı görülebilir; kapanış kaydı sonraki düzenlemelerle değişmez.
 - **Öncelik / efor:** P2 / Orta. ROTA-NEXT-008 kapasite senaryolarına veri sağlar.
 
 ### ROTA-IDEA-028 · Tahmin değişikliklerinin gerekçesi ve güveni
+
+> **4 Kasım 2026 ürün kararı:** Kısmen korundu: Tahmin gerekçesi, güven düzeyi ve bunlara ait geçmiş görünümü kaldırıldı; tahmin değeri ve birim standardı korunur. Aşağıdaki öneri tarihsel kayıttır.
 
 - **İhtiyaç:** İşte tek bir estimate değeri bulunuyor; değişimin sebebi ve belirsizliği planlamada kaybolabilir.
 - **Öneri:** Çalışma alanında tahmin birimini belirle; eski/yeni değer, gerekçe ve güven düzeyini sakla. Farklı birimleri toplamaya izin verme.

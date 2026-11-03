@@ -53,8 +53,10 @@ interface WorkItem {
   sprintOrder?: number;
   jiraIssueKey?: string;
   sourceEmail?: EmailSourceInfo;
+  sourceEmails?: EmailSourceInfo[];
   archived?: boolean;
   relatedRecords?: WorkRecordLink[];
+  // Kaldırılan özelliklerin eski kayıtları yedek uyumluluğu için korunur.
   estimateHistory?: EstimateHistoryEntry[];
   checklistExceptions?: { gate: "Hazır" | "Tamamlandı"; missing: string[]; reason: string; at: string; actor: string }[];
   mergedIntoId?: string;
@@ -99,6 +101,7 @@ interface DailyPlan {
   date: string;
   entries: { type: "item" | "task"; id: string; estimatedMinutes?: number; carriedFrom?: string }[];
   note: string;
+  /** Eski kayıtlardan korunur; günlük odak bütçesi kullanılmaz. */
   focusBudgetMinutes?: number;
 }
 
@@ -117,6 +120,9 @@ interface Sprint {
     blocked: { id: string; title: string; status: string }[];
   };
   initialScopeIds?: string[];
+  initialScope?: { id: string; estimate?: number }[];
+  lastScope?: { id: string; estimate?: number }[];
+  frozenScopeReport?: string;
   scopeChanges?: { itemId: string; direction: "added" | "removed"; reason: string; at: string; actor: string; estimate?: number }[];
 }
 
@@ -136,6 +142,10 @@ interface FormDraft {
   values: Record<string, string>;
   attachments: AttachmentInfo[];
   updatedAt: string;
+  assignments?: WorkAssignment[];
+  assetIds?: string[];
+  sourceEmail?: EmailSourceInfo;
+  sourceEmails?: EmailSourceInfo[];
 }
 
 interface ImportBatch {
@@ -163,6 +173,7 @@ interface FollowUpNotification {
   dueAt: string;
   state: "unread" | "read" | "done";
   snoozedUntil?: string;
+  notifiedAt?: string;
 }
 
 interface OpenQuestion {
@@ -334,6 +345,7 @@ interface PersonalTask {
   attachments?: AttachmentInfo[];
   sourceNoteId?: string;
   sourceEmail?: EmailSourceInfo;
+  sourceEmails?: EmailSourceInfo[];
   remindAt?: string;
   remindedAt?: string;
 }
@@ -346,6 +358,7 @@ interface PersonalNote {
   updated: string;
   attachments?: AttachmentInfo[];
   sourceEmail?: EmailSourceInfo;
+  sourceEmails?: EmailSourceInfo[];
 }
 
 interface Project {
@@ -398,6 +411,7 @@ interface WorkspaceState {
   risks?: ProductRisk[];
   dailyPlans?: DailyPlan[];
   weeklySummaryNotes?: Record<string, string>;
+  /** Kaldırılan akışların verileri yalnızca eski kayıt/yedek uyumluluğu içindir. */
   wipLimits?: Record<string, number>;
   handoverNotes?: Record<string, string>;
   workTemplates?: WorkTemplate[];
@@ -407,10 +421,18 @@ interface WorkspaceState {
   notifications?: FollowUpNotification[];
   estimateUnit?: "saat" | "puan";
   labelAliases?: Record<string, string>;
+  workflowChecks?: Partial<Record<WorkType, { ready: string[]; done: string[] }>>;
 }
 
 interface ImportedAttachment extends AttachmentInfo {
   storedName: string;
+}
+
+interface ExcelImportData {
+  filename: string;
+  fingerprint?: string;
+  rows: { title: string; description: string }[];
+  sheets?: { name: string; rows: string[][] }[];
 }
 
 interface ExcelExportSheet {
@@ -431,6 +453,9 @@ interface ParsedDroppedEmail {
 }
 
 interface DesktopBridge {
+  jiraGetIssue(base: string, key: string): Promise<{ issue: JiraIssue; transitions: { id: string; name: string; status: string }[] }>;
+  jiraUpdateLinkedIssue(base: string, key: string, expectedUpdated: string, summary?: string, transitionId?: string): Promise<void>;
+  getDiagnostics?(): Promise<Record<string, string>>;
   pickAttachments(): Promise<ImportedAttachment[]>;
   importDroppedFiles(files: File[]): Promise<ImportedAttachment[]>;
   parseDroppedEmail(files: File[]): Promise<ParsedDroppedEmail>;
@@ -444,7 +469,7 @@ interface DesktopBridge {
   setAutomaticBackupDirectory(directory: string): Promise<string>;
   exportUnreadableWorkspace(raw: string): Promise<string | null>;
   exportBacklogExcel(sheets: ExcelExportSheet[]): Promise<string | null>;
-  pickBacklogExcelImport(): Promise<{ filename: string; rows: { title: string; description: string }[] } | null>;
+  pickBacklogExcelImport(): Promise<ExcelImportData | null>;
   stageWorkspaceRestore(): Promise<{ token: string; workspace: unknown; attachmentCount: number } | null>;
   commitWorkspaceRestore(token: string): Promise<void>;
   cancelWorkspaceRestore(token: string): Promise<void>;

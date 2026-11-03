@@ -1,4 +1,5 @@
 import { Application } from "@webviewjs/webview";
+import { installDesktopShutdown } from "./desktop-lifecycle.mjs";
 import MsgReader from "@kenjiuno/msgreader";
 import ExcelJS from "exceljs";
 import { Entry } from "@napi-rs/keyring";
@@ -153,7 +154,9 @@ const jiraRequest = async (base, route, method = "GET", body) => {
   catch { throw new Error("Jira’ya ulaşılamadı. Base URL, VPN/ağ erişimi ve TLS sertifikasını kontrol edin."); }
   if (response.status === 401 || response.status === 403) throw new Error("Jira PAT geçersiz olabilir veya bu hesapta gerekli izin yok.");
   if (!response.ok) throw new Error(`Jira isteği başarısız: HTTP ${response.status}`);
-  return response.json();
+  if (response.status === 204) return null;
+  const responseBody = await response.text();
+  return responseBody ? JSON.parse(responseBody) : null;
 };
 const jiraFields = "summary,issuetype,status,priority,assignee,updated";
 const mapIssues = (result, base) => (result.issues || []).filter((entry) => entry.key && entry.fields).map((entry) => ({ id: entry.id || entry.key, key: entry.key, summary: entry.fields.summary || "", issueType: entry.fields.issuetype?.name || "", status: entry.fields.status?.name || "", priority: entry.fields.priority?.name || "", assignee: entry.fields.assignee?.displayName || entry.fields.assignee?.name || "Atanmadı", updated: entry.fields.updated || "", browseUrl: new URL(`/browse/${encodeURIComponent(entry.key)}`, validateJira(base)).href }));
@@ -199,24 +202,11 @@ const pickBacklogExcelImport = async () => {
     }
     return String(value).trim();
   };
-  const normalizeHeader = (value) => value.toLocaleLowerCase("tr-TR").replace(/[ıİşŞğĞüÜöÖçÇ]/g, (char) => ({ ı: "i", İ: "i", ş: "s", Ş: "s", ğ: "g", Ğ: "g", ü: "u", Ü: "u", ö: "o", Ö: "o", ç: "c", Ç: "c" })[char] || char).replace(/[^a-z0-9]/g, "");
-  const header = sheet.getRow(1);
-  const titleAliases = new Set(["baslik", "title", "summary", "task", "is", "issue"]);
-  const descriptionAliases = new Set(["aciklama", "description", "detay", "details"]);
-  let titleColumn = 0; let descriptionColumn = 0;
-  header.eachCell((cell, column) => { const name = normalizeHeader(cellText(cell)); if (!titleColumn && titleAliases.has(name)) titleColumn = column; if (!descriptionColumn && descriptionAliases.has(name)) descriptionColumn = column; });
-  const hasHeader = titleColumn > 0;
-  if (!hasHeader) { titleColumn = 1; descriptionColumn = 2; }
-  const rows = [];
-  for (let rowNumber = hasHeader ? 2 : 1; rowNumber <= sheet.rowCount; rowNumber++) {
-    const row = sheet.getRow(rowNumber); const title = cellText(row.getCell(titleColumn)).trim();
-    if (!title) continue;
-    if (title.length > 120) throw new Error(`Excel satır ${rowNumber}: başlık 120 karakteri aşamaz.`);
-    rows.push({ title, description: cellText(row.getCell(descriptionColumn)).trim().slice(0, 4000) });
-    if (rows.length > 500) throw new Error("Bir seferde en fazla 500 backlog işi içe aktarılabilir.");
-  }
-  if (!rows.length) throw new Error("Başlık sütununda aktarılacak iş bulunamadı.");
-  return { filename: basename(path), rows };
+  const sheets = workbook.worksheets.map((worksheet) => {
+    if (worksheet.rowCount > 5001 || worksheet.columnCount > 100) throw new Error("Her sayfa en fazla 5.000 satır ve 100 sütun içerebilir.");
+    return { name: worksheet.name, rows: Array.from({ length: worksheet.rowCount }, (_, index) => Array.from({ length: worksheet.columnCount }, (_, column) => cellText(worksheet.getRow(index + 1).getCell(column + 1)))) };
+  });
+  return { filename: basename(path), fingerprint: createHash("sha256").update(await readFile(path)).digest("hex"), sheets, rows: [] };
 };
 const buildBackup = async (workspace, format) => {
   const names = new Set(); const visit = (value) => { if (!value || typeof value !== "object") return; if (typeof value.storedName === "string") names.add(value.storedName); for (const child of Object.values(value)) Array.isArray(child) ? child.forEach(visit) : visit(child); }; visit(workspace);
@@ -297,6 +287,7 @@ webview.expose("rotaDesktop", {
   exportUnreadableWorkspace: async (raw) => { if (typeof raw !== "string" || Buffer.byteLength(raw, "utf8") > 100 * 1024 * 1024) throw new Error("Kurtarma verisi 100 MB sınırını aşıyor."); const path = await savePathDialog({ title: "Okunamayan Rota verisini kaydet", defaultPath: `Rota-kurtarma-${new Date().toISOString().slice(0, 10)}.txt`, filters: [{ name: "Metin dosyası", extensions: ["txt"] }] }); if (!path) return null; await writeFile(path, raw, "utf8"); return path; },
   exportBacklogExcel: sheetsExcel,
   pickBacklogExcelImport,
+  getDiagnostics: async () => ({ uygulama: "Rota 0.1.0", host: "Node.js " + process.versions.node, webview: "WebViewJS 0.4.9 / WebView2", platform: process.platform, mimari: process.arch }),
   stageWorkspaceRestore: async () => { const paths = await appWindow.openFileDialog({ title: "Rota yedeğini geri yükle", filters: [{ name: "Rota yedeği", extensions: ["rota", "json"] }] }); if (!paths.length) return null; const bytes = await readFile(paths[0]); if (bytes.length > 1024 ** 3) throw new Error("Yedek dosyası 1 GB sınırını aşıyor."); let data; try { data = JSON.parse((bytes.subarray(0, 6).toString() === "ROTA1\n" ? gunzipSync(bytes.subarray(6)) : bytes).toString("utf8")); } catch { throw new Error("Yedek dosyası okunamadı. Dosya bozuk veya JSON değil."); } if (data.format !== "rota-workspace-backup" || data.version !== 1 || !Array.isArray(data.attachments)) throw new Error("Bu dosya desteklenen Rota yedeği değil."); for (const file of data.attachments) { checkedStoredPath(file.storedName); if (typeof file.data !== "string" || !Number.isSafeInteger(file.size) || file.size < 0 || !/^[a-f0-9]{64}$/.test(file.sha256 || "")) throw new Error("Yedek eki bilgisi geçersiz."); const content = Buffer.from(file.data, "base64"); const hash = createHash("sha256").update(content).digest("hex"); if (content.length !== file.size || !timingSafeEqual(Buffer.from(hash), Buffer.from(file.sha256))) throw new Error(`Yedek eki doğrulanamadı: ${file.storedName}`); } const token = randomUUID(); restoreSessions.set(token, data); return { token, workspace: data.workspace, attachmentCount: data.attachments.length }; },
   commitWorkspaceRestore: async (token) => { const data = restoreSessions.get(token); if (!data) throw new Error("Geri yükleme oturumunun süresi doldu."); for (const file of data.attachments) { const dest = checkedStoredPath(file.storedName); const bytes = Buffer.from(file.data, "base64"); const hash = createHash("sha256").update(bytes).digest("hex"); if (bytes.length !== file.size || !timingSafeEqual(Buffer.from(hash), Buffer.from(file.sha256))) throw new Error(`Yedek eki doğrulanamadı: ${file.storedName}`); await writeFile(dest, bytes); } restoreSessions.delete(token); return null; },
   cancelWorkspaceRestore: async (token) => { restoreSessions.delete(token); return null; },
@@ -312,6 +303,20 @@ webview.expose("rotaDesktop", {
   jiraListBoardProjects: async (base, id) => (await jiraProjects(base, id)).map((x) => ({ id: String(x.id), key: x.key, name: x.name })),
   jiraListSprints: async (base, id) => { const r = await jiraRequest(base, `/rest/agile/1.0/board/${numeric(id)}/sprint?state=active,future,closed&startAt=0&maxResults=100`); return (r.values || []).map((x) => ({ id: String(x.id), name: x.name, state: x.state, startDate: x.startDate || "", endDate: x.endDate || "", goal: x.goal || "" })); },
   jiraFetchBoardIssues: async (base, id, scope, sprintId, startAt = 0) => { const board = numeric(id); const route = scope === "backlog" ? `/rest/agile/1.0/board/${board}/backlog` : scope === "board" ? `/rest/agile/1.0/board/${board}/issue` : scope === "sprint" ? `/rest/agile/1.0/board/${board}/sprint/${numeric(sprintId)}/issue` : null; if (!route) throw new Error("Jira kayıt kapsamı geçersiz."); if (!Number.isInteger(startAt) || startAt < 0 || startAt > 100000) throw new Error("Jira sayfa başlangıcı geçersiz."); const result = await jiraRequest(base, `${route}?startAt=${startAt}&maxResults=100&fields=${jiraFields}`); const issues = mapIssues(result, base); const total = Number.isInteger(result.total) ? result.total : undefined; return { issues, total, hasMore: result.isLast === false || (total !== undefined ? startAt + (result.issues || []).length < total : (result.issues || []).length === 100) }; },
+  jiraGetIssue: async (base, key) => {
+    if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(key)) throw new Error("Jira anahtarı geçersiz.");
+    const [entry, transitions] = await Promise.all([jiraRequest(base, `/rest/api/2/issue/${encodeURIComponent(key)}?fields=${jiraFields}`), jiraRequest(base, `/rest/api/2/issue/${encodeURIComponent(key)}/transitions`)]);
+    return { issue: mapIssues({ issues: [entry] }, base)[0], transitions: (transitions.transitions || []).map((entry) => ({ id: String(entry.id), name: entry.name, status: entry.to?.name || entry.name })) };
+  },
+  jiraUpdateLinkedIssue: async (base, key, expectedUpdated, summary, transitionId) => {
+    if (!/^[A-Z][A-Z0-9_]*-\d+$/.test(key) || !expectedUpdated || summary !== undefined && (!summary.trim() || summary.length > 255)) throw new Error("Jira güncelleme alanları geçersiz.");
+    const route = `/rest/api/2/issue/${encodeURIComponent(key)}`;
+    const current = await jiraRequest(base, route + "?fields=updated");
+    if (current.fields?.updated !== expectedUpdated) throw new Error("Jira kaydı değişti. Farkları yeniden getir.");
+    if (transitionId) { numeric(transitionId); await jiraRequest(base, route + "/transitions", "POST", { transition: { id: transitionId }, ...(summary !== undefined ? { fields: { summary } } : {}) }); }
+    else if (summary !== undefined) await jiraRequest(base, route, "PUT", { fields: { summary } });
+    return null;
+  },
   jiraListIssueTypes: async (base, projectKey) => { if (!/^[A-Z][A-Z0-9_]{0,29}$/.test(projectKey)) throw new Error("Jira proje anahtarı geçersiz."); const r = await jiraRequest(base, `/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&expand=projects.issuetypes`); const p = (r.projects || []).find((x) => x.key === projectKey); return (p?.issuetypes || []).map((x) => ({ id: String(x.id), name: x.name, subtask: Boolean(x.subtask) })); },
   jiraCreateIssue: async (base, boardId, projectKey, issueTypeId, summary, description) => { if (!/^[A-Z][A-Z0-9_]{0,29}$/.test(projectKey) || !String(summary).trim() || summary.length > 255 || description.length > 30000) throw new Error("Jira issue alanları geçersiz."); const [projects, types] = await Promise.all([jiraProjects(base, boardId), jiraRequest(base, `/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&expand=projects.issuetypes`)]); if (!projects.some((x) => x.key === projectKey)) throw new Error("Seçilen Jira projesi bu board kapsamı içinde değil."); const project = (types.projects || []).find((x) => x.key === projectKey); if (!(project?.issuetypes || []).some((x) => String(x.id) === String(issueTypeId) && !x.subtask)) throw new Error("Issue türü bu Jira projesinde oluşturulabilir değil."); return jiraRequest(base, "/rest/api/2/issue", "POST", { fields: { project: { key: projectKey }, issuetype: { id: String(issueTypeId) }, summary: summary.trim(), description: description.trim() } }); },
 });
@@ -322,4 +327,5 @@ appWindow.on("file-drop", ({ files }) => {
   const quoted = JSON.stringify(files);
   webview.evaluateScript(`window.rotaDesktop.nativeDrop(${quoted}).then(items=>{const dt=new DataTransfer();for(const item of items){const bytes=Uint8Array.from(atob(item.data),c=>c.charCodeAt(0));dt.items.add(new File([bytes],item.name));}window.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}));}).catch(error=>window.dispatchEvent(new CustomEvent('rota-native-error',{detail:String(error)})));`);
 });
+installDesktopShutdown(app, assetServer, appWindow);
 app.run();
