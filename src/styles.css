@@ -2625,3 +2625,9 @@ body.dark-theme .settings-center > .modal-footer { background-color: var(--surfa
 body.dark-theme .settings-panel-header .settings-panel-icon { color: var(--accent-strong); background-color: var(--accent-soft); border-color: transparent; }
 body.dark-theme .settings-nav .settings-nav-badge { color: #fff; background-color: #d0505c; }
 body.dark-theme .settings-panel-header { background: transparent; border-color: var(--border-1); }
+
+/* Yakınlaştırma göstergesi yalnızca %%100 dışındayken görünür */
+.zoom-indicator:not(.is-zoomed) { display: none; }
+.zoom-indicator.is-zoomed { color: var(--accent-strong); background: var(--accent-soft); border-color: color-mix(in srgb, var(--accent) 25%%, transparent); animation: rota-zoom-in .3s var(--ease-spring) both; }
+body.dark-theme .zoom-indicator.is-zoomed { color: #e2e5ff; background: var(--accent-soft); }
+@keyframes rota-zoom-in { from { opacity: 0; transform: scale(.85); } to { opacity: 1; transform: none; } }
