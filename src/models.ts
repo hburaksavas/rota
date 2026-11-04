@@ -399,7 +399,11 @@ interface WorkspaceFocusEntry {
   id: string;
 }
 
+type DashboardPanelId = "tasks" | "notes" | "questions" | "items";
+interface DashboardPanelLayout { id: DashboardPanelId; width: number; height: number; }
+
 interface WorkspaceState {
+  dashboardLayout?: DashboardPanelLayout[];
   schemaVersion?: number;
   items: WorkItem[];
   tasks: PersonalTask[];

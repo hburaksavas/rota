@@ -250,6 +250,7 @@ try {
     risks: workspaceRecords<ProductRisk>(saved.risks, []),
     dailyPlans: workspaceRecords<DailyPlan>(saved.dailyPlans, []),
     dailyFocus: normalizeWorkspaceFocus(saved.dailyFocus),
+    dashboardLayout: normalizeDashboardLayout(saved.dashboardLayout),
     weeklySummaryNotes: saved.weeklySummaryNotes || {},
     handoverNotes: saved.handoverNotes || {}
     ,workTemplates: workspaceRecords<WorkTemplate>(saved.workTemplates, [])
@@ -351,9 +352,6 @@ let readyWorkPool = false;
 let backlogDraggingItemId = "";
 let questionFilter: "open" | "all" | "answered" = "open";
 let archiveQuery = "";
-let selectedDailyDate = (() => { const today = new Date(); return [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-"); })();
-let selectedWeeklyStart = "";
-let selectedWeeklyProjectId = "";
 let jiraBoards: JiraBoard[] = [];
 let jiraProjects: JiraProject[] = [];
 let jiraSprints: JiraSprint[] = [];
@@ -712,14 +710,18 @@ function productStageOptions(selected: ProductStage = "Sırada"): string {
 }
 
 function roadmapTimelineBar(node: RoadmapNode): string {
+  if (!node.startDate && !node.targetDate) return '<div class="roadmap-timeline-note">' + icon("calendar") + 'Tarih planlanmadı</div>';
   const rangeStart = new Date(); rangeStart.setDate(1); rangeStart.setHours(0, 0, 0, 0);
   const rangeEnd = new Date(rangeStart); rangeEnd.setMonth(rangeEnd.getMonth() + 6);
   const total = rangeEnd.getTime() - rangeStart.getTime();
-  const start = new Date((node.startDate || node.targetDate || rangeStart.toISOString().slice(0, 10)) + "T00:00:00").getTime();
-  const end = new Date((node.targetDate || node.startDate || new Date(start + 30 * 86400000).toISOString().slice(0, 10)) + "T00:00:00").getTime();
-  const left = Math.max(0, Math.min(96, ((start - rangeStart.getTime()) / total) * 100));
-  const right = Math.max(left + 3, Math.min(100, ((end - rangeStart.getTime()) / total) * 100));
-  return '<div class="roadmap-timeline-track"><i style="left:' + left.toFixed(1) + '%;width:' + Math.max(3, right - left).toFixed(1) + '%"></i></div>';
+  const start = new Date((node.startDate || node.targetDate!) + "T00:00:00").getTime();
+  const end = new Date((node.targetDate || node.startDate!) + "T00:00:00").getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return '<div class="roadmap-timeline-note">Tarih aralığını kontrol et</div>';
+  if (end < rangeStart.getTime() || start >= rangeEnd.getTime()) return '<div class="roadmap-timeline-note">' + icon("calendar") + 'Görünür dönemin dışında</div>';
+  const left = Math.max(0, Math.min(99, (start - rangeStart.getTime()) / total * 100));
+  const right = Math.max(left, Math.min(100, (end - rangeStart.getTime()) / total * 100));
+  const months = Array.from({ length: 6 }, (_, index) => { const date = new Date(rangeStart); date.setMonth(date.getMonth() + index); return '<span>' + esc(date.toLocaleDateString("tr-TR", { month: "short" })) + '</span>'; }).join("");
+  return '<div class="roadmap-timeline" aria-label="Altı aylık zaman çizelgesi"><div class="roadmap-month-axis">' + months + '</div><div class="roadmap-timeline-track"><i style="left:' + left.toFixed(2) + '%;width:' + Math.max(.5, right - left).toFixed(2) + '%"></i></div></div>';
 }
 function hasDependencyPath(fromId: string, targetId: string, visited = new Set<string>()): boolean {
   if (fromId === targetId) return true;
@@ -812,13 +814,6 @@ function renderOpenQuestions(): void {
   openWorkspaceShelf("questions");
 }
 
-function getDailyPlan(date = selectedDailyDate): DailyPlan {
-  state.dailyPlans ||= [];
-  let plan = state.dailyPlans.find((entry) => entry.date === date);
-  if (!plan) { plan = { date, entries: [], note: "" }; state.dailyPlans.push(plan); }
-  return plan;
-}
-
 function checkFollowUpReminders(): void {
   const now = Date.now();
   const tasks = state.tasks.filter((task) => !task.done && task.remindAt && !task.remindedAt && Date.parse(task.remindAt) <= now);
@@ -829,66 +824,6 @@ function checkFollowUpReminders(): void {
   blockers.forEach((item) => { item.blocker!.remindedAt = remindedAt; });
   save();
   toast("Takip zamanı geldi: " + [...tasks.map((task) => task.title), ...blockers.map((item) => item.id + " · " + item.title)].slice(0, 3).join("; "));
-}
-
-function renderDailyPlan(): void {
-  const plan = getDailyPlan();
-  const entries = plan.entries.map((entry) => ({ entry, item: entry.type === "item" ? itemById(entry.id) : undefined, task: entry.type === "task" ? state.tasks.find((task) => task.id === entry.id) : undefined })).filter((row) => row.item || row.task);
-  const completedCount = entries.filter(({ item, task }) => task?.done || item?.status === "Tamamlandı").length;
-  const dateLabel = new Date(plan.date + "T00:00:00").toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long", year: "numeric" });
-  const shortDateLabel = new Date(plan.date + "T00:00:00").toLocaleDateString("tr-TR", { day: "numeric", month: "long" });
-  const backlogOptions = state.items.filter((item) => !item.archived && item.status !== "Tamamlandı" && !plan.entries.some((entry) => entry.type === "item" && entry.id === item.id)).map((item) => '<option value="' + esc(item.id) + '">' + esc(item.id + " · " + item.title) + '</option>').join("");
-  const taskOptions = state.tasks.filter((task) => !task.done && !plan.entries.some((entry) => entry.type === "task" && entry.id === task.id)).map((task) => '<option value="' + esc(task.id) + '">' + esc(task.title) + '</option>').join("");
-  root.innerHTML = '<div class="page-content planning-page daily-planning-page"><section class="page-title-row daily-plan-heading"><div><div class="eyebrow"><span class="eyebrow-dot"></span>GÜNLÜK ODAK</div><h1>Günlük plan</h1><p>Bugün ilerletmen gereken işleri ve kişisel takiplerini sırala.</p></div><div class="daily-date-controls"><button type="button" class="button button-quiet button-small" data-action="daily-plan-today">Bugün</button><label class="field-label daily-date-picker">Plan tarihi<input id="daily-plan-date" class="field-input" type="date" value="' + esc(plan.date) + '"></label></div></section>' +
-    '<section class="daily-plan-summary"><div class="daily-date-label"><span class="daily-calendar-icon"><svg viewBox="0 0 24 24" aria-hidden="true" class="svg-icon"><rect x="3.5" y="5" width="17" height="15" rx="2.5"/><path d="M8 3v4M16 3v4M3.5 10h17"/></svg></span><div><strong>' + esc(dateLabel) + '</strong><small>Günlük odak listesi</small></div></div><div class="daily-plan-stats"><span><strong>' + entries.length + '</strong> planlanan</span><i></i><span><strong>' + completedCount + '</strong> tamamlanan</span><i></i><span><strong>' + (entries.length - completedCount) + '</strong> açık</span></div></section>' +
-    '<div class="daily-plan-layout"><section class="daily-plan-main panel"><header class="daily-section-heading"><div><span class="panel-kicker">SIRADAKİ İŞLER</span><h2>Odak listesi</h2></div><span class="count-chip">' + entries.length + '</span></header>' +
-    '<div class="daily-plan-add"><label class="daily-add-control"><span>Backlog işi</span><select class="field-input" id="daily-add-item"><option value="">Bir iş seç…</option>' + backlogOptions + '</select></label><button type="button" class="daily-add-button" data-action="add-daily-entry" data-type="item" aria-label="Backlog işini plana ekle" title="Backlog işini ekle">＋</button><label class="daily-add-control"><span>Kişisel görev</span><select class="field-input" id="daily-add-task"><option value="">Bir görev seç…</option>' + taskOptions + '</select></label><button type="button" class="daily-add-button" data-action="add-daily-entry" data-type="task" aria-label="Kişisel görevi plana ekle" title="Kişisel görevi ekle">＋</button></div>' +
-    '<div class="daily-plan-list">' + (entries.length ? entries.map((row, index) => dailyPlanEntryMarkup(row, index, entries.length)).join("") : '<div class="daily-plan-empty"><span>✳</span><strong>Planın henüz boş</strong><p>Backlog işlerini ve kişisel görevlerini ekleyerek günün sırasını oluştur.</p></div>') + '</div></section>' +
-    '<aside class="daily-plan-notes panel"><header class="daily-section-heading"><div><span class="panel-kicker">GÜNÜN BAĞLAMI</span><h2>Notlar</h2></div><span class="daily-note-icon">✎</span></header><p>Kararları, beklenen yanıtları veya gün içinde hatırlaman gerekenleri burada tut.</p><textarea id="daily-plan-note" class="field-input field-textarea" rows="10" maxlength="3000" placeholder="Örn. Limit kararı için risk ekibinden yanıt bekleniyor…">' + esc(plan.note) + '</textarea><footer><span>Bu not yalnızca ' + esc(shortDateLabel) + ' planına kaydedilir.</span><button type="button" class="daily-note-save" data-action="save-daily-plan" aria-label="Günlük notu kaydet" title="Notu kaydet">✓</button></footer></aside></div></div>';
-}
-
-function dailyPlanEntryMarkup(row: { entry: DailyPlan["entries"][number]; item?: WorkItem; task?: PersonalTask }, index: number, total: number): string {
-  const { entry, item, task } = row;
-  const done = Boolean(task?.done || item?.status === "Tamamlandı");
-  const title = item ? item.title : task!.title;
-  const metadata = item ? [item.id, item.project, item.status, item.targetDate ? "Hedef " + item.targetDate : ""].filter(Boolean).join(" · ") : "Kişisel görev · " + task!.due;
-  const marker = task ? '<button type="button" class="daily-task-check ' + (task.done ? "checked" : "") + '" data-toggle-task="' + esc(task.id) + '" aria-label="' + esc(task.done ? "Görevi tamamlanmadı olarak işaretle" : "Görevi tamamlandı olarak işaretle") + '" title="' + (task.done ? "Tamamlandı" : "Tamamlandı olarak işaretle") + '">' + (task.done ? "✓" : "") + '</button>' : '<span class="daily-item-marker ' + (done ? "checked" : "") + '" title="' + esc(item!.status) + '">' + (done ? "✓" : "") + '</span>';
-  const moveAttributes = 'data-id="' + esc(entry.id) + '" data-type="' + entry.type + '"';
-  return '<article class="daily-plan-entry ' + (done ? "complete" : "") + '"><span class="daily-plan-index">' + String(index + 1).padStart(2, "0") + '</span>' + marker + '<button type="button" class="daily-entry-copy" ' + (item ? 'data-open-item="' + esc(item.id) + '"' : 'data-open-task="' + esc(task!.id) + '"') + '><strong>' + esc(title) + '</strong><small>' + esc(metadata) + (entry.carriedFrom ? ' · ' + esc(entry.carriedFrom) + ' tarihinden taşındı' : '') + '</small></button><label class="daily-duration"><input type="number" min="0" step="15" value="' + esc(entry.estimatedMinutes || '') + '" data-daily-duration="' + esc(entry.type + '::' + entry.id) + '" aria-label="Tahmini dakika"> dk</label><div class="daily-entry-actions"><button type="button" class="daily-icon-action" data-action="carry-daily-entry" ' + moveAttributes + ' aria-label="Sonraki güne taşı" title="Sonraki güne taşı">→</button><button type="button" class="daily-icon-action daily-move-up" data-action="move-daily-entry" ' + moveAttributes + ' data-direction="up" aria-label="Yukarı taşı" title="Yukarı taşı" ' + (index === 0 ? "disabled" : "") + '>' + icon("chevronUp") + '</button><button type="button" class="daily-icon-action daily-move-down" data-action="move-daily-entry" ' + moveAttributes + ' data-direction="down" aria-label="Aşağı taşı" title="Aşağı taşı" ' + (index === total - 1 ? "disabled" : "") + '>' + icon("chevronDown") + '</button><button type="button" class="daily-icon-action daily-remove-entry" data-action="remove-daily-entry" data-type="' + entry.type + '" data-id="' + esc(entry.id) + '" aria-label="Plan listesinden çıkar" title="Plan listesinden çıkar">×</button></div></article>';
-}
-
-function weekStartDate(value = new Date()): string {
-  const date = new Date(value); date.setHours(0, 0, 0, 0); date.setDate(date.getDate() - ((date.getDay() + 6) % 7)); return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-");
-}
-
-function weeklySummaryText(): string {
-  const start = selectedWeeklyStart || weekStartDate();
-  const endDate = new Date(start + "T00:00:00"); endDate.setDate(endDate.getDate() + 7);
-  const end = [endDate.getFullYear(), String(endDate.getMonth() + 1).padStart(2, "0"), String(endDate.getDate()).padStart(2, "0")].join("-");
-  const selectedProject = state.projects.find((project) => project.id === selectedWeeklyProjectId);
-  const portfolio = state.items.filter((item) => !item.archived && isItemInActiveProject(item) && (!selectedProject || item.project === selectedProject.name));
-  const completed = portfolio.filter((item) => item.completedAt && item.completedAt.slice(0, 10) >= start && item.completedAt.slice(0, 10) < end);
-  const blockers = portfolio.filter((item) => item.blocker?.openedAt && item.blocker.openedAt.slice(0, 10) >= start && item.blocker.openedAt.slice(0, 10) < end);
-  const due = portfolio.filter((item) => item.status !== "Tamamlandı" && item.targetDate && item.targetDate >= start && item.targetDate < end);
-  const releases = state.releases.filter((release) => !release.archived && (!selectedProject || release.project === selectedProject.name) && release.plannedDate && release.plannedDate >= start && release.plannedDate < end);
-  const note = state.weeklySummaryNotes?.[start + (selectedProject ? "::" + selectedProject.id : "")] || "";
-  return ["HAFTALIK ÜRÜN ÖZETİ · " + (selectedProject?.name || "Tüm projeler") + " · " + start + " – " + end, "", "TAMAMLANANLAR", ...(completed.length ? completed.map((item) => "• " + item.id + " · " + item.title) : ["• Bu hafta tamamlanma kaydı yok."]), "", "YENİ BLOKAJLAR", ...(blockers.length ? blockers.map((item) => "• " + item.id + " · " + item.title + " — " + (item.blocker?.reason || "Neden girilmedi")) : ["• Yeni blokaj kaydı yok."]), "", "HEDEF TARİHİ BU HAFTA OLAN İŞLER", ...(due.length ? due.map((item) => "• " + item.id + " · " + item.title + " — " + item.targetDate) : ["• İş yok."]), "", "YAKLAŞAN RELEASE'LER", ...(releases.length ? releases.map((release) => "• " + release.name + " — " + release.plannedDate + " · " + release.status) : ["• Release yok."]), "", "PO NOTLARI", note || "(Not eklenmedi)"].join("\n");
-}
-
-function weeklySummaryLineMarkup(line: string): string {
-  const item = state.items.find((entry) => line.startsWith("• " + entry.id + " · "));
-  if (item) return '<button type="button" class="weekly-summary-source" data-open-item="' + esc(item.id) + '">' + esc(line) + '</button>';
-  const release = state.releases.find((entry) => line.startsWith("• " + entry.name + " — "));
-  if (release) return '<button type="button" class="weekly-summary-source" data-action="edit-release" data-id="' + esc(release.id) + '">' + esc(line) + '</button>';
-  return '<p>' + esc(line) + '</p>';
-}
-
-function renderWeeklySummary(): void {
-  selectedWeeklyStart ||= weekStartDate();
-  state.weeklySummaryNotes ||= {};
-  const generated = weeklySummaryText();
-  const blocks = generated.split("\n\n").slice(1, -1).map((section) => { const [heading, ...lines] = section.split("\n"); return '<section class="weekly-summary-section"><h3>' + esc(heading) + '</h3>' + lines.map((line) => weeklySummaryLineMarkup(line)).join("") + '</section>'; }).join("");
-  root.innerHTML = '<div class="page-content planning-page"><section class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>ÜRÜN PORTFÖYÜ</div><h1>Haftalık ürün özeti</h1><p>Tamamlanan işler, yeni blokajlar ve yaklaşan tarihlerden düzenlenebilir özet.</p></div><label class="field-label">Proje<select id="weekly-summary-project" class="field-input"><option value="">Tüm projeler</option>' + state.projects.filter((project) => !project.archived).map((project) => '<option value="' + esc(project.id) + '" ' + (project.id === selectedWeeklyProjectId ? 'selected' : '') + '>' + esc(project.name) + '</option>').join('') + '</select></label><label class="field-label">Hafta başlangıcı<input id="weekly-summary-start" class="field-input" type="date" value="' + esc(selectedWeeklyStart) + '"></label></section><section class="weekly-summary-card"><div class="weekly-summary-grid">' + blocks + '</div><label class="field-label">PO değerlendirmesi<textarea id="weekly-summary-note" class="field-input field-textarea" rows="5" maxlength="5000" placeholder="Ürün etkisi, karar ihtiyacı veya sonraki haftaya taşınan konu…">' + esc(state.weeklySummaryNotes[selectedWeeklyStart + (selectedWeeklyProjectId ? "::" + selectedWeeklyProjectId : "")] || "") + '</textarea></label><footer><span>Özet, çalışma alanındaki tarih ve aktivite kayıtlarından üretilir.</span><div><button class="button button-secondary" data-action="copy-weekly-summary">Özeti kopyala</button><button class="button button-primary" data-action="save-weekly-summary">Notu kaydet</button></div></footer></section></div>';
 }
 
 function archiveMatches(value: string): boolean { const terms = archiveQuery.trim().toLocaleLowerCase("tr-TR").split(/\s+/).filter(Boolean); const normalized = value.toLocaleLowerCase("tr-TR"); return !terms.length || terms.every((term) => normalized.includes(term)); }
@@ -902,7 +837,7 @@ function renderArchiveSearch(): void {
 
 function openQuestionForm(questionId?: string): void {
   const question = state.openQuestions?.find((entry) => entry.id === questionId);
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">ÜRÜN KARARI</div><h2>' + (question ? "Açık soruyu düzenle" : "Açık soru ekle") + '</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="open-question-form" class="settings-form"><label class="field-label">Soru / karar konusu<textarea class="field-input field-textarea" name="text" rows="3" maxlength="1500" required placeholder="Örn. FAST ticari müşteri günlük limiti hangi tutar olacak?">' + esc(question?.text || "") + '</textarea></label><div class="form-two-col"><label class="field-label">Yanıt sahibi<input class="field-input" name="owner" maxlength="100" required placeholder="Kişi veya ekip" value="' + esc(question?.owner || "") + '"></label><label class="field-label">Beklenen yanıt tarihi<input class="field-input" name="expectedAt" type="date" value="' + esc(question?.expectedAt || "") + '"></label></div><label class="field-label">İlişkili backlog işi<select class="field-input" name="linkedItemId"><option value="">Bağımsız soru</option>' + state.items.map((item) => '<option value="' + esc(item.id) + '" ' + (item.id === question?.linkedItemId ? "selected" : "") + '>' + esc(item.id + " · " + item.title) + '</option>').join("") + '</select></label><input type="hidden" name="id" value="' + esc(question?.id || "") + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">' + (question ? "Değişiklikleri kaydet" : "Soruyu kaydet") + '</button></footer></form></section></div>';
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">ÜRÜN KARARI</div><h2>' + (question ? "Açık soruyu düzenle" : "Açık soru ekle") + '</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="open-question-form" class="settings-form"><label class="field-label">Soru / karar konusu<textarea class="field-input field-textarea" name="text" rows="3" maxlength="1500" required placeholder="Örn. FAST ticari müşteri günlük limiti hangi tutar olacak?">' + esc(question?.text || "") + '</textarea></label><div class="form-two-col"><label class="field-label">Yanıt sahibi<input class="field-input" name="owner" maxlength="100" placeholder="Kişi veya ekip" value="' + esc(question?.owner || "") + '"></label><label class="field-label">Beklenen yanıt tarihi<input class="field-input" name="expectedAt" type="date" value="' + esc(question?.expectedAt || "") + '"></label></div><label class="field-label">İlişkili backlog işi<select class="field-input" name="linkedItemId"><option value="">Bağımsız soru</option>' + state.items.map((item) => '<option value="' + esc(item.id) + '" ' + (item.id === question?.linkedItemId ? "selected" : "") + '>' + esc(item.id + " · " + item.title) + '</option>').join("") + '</select></label><input type="hidden" name="id" value="' + esc(question?.id || "") + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">' + (question ? "Değişiklikleri kaydet" : "Soruyu kaydet") + '</button></footer></form></section></div>';
 }
 
 function openQuestionAnswerForm(questionId: string): void {
@@ -1009,6 +944,14 @@ function openStatusUpdateModal(itemId: string, nextStatus: WorkItem["status"], r
 
 const icon = (name: string): string => {
   const paths: Record<string, string> = {
+    calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18"/>',
+    map: '<path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6ZM9 3v15M15 6v15"/>',
+    maximize: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
+    minimize: '<path d="M3 8h5V3m8 0v5h5M8 21v-5H3m13 5v-5h5"/>',
+    inventory: '<path d="m12 3 9 5-9 5-9-5 9-5ZM3 8v9l9 5 9-5V8M12 13v9"/>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    diagram: '<rect x="8" y="3" width="8" height="5" rx="1"/><rect x="2" y="16" width="7" height="5" rx="1"/><rect x="15" y="16" width="7" height="5" rx="1"/><path d="M12 8v4M5.5 16v-4h13v4"/>',
+    folder: '<path d="M3 7V5h6l2 2h10v13H3V7Z"/>',
     play: '<path d="m8 4 12 8-12 8Z"/>',
     pin: '<path d="m15 3 6 6-4 1-3 5-2-2-5 5-1-1 5-5-2-2 5-3 1-4Z"/>',
     focus: '<path d="M8 3H4a1 1 0 0 0-1 1v4m13-5h4a1 1 0 0 1 1 1v4M3 16v4a1 1 0 0 0 1 1h4m8 0h4a1 1 0 0 0 1-1v-4"/><circle cx="12" cy="12" r="4"/>',
@@ -1036,6 +979,7 @@ const icon = (name: string): string => {
     chevronLeft: '<path d="m14 6-6 6 6 6"/>',
     chevronRight: '<path d="m10 6 6 6-6 6"/>',
     merge: '<path d="M5 4v4a4 4 0 0 0 4 4h10M5 20v-4a4 4 0 0 1 4-4m6-4 4 4-4 4"/>',
+    arrowUp: '<path d="M12 19V5m-6 6 6-6 6 6"/>',
     chevronUp: '<path d="m7 14 5-5 5 5"/>',
     sort: '<path d="m8.5 9.5 3.5-3.5 3.5 3.5M8.5 14.5l3.5 3.5 3.5-3.5"/>'
   };
@@ -1047,9 +991,9 @@ const ICON_ONLY_ACTIONS = [
   { selector: ".tiny-plus", icon: "add", label: "Yeni proje oluştur" },
   { selector: ".round-add", icon: "add", label: "Yeni kayıt oluştur" },
   { selector: ".inline-edit-button, .decision-edit", icon: "edit", label: "Düzenle" },
-  { selector: ".inline-icon-confirm, .daily-note-save", icon: "check", label: "Kaydet" },
+  { selector: ".inline-icon-confirm", icon: "check", label: "Kaydet" },
   { selector: ".inline-icon-dismiss", icon: "close", label: "İptal et" },
-  { selector: ".inline-icon-remove, .relationship-remove, .remove-file, .team-member-remove, .team-settings-delete, .team-member-remove-dashboard, .daily-remove-entry, .quick-delete-button", icon: "delete", label: "Sil" },
+  { selector: ".inline-icon-remove, .relationship-remove, .remove-file, .team-member-remove, .team-settings-delete, .team-member-remove-dashboard, .quick-delete-button", icon: "delete", label: "Sil" },
   { selector: ".help-button", icon: "help", label: "Klavye kısayollarını göster" },
   { selector: ".dots-button", icon: "more", label: "Diğer seçenekler" }
 ] as const;
@@ -1159,7 +1103,7 @@ function setView(view: string): void {
   activeBacklogViewId = "";
   document.querySelectorAll<HTMLElement>(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   document.querySelector<HTMLElement>(".workspace-switcher")?.classList.toggle("active", view === "overview");
-  const names: Record<string, string> = { overview: "Genel bakış", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", roadmap: "Yol haritası", decisions: "Ürün kararları", releases: "Release planı", questions: "Açık sorular", "daily-plan": "Günlük plan", "weekly-summary": "Haftalık özet", "archive-search": "Arşivde ara" };
+  const names: Record<string, string> = { overview: "Genel bakış", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", roadmap: "Yol haritası", decisions: "Ürün kararları", releases: "Release planı", questions: "Açık sorular", "archive-search": "Arşivde ara" };
   (document.getElementById("breadcrumb-current") as HTMLElement).textContent = names[view] ?? "Genel bakış";
   render();
   animateViewEnter();
@@ -1359,8 +1303,6 @@ function render(): void {
   else if (activeView === "roadmap") renderRoadmap();
   else if (activeView === "decisions") renderDecisions();
   else if (activeView === "releases") renderReleases();
-  else if (activeView === "daily-plan") renderDailyPlan();
-  else if (activeView === "weekly-summary") renderWeeklySummary();
   else if (activeView === "archive-search") renderArchiveSearch();
   else renderOverview();
   syncWorkspaceToolbar();
@@ -1540,13 +1482,74 @@ function syncWorkspaceToolbar(): void {
   if (scope) scope.textContent = state.projects.find((project) => project.id === activeProjectId)?.name || "Tüm projeler";
   if (workspaceShelf) renderWorkspaceShelf();
 }
+type WorkspaceMessageKind = WorkspaceShelf | "items";
+let dashboardPriority = "";
+const workspaceMessageDrafts: Record<WorkspaceMessageKind, string> = { tasks: "", notes: "", questions: "", items: "" };
+function resizeWorkspaceMessage(textarea: HTMLTextAreaElement): void {
+  textarea.style.height = "0px";
+  const style = getComputedStyle(textarea);
+  const padding = parseFloat(style.paddingTop) + parseFloat(style.paddingBottom);
+  const line = parseFloat(style.lineHeight);
+  textarea.style.height = Math.min(Math.max(textarea.scrollHeight, line + padding), line * 2 + padding) + "px";
+  textarea.style.overflowY = textarea.scrollHeight > line * 2 + padding + 1 ? "auto" : "hidden";
+}
+window.addEventListener("resize", () => document.querySelectorAll<HTMLTextAreaElement>(".workspace-message-input textarea").forEach(resizeWorkspaceMessage));
+function workspaceMessageComposer(kind: WorkspaceMessageKind): string {
+  requestAnimationFrame(() => document.querySelectorAll<HTMLTextAreaElement>(".workspace-message-input textarea").forEach(resizeWorkspaceMessage));
+  const label = kind === "tasks" ? "Görevini yaz…" : kind === "notes" ? "Notunu yaz…" : kind === "items" ? "Backlog işini yaz…" : "Sorunu yaz…";
+  return '<form class="workspace-message-composer' + (workspaceMessageDrafts[kind].trim() ? ' has-message' : '') + '" data-message-kind="' + kind + '"><div class="workspace-message-input"><textarea name="message" rows="1" maxlength="12000" aria-label="' + label + '" placeholder="' + label + '">' + esc(workspaceMessageDrafts[kind]) + '</textarea><button type="submit" aria-label="Gönder" title="Gönder" ' + (workspaceMessageDrafts[kind].trim() ? '' : 'disabled') + '>' + icon("arrowUp") + '</button></div></form>';
+}
+function sendWorkspaceMessage(form: HTMLFormElement): void {
+  const kind = form.dataset.messageKind as WorkspaceMessageKind;
+  if (!["tasks", "notes", "questions", "items"].includes(kind)) return;
+  const message = String(new FormData(form).get("message") || "").trim();
+  if (!message) return;
+  const title = message.split("\n")[0].slice(0, 120);
+  if (kind === "tasks") state.tasks.unshift({ id: nextId("TASK"), title, description: message, due: "", done: false, linked: "", attachments: [] });
+  else if (kind === "notes") state.notes.unshift({ id: nextId("NOTE"), title, body: message, linked: "", updated: "Az önce", attachments: [] });
+  else if (kind === "items") {
+    const project = state.projects.find((entry) => entry.id === activeProjectId && !entry.archived) || state.projects.find((entry) => !entry.archived);
+    let id = nextId("PAY"); while (state.items.some((entry) => entry.id === id)) id = nextId("PAY");
+    const item: WorkItem = { id, type: "Task", title, description: message, status: "Yeni", priority: (dashboardPriority || "Orta") as WorkItem["priority"], project: project?.name || "Genel", area: "Genel", updated: "Az önce", acceptance: [], attachments: [], labels: [], assignments: [], activity: [] };
+    addWorkActivity(item, "created", "İş oluşturuldu."); state.items.unshift(item); renderProjectNav();
+  }
+  else { state.openQuestions ||= []; state.openQuestions.unshift({ id: nextId("Q"), text: message, owner: "", expectedAt: "", status: "Açık", createdAt: new Date().toISOString() }); }
+  workspaceMessageDrafts[kind] = "";
+  workspaceShelfQuery = "";
+  const search = document.getElementById("workspace-shelf-search") as HTMLInputElement | null; if (search) search.value = "";
+  if (kind === "questions") questionFilter = "open";
+  form.querySelector<HTMLTextAreaElement>("textarea")!.value = "";
+  save(); render();
+  const scope = form.closest("#workspace-shelf") ? document.getElementById("workspace-shelf") : root;
+  const composer = scope?.querySelector<HTMLFormElement>('[data-message-kind="' + kind + '"]');
+  if (composer) {
+    composer.classList.remove("has-message"); composer.classList.add("message-sent");
+    composer.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled = true;
+    const textarea = composer.querySelector<HTMLTextAreaElement>("textarea");
+    if (textarea) { resizeWorkspaceMessage(textarea); textarea.focus(); }
+    window.setTimeout(() => composer.classList.remove("message-sent"), 600);
+  }
+  const list = scope?.id === "workspace-shelf" ? scope.querySelector(".workspace-shelf-list") : composer?.closest(".personal-panel")?.querySelector(".personal-record-list");
+  if (list) {
+    list.scrollTop = 0;
+    const row = list.firstElementChild; row?.classList.add("message-record-enter");
+    window.setTimeout(() => row?.classList.remove("message-record-enter"), 600);
+  }
+}
+
 function renderWorkspaceShelf(): void {
   if (!workspaceShelf) return;
   const list = document.getElementById("workspace-shelf-list"); if (!list) return;
+  const shelf = document.getElementById("workspace-shelf")!;
+  const previousComposer = shelf.querySelector<HTMLFormElement>(".workspace-message-composer");
+  if (previousComposer?.dataset.messageKind !== workspaceShelf) {
+    previousComposer?.remove();
+    shelf.querySelector(".workspace-shelf-footer")?.insertAdjacentHTML("beforebegin", workspaceMessageComposer(workspaceShelf));
+  }
   const term = workspaceShelfQuery.trim().toLocaleLowerCase("tr-TR");
   const title = document.getElementById("workspace-shelf-title"); if (title) title.textContent = workspaceShelf === "tasks" ? "Görevler" : workspaceShelf === "questions" ? "Açık sorular" : "Notlar";
   const add = document.querySelector<HTMLButtonElement>(".workspace-shelf-add");
-  if (add) { add.hidden = workspaceShelf !== "questions"; add.dataset.workspaceCreate = workspaceShelf === "tasks" ? "task" : workspaceShelf === "questions" ? "question" : "note"; add.setAttribute("aria-label", workspaceShelf === "tasks" ? "Yeni görev" : workspaceShelf === "questions" ? "Yeni soru" : "Yeni not"); }
+  if (add) { add.hidden = true; add.dataset.workspaceCreate = workspaceShelf === "tasks" ? "task" : workspaceShelf === "questions" ? "question" : "note"; add.setAttribute("aria-label", workspaceShelf === "tasks" ? "Yeni görev" : workspaceShelf === "questions" ? "Yeni soru" : "Yeni not"); }
   const completed = document.querySelector<HTMLElement>(".workspace-show-completed"); if (completed) completed.hidden = workspaceShelf !== "tasks";
   const questionControl = document.querySelector<HTMLElement>(".workspace-question-filter"); if (questionControl) questionControl.hidden = workspaceShelf !== "questions";
   const questionSelect = document.getElementById("workspace-question-filter") as HTMLSelectElement | null; if (questionSelect) questionSelect.value = questionFilter;
@@ -1600,9 +1603,13 @@ function initWorkspaceToolbar(): void {
     const target = event.target instanceof Element ? event.target : null; if (!target) return;
     const create = target.closest<HTMLButtonElement>("[data-workspace-create]");
     if (create) {
-      const kind = create.dataset.workspaceCreate; closeWorkspaceShelf(false); closeActionTooltip();
+      const kind = create.dataset.workspaceCreate;
+      if (kind === "task" || kind === "note" || kind === "question") {
+        openWorkspaceShelf(kind === "task" ? "tasks" : kind === "note" ? "notes" : "questions");
+        document.querySelector<HTMLTextAreaElement>("#workspace-shelf textarea[name=message]")?.focus(); return;
+      }
+      closeWorkspaceShelf(false); closeActionTooltip();
       create.classList.add("is-launching"); window.setTimeout(() => create.classList.remove("is-launching"), 360);
-      if (kind === "question") { modalReturnFocus = document.querySelector<HTMLButtonElement>('.workspace-tools [data-workspace-panel="questions"]'); openQuestionForm(); return; }
       const selected = getSelectedBacklogItems();
       if (state.formDrafts?.length) openNewModal(kind === "task" ? "Kişisel görev" : kind === "note" ? "Not" : "Backlog işi");
       else openQuickCreateModal(kind === "task" ? "Kişisel görev" : kind === "note" ? "Not" : "Backlog işi", selected.length === 1 ? selected[0].id : "");
@@ -1682,6 +1689,161 @@ document.addEventListener("click", (event) => {
   toast(pinned ? "Odaktan çıkarıldı. Asıl kayıt korunuyor." : "Bugünkü odağına eklendi.");
 }, true);
 
+function normalizeDashboardLayout(value: unknown): DashboardPanelLayout[] {
+  const ids: DashboardPanelId[] = ["tasks", "notes", "questions", "items"];
+  const result: DashboardPanelLayout[] = [];
+  if (Array.isArray(value)) value.forEach((entry) => {
+    if (!entry || !ids.includes(entry.id) || result.some((panel) => panel.id === entry.id)) return;
+    result.push({ id: entry.id, width: Number.isFinite(entry.width) ? Math.max(.32, Math.min(1, entry.width)) : .5, height: Number.isFinite(entry.height) ? Math.max(220, Math.min(1000, entry.height)) : 300 });
+  });
+  ids.forEach((id) => { if (!result.some((panel) => panel.id === id)) result.push({ id, width: .5, height: 300 }); });
+  return result;
+}
+let maximizedDashboardPanel: DashboardSearchKind | null = null;
+function applyDashboardMaximize(): void {
+  root.querySelectorAll<HTMLElement>(".personal-panel, .personal-focus").forEach((panel) => {
+    const kind = (panel.dataset.dashboardPanel || "focus") as DashboardSearchKind;
+    const maximized = maximizedDashboardPanel === kind;
+    panel.classList.toggle("is-panel-maximized", maximized);
+    let button = panel.querySelector<HTMLButtonElement>(".dashboard-panel-maximize");
+    if (!button) {
+      const header = panel.querySelector(".personal-panel-heading, .personal-focus-heading");
+      header?.insertAdjacentHTML("beforeend", '<button type="button" class="personal-icon dashboard-panel-maximize" data-dashboard-maximize="' + kind + '"></button>');
+      button = panel.querySelector<HTMLButtonElement>(".dashboard-panel-maximize");
+    }
+    if (button) {
+      const label = maximized ? "Paneli küçült" : "Paneli büyüt";
+      button.innerHTML = icon(maximized ? "minimize" : "maximize"); button.setAttribute("aria-label", label); button.title = label; button.setAttribute("aria-pressed", String(maximized));
+    }
+  });
+  root.querySelector(".personal-dashboard")?.classList.toggle("has-maximized-panel", !!maximizedDashboardPanel);
+  requestAnimationFrame(() => root.querySelectorAll<HTMLTextAreaElement>(".workspace-message-input textarea").forEach(resizeWorkspaceMessage));
+}
+document.addEventListener("click", (event) => {
+  const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("[data-dashboard-maximize]") : null; if (!button) return;
+  const kind = button.dataset.dashboardMaximize as DashboardSearchKind;
+  maximizedDashboardPanel = maximizedDashboardPanel === kind ? null : kind; applyDashboardMaximize(); button.focus();
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !maximizedDashboardPanel || activeView !== "overview" || modalRoot.children.length || root.querySelector(":popover-open")) return;
+  const kind = maximizedDashboardPanel; maximizedDashboardPanel = null; applyDashboardMaximize();
+  root.querySelector<HTMLButtonElement>('[data-dashboard-maximize="' + kind + '"]')?.focus();
+});
+function applyDashboardLayout(): void {
+  const grid = root.querySelector<HTMLElement>(".personal-grid"); if (!grid) return;
+  const layout = normalizeDashboardLayout(state.dashboardLayout);
+  const defaults = normalizeDashboardLayout(null);
+  const toolbar = root.querySelector<HTMLElement>(".dashboard-layout-toolbar");
+  if (toolbar) toolbar.hidden = layout.every((entry, index) => entry.id === defaults[index].id && Math.abs(entry.width - defaults[index].width) < .001 && Math.abs(entry.height - defaults[index].height) < 1);
+  layout.forEach((entry) => {
+    const panel = grid.querySelector<HTMLElement>('[data-dashboard-panel="' + entry.id + '"]'); if (!panel) return;
+    panel.style.setProperty("--panel-width", String(entry.width));
+    panel.style.setProperty("--panel-height", entry.height + "px");
+    grid.append(panel);
+    if (!panel.querySelector(".dashboard-panel-grip")) {
+      panel.querySelector(".personal-panel-heading")?.insertAdjacentHTML("afterbegin", '<button type="button" class="personal-icon dashboard-panel-grip" draggable="true" aria-label="Paneli taşı" title="Sürükleyerek taşı · Ok tuşlarıyla sırala"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01" stroke-width="4"/></svg></button>');
+      panel.insertAdjacentHTML("beforeend", '<button type="button" class="dashboard-panel-resize" aria-label="Paneli boyutlandır" title="Sürükleyerek boyutlandır · Ok tuşlarıyla ayarla"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5 13 8-8m-3 8 3-3"/></svg></button>');
+    }
+  });
+}
+function moveDashboardPanel(from: DashboardPanelId, to: DashboardPanelId): void {
+  const layout = normalizeDashboardLayout(state.dashboardLayout);
+  const source = layout.findIndex((entry) => entry.id === from); const target = layout.findIndex((entry) => entry.id === to);
+  if (source < 0 || target < 0 || source === target) return;
+  const [entry] = layout.splice(source, 1); layout.splice(target, 0, entry);
+  state.dashboardLayout = layout; save(); applyDashboardLayout();
+}
+let dashboardDraggedPanel: DashboardPanelId | null = null;
+document.addEventListener("dragstart", (event) => {
+  const grip = event.target instanceof Element ? event.target.closest(".dashboard-panel-grip") : null;
+  const panel = grip?.closest<HTMLElement>("[data-dashboard-panel]"); if (!panel || !event.dataTransfer) return;
+  dashboardDraggedPanel = panel.dataset.dashboardPanel as DashboardPanelId;
+  event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", dashboardDraggedPanel);
+  event.dataTransfer.setDragImage(panel, 30, 20); panel.classList.add("is-panel-dragging");
+});
+document.addEventListener("dragover", (event) => {
+  if (!dashboardDraggedPanel) return;
+  const panel = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-dashboard-panel]") : null;
+  root.querySelectorAll(".is-panel-drop-target").forEach((entry) => entry.classList.remove("is-panel-drop-target"));
+  if (panel) { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = "move"; panel.classList.add("is-panel-drop-target"); }
+});
+function finishDashboardDrag(): void {
+  dashboardDraggedPanel = null;
+  root.querySelectorAll(".is-panel-dragging, .is-panel-drop-target").forEach((entry) => entry.classList.remove("is-panel-dragging", "is-panel-drop-target"));
+}
+document.addEventListener("drop", (event) => {
+  if (!dashboardDraggedPanel) return;
+  const panel = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-dashboard-panel]") : null;
+  if (panel) { event.preventDefault(); moveDashboardPanel(dashboardDraggedPanel, panel.dataset.dashboardPanel as DashboardPanelId); }
+  finishDashboardDrag();
+});
+document.addEventListener("dragend", finishDashboardDrag);
+document.addEventListener("pointerdown", (event) => {
+  const handle = event.target instanceof Element ? event.target.closest<HTMLButtonElement>(".dashboard-panel-resize") : null;
+  const panel = handle?.closest<HTMLElement>("[data-dashboard-panel]"); const grid = panel?.parentElement;
+  if (!handle || !panel || !grid || event.button !== 0) return;
+  event.preventDefault(); handle.setPointerCapture(event.pointerId);
+  const layout = normalizeDashboardLayout(state.dashboardLayout); const entry = layout.find((entry) => entry.id === panel.dataset.dashboardPanel)!;
+  const original = { ...entry }; const startX = event.clientX; const startY = event.clientY;
+  const width = panel.getBoundingClientRect().width; const height = panel.getBoundingClientRect().height;
+  const gap = parseFloat(getComputedStyle(grid).gap) || 18; const gridWidth = grid.getBoundingClientRect().width;
+  panel.classList.add("is-panel-resizing");
+  const move = (moveEvent: PointerEvent) => {
+    entry.width = Math.max(.32, Math.min(1, (width + moveEvent.clientX - startX + gap) / (gridWidth + gap)));
+    entry.height = Math.max(220, Math.min(1000, height + moveEvent.clientY - startY));
+    panel.style.setProperty("--panel-width", String(entry.width)); panel.style.setProperty("--panel-height", entry.height + "px");
+    panel.querySelectorAll<HTMLTextAreaElement>(".workspace-message-input textarea").forEach(resizeWorkspaceMessage);
+  };
+  const finish = (finishEvent: PointerEvent) => {
+    if (finishEvent.type === "pointercancel") Object.assign(entry, original);
+    state.dashboardLayout = layout; save(); panel.classList.remove("is-panel-resizing");
+    handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", finish); handle.removeEventListener("pointercancel", finish);
+    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
+    applyDashboardLayout();
+  };
+  handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", finish); handle.addEventListener("pointercancel", finish);
+});
+document.addEventListener("keydown", (event) => {
+  if (!(event.target instanceof HTMLElement) || !event.key.startsWith("Arrow")) return;
+  const handle = event.target.closest(".dashboard-panel-grip, .dashboard-panel-resize"); const panel = handle?.closest<HTMLElement>("[data-dashboard-panel]"); if (!panel) return;
+  event.preventDefault(); const layout = normalizeDashboardLayout(state.dashboardLayout); const index = layout.findIndex((entry) => entry.id === panel.dataset.dashboardPanel);
+  const direction = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
+  if (handle?.classList.contains("dashboard-panel-grip")) {
+    const target = layout[index + direction]; if (target) moveDashboardPanel(layout[index].id, target.id);
+  } else {
+    const entry = layout[index];
+    if (event.key === "ArrowLeft" || event.key === "ArrowRight") entry.width = Math.max(.32, Math.min(1, entry.width + direction * .05));
+    else entry.height = Math.max(220, Math.min(1000, entry.height + direction * 20));
+    state.dashboardLayout = layout; save(); applyDashboardLayout();
+  }
+  (handle as HTMLElement)?.focus();
+});
+document.addEventListener("click", (event) => {
+  if (event.target instanceof Element && event.target.closest("[data-dashboard-reset]")) {
+    state.dashboardLayout = normalizeDashboardLayout(null); save(); applyDashboardLayout();
+  }
+});
+
+type DashboardSearchKind = WorkspaceMessageKind | "focus";
+const dashboardSearches: Record<DashboardSearchKind, string> = { tasks: "", notes: "", questions: "", items: "", focus: "" };
+function dashboardSearchControl(kind: DashboardSearchKind): string {
+  return '<button type="button" class="personal-icon dashboard-search-trigger' + (dashboardSearches[kind] ? ' is-filtered' : '') + '" popovertarget="dashboard-search-' + kind + '" data-panel-search-trigger="' + kind + '" aria-label="Panelde ara" title="Panelde ara">' + icon("search") + '</button><div id="dashboard-search-' + kind + '" class="dashboard-search-popover" popover><div class="dashboard-search-field">' + icon("search") + '<input type="search" data-panel-search="' + kind + '" value="' + esc(dashboardSearches[kind]) + '" aria-label="Panelde ara" autocomplete="off" autofocus></div></div>';
+}
+function applyDashboardSearch(kind: DashboardSearchKind): void {
+  const trigger = root.querySelector<HTMLElement>('[data-panel-search-trigger="' + kind + '"]');
+  const panel = trigger?.closest<HTMLElement>(".personal-panel, .personal-focus"); if (!panel) return;
+  const term = dashboardSearches[kind].trim().toLocaleLowerCase("tr-TR");
+  const rows = [...panel.querySelectorAll<HTMLElement>("[data-panel-search-text]")];
+  rows.forEach((row) => { row.hidden = !row.dataset.panelSearchText!.toLocaleLowerCase("tr-TR").includes(term); });
+  const count = rows.filter((row) => !row.hidden).length;
+  const badge = panel.querySelector("h2 > span"); if (badge) badge.textContent = String(count) + (kind === "focus" ? " kayıt" : "");
+  trigger?.classList.toggle("is-filtered", !!term);
+  const list = panel.querySelector(".personal-record-list, .personal-focus-list");
+  list?.querySelector(".dashboard-search-empty")?.remove();
+  list?.querySelectorAll<HTMLElement>(".personal-empty").forEach((entry) => { entry.hidden = !!term; });
+  if (term && !count) list?.insertAdjacentHTML("beforeend", '<p class="personal-empty dashboard-search-empty">Eşleşen kayıt yok.</p>');
+}
+
 function renderOverview(): void {
   const date = workspaceFocusDate();
   const focus = (state.dailyFocus || []).filter((entry) => entry.date === date).flatMap((entry) => {
@@ -1690,10 +1852,15 @@ function renderOverview(): void {
   });
   const tasks = state.tasks.filter((task) => !task.done).sort((a, b) => Number(b.due === "Bugün") - Number(a.due === "Bugün"));
   const questions = (state.openQuestions || []).filter((question) => question.status === "Açık").sort((a, b) => (a.expectedAt || "9999").localeCompare(b.expectedAt || "9999"));
-  const critical = state.items.filter((item) => !item.archived && item.status !== "Tamamlandı" && isItemInActiveProject(item) && (item.status === "Bloke" || overdueDays(item) > 0 || item.priority === "Kritik" || item.priority === "Yüksek")).sort((a, b) => Number(b.status === "Bloke") - Number(a.status === "Bloke") || overdueDays(b) - overdueDays(a) || Number(b.priority === "Kritik") - Number(a.priority === "Kritik"));
+  const critical = state.items.filter((item) => !item.archived && item.status !== "Tamamlandı" && isItemInActiveProject(item) && (!dashboardPriority || item.priority === dashboardPriority));
+  const priorityFilter = '<button type="button" class="personal-priority-trigger" popovertarget="dashboard-priority-popover" aria-label="Öncelik filtresi" title="Öncelik filtresi">' + icon("filter") + '<span>' + esc(dashboardPriority || "Öncelik") + '</span>' + icon("chevronDown") + '</button><div id="dashboard-priority-popover" class="personal-priority-popover" popover><strong>Öncelik</strong>' + ["", "Kritik", "Yüksek", "Orta", "Düşük"].map((priority) => '<label><input type="radio" name="dashboard-priority" value="' + priority + '" ' + (dashboardPriority === priority ? 'checked' : '') + '><span>' + esc(priority || "Tüm öncelikler") + '</span></label>').join("") + '</div>';
+
   const empty = (text: string) => '<p class="personal-empty">' + text + '</p>';
-  const heading = (title: string, count: number, glyph: string, action: string, label: string) => '<header class="personal-panel-heading"><h2>' + icon(glyph) + title + '<span>' + count + '</span></h2><button type="button" class="personal-icon icon-action" ' + action + ' aria-label="' + label + '" data-tooltip="' + label + '">' + icon("add") + '</button></header>';
-  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><header class="page-title-row personal-heading"><div><div class="panel-kicker">' + esc(new Date().toLocaleDateString("tr-TR", { day: "numeric", month: "long", weekday: "long" })) + ' · KİŞİSEL ALANIN</div><h1>Merhaba ' + esc(state.profile.userName.trim().split(/\s+/)[0] || "") + '.</h1><p>' + esc(state.profile.workspace) + ' · Bugünü kendi önceliklerinle şekillendir.</p></div></header><div class="personal-dashboard-body"><section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span></header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section><div class="personal-grid"><section class="personal-panel personal-tasks" aria-label="Görevlerim">' + heading("Görevlerim", tasks.length, "task", 'data-action="new" data-type="Kişisel görev"', "Kişisel görev ekle") + '<div class="personal-record-list">' + (tasks.map((task) => '<article class="personal-row"><button type="button" class="personal-task-check" data-toggle-task="' + esc(task.id) + '" aria-label="Görevi tamamla: ' + esc(task.title) + '">' + icon("check") + '</button><button type="button" class="personal-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong><small>' + esc([task.due, task.linked].filter(Boolean).join(" · ")) + '</small></button>' + workspaceFocusPin("task", task.id) + '</article>').join("") || empty("Açık kişisel görevin yok. + ile yeni bir görev ekleyebilirsin.")) + '</div></section><section class="personal-panel personal-notes" aria-label="Notlarım">' + heading("Notlarım", state.notes.length, "note", 'data-action="new" data-type="Not"', "Not ekle") + '<div class="personal-record-list">' + (state.notes.map((note) => '<article class="personal-row"><button type="button" class="personal-record-open" data-note="' + esc(note.id) + '"><strong>' + esc(note.title) + '</strong><p>' + esc(note.body.slice(0, 180)) + '</p><small>' + esc([note.linked, note.updated].filter(Boolean).join(" · ")) + '</small></button>' + workspaceFocusPin("note", note.id) + '</article>').join("") || empty("Düşüncelerini ve hazırlıklarını burada topla. + ile ilk notunu ekle.")) + '</div></section><section class="personal-panel personal-questions" aria-label="Sorularım">' + heading("Sorularım", questions.length, "help", 'data-workspace-create="question"', "Soru ekle") + '<div class="personal-record-list">' + (questions.map((question) => '<article class="personal-row"><button type="button" class="personal-record-open" data-action="edit-open-question" data-id="' + esc(question.id) + '"><strong>' + esc(question.text) + '</strong><small>' + esc([question.owner, question.expectedAt ? "Beklenen: " + question.expectedAt : "Yanıt bekleniyor", question.linkedItemId].filter(Boolean).join(" · ")) + '</small></button><button type="button" class="personal-icon" data-action="answer-open-question" data-id="' + esc(question.id) + '" aria-label="Soruyu yanıtla" data-tooltip="Yanıtı kaydet">' + icon("check") + '</button>' + workspaceFocusPin("question", question.id) + '</article>').join("") || empty("Yanıt bekleyen sorun yok. + ile takip edeceğin bir soru ekle.")) + '</div></section><section class="personal-panel personal-critical" aria-label="Kritik backlog işleri"><header class="personal-panel-heading"><h2>' + icon("bug") + 'Kritik backlog işleri<span>' + critical.length + '</span></h2><button type="button" class="personal-icon" data-overview-filter="open" aria-label="Backlog’u aç" data-tooltip="Backlog’da incele">' + icon("list") + '</button></header><div class="personal-record-list">' + (critical.map((item) => '<article class="personal-row"><button type="button" class="personal-record-open" data-open-item="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(item.id + " · " + item.project) + '</small><span class="personal-critical-reason">' + esc([item.status === "Bloke" ? "Bloke" : "", overdueDays(item) ? overdueDays(item) + " gün gecikti" : "", item.priority === "Kritik" || item.priority === "Yüksek" ? item.priority + " öncelik" : ""].filter(Boolean).join(" · ")) + '</span></button>' + workspaceFocusPin("item", item.id) + '</article>').join("") || empty("Bloke, geciken veya yüksek/kritik öncelikli açık iş yok.")) + '</div></section></div></div></div>';
+  const heading = (title: string, count: number, glyph: string, action: string, label: string, kind: DashboardSearchKind) => '<header class="personal-panel-heading"><h2>' + icon(glyph) + title + '<span>' + count + '</span></h2><button type="button" class="personal-icon icon-action" ' + action + ' aria-label="' + label + '" data-tooltip="' + label + '">' + icon("add") + '</button>' + dashboardSearchControl(kind) + '</header>';
+  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><div class="personal-dashboard-body"><section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span>' + dashboardSearchControl("focus") + '</header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry" data-panel-search-text="' + esc([record.title, record.label, record.meta].join(" ")) + '"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section><div class="dashboard-layout-toolbar"><button type="button" class="personal-icon" data-dashboard-reset aria-label="Düzeni sıfırla" title="Düzeni sıfırla">' + icon("undo") + '</button></div><div class="personal-grid"><section class="personal-panel personal-tasks" data-dashboard-panel="tasks" aria-label="Görevlerim">' + heading("Görevlerim", tasks.length, "task", 'data-message-focus="tasks"', "Kişisel görev yaz", "tasks") + '<div class="personal-record-list">' + (tasks.map((task) => '<article class="personal-row" data-panel-search-text="' + esc([task.title, task.description, task.due, task.linked].filter(Boolean).join(" ")) + '"><button type="button" class="personal-task-check" data-toggle-task="' + esc(task.id) + '" aria-label="Görevi tamamla: ' + esc(task.title) + '">' + icon("check") + '</button><button type="button" class="personal-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong><small>' + esc([task.due, task.linked].filter(Boolean).join(" · ")) + '</small></button>' + workspaceFocusPin("task", task.id) + '</article>').join("") || empty("İlk görevini aşağıya mesaj olarak yaz.")) + '</div>' + workspaceMessageComposer("tasks") + '</section><section class="personal-panel personal-notes" data-dashboard-panel="notes" aria-label="Notlarım">' + heading("Notlarım", state.notes.length, "note", 'data-message-focus="notes"', "Not yaz", "notes") + '<div class="personal-record-list">' + (state.notes.map((note) => '<article class="personal-row" data-panel-search-text="' + esc([note.title, note.body, note.linked].filter(Boolean).join(" ")) + '"><button type="button" class="personal-record-open" data-note="' + esc(note.id) + '"><strong>' + esc(note.title) + '</strong><p>' + esc(note.body.slice(0, 180)) + '</p><small>' + esc([note.linked, note.updated].filter(Boolean).join(" · ")) + '</small></button>' + workspaceFocusPin("note", note.id) + '</article>').join("") || empty("Düşüncelerini aşağıya mesaj olarak yaz.")) + '</div>' + workspaceMessageComposer("notes") + '</section><section class="personal-panel personal-questions" data-dashboard-panel="questions" aria-label="Sorularım">' + heading("Sorularım", questions.length, "help", 'data-message-focus="questions"', "Soru yaz", "questions") + '<div class="personal-record-list">' + (questions.map((question) => '<article class="personal-row" data-panel-search-text="' + esc([question.text, question.owner, question.linkedItemId].filter(Boolean).join(" ")) + '"><button type="button" class="personal-record-open" data-action="edit-open-question" data-id="' + esc(question.id) + '"><strong>' + esc(question.text) + '</strong><small>' + esc([question.owner, question.expectedAt ? "Beklenen: " + question.expectedAt : "Yanıt bekleniyor", question.linkedItemId].filter(Boolean).join(" · ")) + '</small></button><button type="button" class="personal-icon" data-action="answer-open-question" data-id="' + esc(question.id) + '" aria-label="Soruyu yanıtla" data-tooltip="Yanıtı kaydet">' + icon("check") + '</button>' + workspaceFocusPin("question", question.id) + '</article>').join("") || empty("Takip edeceğin soruyu aşağıya yaz.")) + '</div>' + workspaceMessageComposer("questions") + '</section><section class="personal-panel personal-critical" data-dashboard-panel="items" aria-label="Backlog işleri"><header class="personal-panel-heading"><h2>' + icon("bug") + 'Backlog işleri<span>' + critical.length + '</span></h2>' + priorityFilter + dashboardSearchControl("items") + '</header><div class="personal-record-list">' + (critical.map((item) => '<article class="personal-row" data-panel-search-text="' + esc([item.id, item.title, item.description, item.project, item.priority, item.status].filter(Boolean).join(" ")) + '"><button type="button" class="personal-record-open" data-open-item="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(item.id + " · " + item.project) + '</small><span class="personal-critical-reason">' + esc([item.status === "Bloke" ? "Bloke" : "", overdueDays(item) ? overdueDays(item) + " gün gecikti" : "", item.priority + " öncelik"].filter(Boolean).join(" · ")) + '</span></button>' + workspaceFocusPin("item", item.id) + '</article>').join("") || empty("Bu öncelikte açık backlog işi yok.")) + '</div>' + workspaceMessageComposer("items") + '</section></div></div></div>';
+  applyDashboardLayout();
+  applyDashboardMaximize();
+  (Object.keys(dashboardSearches) as DashboardSearchKind[]).forEach(applyDashboardSearch);
 }
 
 function issueRow(item: WorkItem): string {
@@ -2617,7 +2784,8 @@ function saveNewSprint(event: SubmitEvent): void {
 }
 
 function renderAssets(): void {
-  root.innerHTML = '<div class="page-content assets-page"><section class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>ÜRÜN BİLEŞENLERİ</div><h1>Ürün envanteri</h1><p>Ekran, batch, rapor ve servislerini backlog işleriyle birlikte takip et.</p></div><div class="button-row"><button class="button button-secondary" data-action="asset-presentation" data-mode="' + (assetPresentation === "diagram" ? "cards" : "diagram") + '">' + (assetPresentation === "diagram" ? "Kart görünümü" : "İlişki diyagramı") + '</button><button class="button button-primary" data-action="new-asset"><span class="button-plus">+</span> Bileşen ekle</button></div></section><div class="assets-toolbar"><label class="filter-search"><span class="search-glyph">' + icon("search") + '</span><input id="asset-search" type="search" placeholder="Envanterde ara…" value="' + esc(assetQuery) + '"></label><select id="asset-type-filter" aria-label="Tür"><option value="">Tüm türler</option>' + ["Ekran", "Batch", "Rapor", "Servis/API", "Entegrasyon", "Diğer"].map((type) => '<option ' + (assetTypeFilter === type ? "selected" : "") + '>' + type + '</option>').join("") + '</select><select id="asset-project-filter" aria-label="Proje"><option value="">Tüm projeler</option>' + state.projects.filter((project) => !project.archived).map((project) => '<option ' + (assetProjectFilter === project.name ? "selected" : "") + '>' + esc(project.name) + '</option>').join("") + '</select><label class="asset-inactive-toggle"><input id="asset-inactive-filter" type="checkbox" ' + (includeInactiveAssets ? "checked" : "") + '> Pasif bileşenleri göster</label></div><div class="assets-summary"><strong id="asset-visible-count">0</strong> bileşen <span>·</span> ' + state.assets.filter((asset) => asset.active).length + ' aktif</div><div id="asset-content"></div></div>';
+  root.innerHTML = '<div class="page-content assets-page"><section class="page-title-row inventory-heading"><div class="inventory-identity"><span class="inventory-mark">' + icon("inventory") + '</span><div><div class="inventory-title"><h1>Ürün envanteri</h1><span class="inventory-count"><strong id="asset-visible-count">0</strong> bileşen</span></div><p>Ürün bileşenleri ve backlog bağlantıları</p></div></div><div class="inventory-actions"><div class="inventory-view-switch" role="group" aria-label="Envanter görünümü">' + (["cards", "diagram"] as const).map((mode) => '<button type="button" data-action="asset-presentation" data-mode="' + mode + '" aria-pressed="' + (assetPresentation === mode) + '" aria-label="' + (mode === "cards" ? 'Kart görünümü' : 'İlişki diyagramı') + '" data-tooltip="' + (mode === "cards" ? 'Kart görünümü' : 'İlişki diyagramı') + '">' + icon(mode === "cards" ? "grid" : "diagram") + '</button>').join("") + '</div><button type="button" class="inventory-add icon-action" data-action="new-asset" aria-label="Bileşen ekle" data-tooltip="Bileşen ekle">' + icon("add") + '</button></div></section>' +
+    '<div class="inventory-controls"><div class="inventory-filter-row"><label class="inventory-search">' + icon("search") + '<input id="asset-search" type="search" aria-label="Envanterde ara" placeholder="Envanterde ara…" value="' + esc(assetQuery) + '"></label><div class="inventory-filter-fields"><label class="inventory-select">' + icon("inventory") + '<select id="asset-type-filter" aria-label="Bileşen türü"><option value="">Tüm türler</option>' + ["Ekran", "Batch", "Rapor", "Servis/API", "Entegrasyon", "Diğer"].map((type) => '<option ' + (assetTypeFilter === type ? "selected" : "") + '>' + type + '</option>').join("") + '</select></label><label class="inventory-select inventory-project">' + icon("folder") + '<select id="asset-project-filter" aria-label="Proje"><option value="">Tüm projeler</option>' + state.projects.filter((project) => !project.archived).map((project) => '<option ' + (assetProjectFilter === project.name ? "selected" : "") + '>' + esc(project.name) + '</option>').join("") + '</select></label></div><label class="inventory-inactive"><input id="asset-inactive-filter" type="checkbox" role="switch" ' + (includeInactiveAssets ? "checked" : "") + '><span class="inventory-switch" aria-hidden="true"></span><span>Pasifler</span></label></div><div class="inventory-status"><span><i></i><span id="asset-active-count">0</span> aktif bileşen</span><button type="button" data-action="clear-asset-filters" hidden>' + icon("close") + 'Filtreleri temizle</button></div></div><div id="asset-content"></div></div>';
   updateAssetGrid();
 }
 
@@ -2628,6 +2796,9 @@ function updateAssetGrid(): void {
   const normalizedQuery = assetQuery.trim().toLocaleLowerCase("tr-TR");
   const assets = state.assets.filter((asset) => !state.projects.some((project) => project.name === asset.project && project.archived) && (includeInactiveAssets || asset.active) && (!assetTypeFilter || asset.type === assetTypeFilter) && (!assetProjectFilter || asset.project === assetProjectFilter) && (!normalizedQuery || (asset.code + " " + asset.name + " " + asset.area + " " + asset.purpose).toLocaleLowerCase("tr-TR").includes(normalizedQuery)));
   visibleCount.textContent = String(assets.length);
+  const activeCount = document.getElementById("asset-active-count"); if (activeCount) activeCount.textContent = String(assets.filter((asset) => asset.active).length);
+  const clearFilters = root.querySelector<HTMLButtonElement>('[data-action="clear-asset-filters"]'); if (clearFilters) clearFilters.hidden = !assetQuery && !assetTypeFilter && !assetProjectFilter && !includeInactiveAssets;
+
   if (assetPresentation === "diagram") { renderAssetDiagram(content, assets); return; }
   disposeAssetDiagram();
   content.innerHTML = '<div class="asset-grid" id="asset-grid">' + (assets.length ? assets.map((asset) => {
@@ -3101,30 +3272,52 @@ function renderTeamDashboard(): void {
   root.innerHTML = '<div class="page-content teams-page"><section class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>ÇALIŞMA ALANI · EKİPLER</div><h1>Takım paneli</h1><p>İş dağılımını ve ilerlemeyi takım ve üye bazında takip et.</p></div><button class="button button-primary" data-action="new-team"><span class="button-plus">+</span> Takım ekle</button></section><label class="team-member-search"><span class="search-glyph">' + icon("search") + '</span><input id="team-member-search" type="search" placeholder="Üye ara…" aria-label="Takım panelinde üye ara"></label><section class="team-overview-stats"><article><span>Takım</span><strong>' + state.teams.length + '</strong></article><article><span>Üye</span><strong>' + memberCount + '</strong></article><article><span>Atanmış iş</span><strong>' + assignedItems.length + '</strong></article><article><span>Açık iş</span><strong>' + openItems.length + '</strong></article><article class="team-stat-blocked"><span>Bloke</span><strong>' + blockedItems.length + '</strong></article><article><span>Tahmini efor</span><strong>' + estimateTotal + ' sa</strong></article></section><section class="team-plan-filters"><button class="button button-quiet button-small" data-action="clear-team-filters">Filtreleri temizle</button><label>Başlangıç tarihi (en erken)<input class="field-input" id="team-filter-start" type="date" value="' + esc(teamPlanFilters.startFrom) + '"></label><label>Hedef bitiş (en geç)<input class="field-input" id="team-filter-target" type="date" value="' + esc(teamPlanFilters.targetTo) + '"></label><label>Dönem<input class="field-input" id="team-filter-period" value="' + esc(teamPlanFilters.period) + '" placeholder="Örn. 2026 Q4"></label><label>En az efor (sa)<input class="field-input" id="team-filter-min-estimate" type="number" min="0" value="' + esc(teamPlanFilters.minEstimate) + '"></label><label>En çok efor (sa)<input class="field-input" id="team-filter-max-estimate" type="number" min="0" value="' + esc(teamPlanFilters.maxEstimate) + '"></label></section>' + (teamsMarkup || '<section class="team-dashboard-empty"><span class="team-empty-icon">♧</span><h2>Henüz takım oluşturulmadı</h2><p>Üyeleri ekleyip backlog Task işlerini atayabileceğin ilk takımını oluştur.</p><button class="button button-primary" data-action="new-team">＋ İlk takımı oluştur</button></section>') + '</div>';
 }
 
-function renderRoadmap(): void {
-  const activeProjectNames = new Set(state.projects.filter((project) => !project.archived).map((project) => project.name));
-  const visibleRoadmap = state.roadmap.filter((node) => activeProjectNames.has(node.project));
-  const initiatives = visibleRoadmap.filter((node) => node.type === "Initiative");
-  const months = Array.from({ length: 6 }, (_, index) => { const date = new Date(); date.setDate(1); date.setMonth(date.getMonth() + index); return date.toLocaleDateString("tr-TR", { month: "short" }); });
-  const initiativeMarkup = initiatives.map((initiative) => {
-    const epics = visibleRoadmap.filter((node) => node.parentId === initiative.id);
-    const linkedItems = state.items.filter((item) => item.roadmapNodeId === initiative.id || epics.some((epic) => epic.id === item.roadmapNodeId));
-    const completed = linkedItems.filter((item) => item.status === "Tamamlandı").length;
-    const progress = linkedItems.length ? Math.round(completed / linkedItems.length * 100) : 0;
-    const epicMarkup = epics.map((epic) => {
-      const epicItems = state.items.filter((item) => item.roadmapNodeId === epic.id);
-      const epicCompleted = epicItems.filter((item) => item.status === "Tamamlandı").length;
-      const epicProgress = epicItems.length ? Math.round(epicCompleted / epicItems.length * 100) : 0;
-      const itemsMarkup = epicItems.map((item) => '<button class="roadmap-work-item" data-open-item="' + esc(item.id) + '"><span>' + esc(item.id) + '</span><strong>' + esc(item.title) + '</strong><span class="roadmap-product-stage">' + esc(item.productStage || "Sırada") + '</span><span class="status-pill ' + statusClass(item.status) + '"><i></i>' + esc(item.status) + '</span></button>').join("");
-      return '<article class="roadmap-epic" data-context-roadmap-id="' + esc(epic.id) + '"><header><div><span class="roadmap-type-label">EPIC</span><strong>' + esc(epic.title) + '</strong><small>' + esc(epic.project) + ' · ' + epicItems.length + ' iş · ' + epicProgress + '% tamamlandı</small></div><button class="button button-quiet button-small" data-action="edit-roadmap" data-id="' + esc(epic.id) + '">Düzenle</button></header>' + roadmapTimelineBar(epic) + (itemsMarkup ? '<div class="roadmap-work-list">' + itemsMarkup + '</div>' : '<p class="roadmap-empty-inline">Bu epic altında henüz backlog işi yok.</p>') + '</article>';
-    }).join("");
-    const dateChange = initiative.dateHistory?.[0];
-    return '<article class="roadmap-initiative" data-context-roadmap-id="' + esc(initiative.id) + '"><header class="roadmap-initiative-header"><div><span class="roadmap-type-label">ÜRÜN HAMLESİ</span><h2>' + esc(initiative.title) + '</h2><p>' + esc(initiative.project) + ' · ' + esc(initiative.owner || "Sahip atanmadı") + ' · ' + esc(initiative.stage) + '</p></div><div class="roadmap-actions"><button class="button button-secondary button-small" data-action="create-epic" data-parent-id="' + esc(initiative.id) + '">＋ Epic</button><button class="button button-quiet button-small" data-action="edit-roadmap" data-id="' + esc(initiative.id) + '">Düzenle</button><button class="button button-quiet button-small" data-action="delete-roadmap" data-id="' + esc(initiative.id) + '">Sil</button></div></header><p class="roadmap-goal">' + esc(initiative.goal || "Hedef tanımlanmadı.") + '</p><div class="roadmap-meta"><span>Başarı ölçütü: <strong>' + esc(initiative.successMetric || "Tanımlanmadı") + '</strong></span><span>' + esc(initiative.startDate || "Başlangıç yok") + ' → ' + esc(initiative.targetDate || "Hedef tarih yok") + '</span><span>' + linkedItems.length + ' iş · ' + completed + ' tamamlandı · ' + progress + '%</span></div><div class="roadmap-progress"><i style="width:' + progress + '%"></i></div>' + roadmapTimelineBar(initiative) + (dateChange ? '<small class="roadmap-date-change">Son tarih değişikliği: ' + esc(dateChange.from || "belirlenmedi") + ' → ' + esc(dateChange.to || "belirlenmedi") + ' · ' + esc(dateChange.actor) + '</small>' : '') + (epicMarkup || '<p class="roadmap-empty-inline">Bu ürün hamlesi altında epic yok.</p>') + '</article>';
-  }).join("");
-  const unplanned = state.items.filter((item) => !item.roadmapNodeId && isItemInActiveProject(item));
-  const axis = '<div class="roadmap-month-axis">' + months.map((month) => '<span>' + esc(month) + '</span>').join("") + '</div>';
-  root.innerHTML = '<div class="page-content roadmap-page"><section class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>ÜRÜN PLANLAMA</div><h1>Yol haritası</h1><p>Ürün hedeflerini, epic kapsamını ve backlog teslimatını birlikte gör.</p></div><button class="button button-primary" data-action="create-roadmap">＋ Ürün hamlesi oluştur</button></section><section class="roadmap-stage-strip">' + PRODUCT_STAGES.map((stage) => '<div><span>' + esc(stage) + '</span><strong>' + visibleRoadmap.filter((node) => node.stage === stage).length + '</strong></div>').join("") + '</section>' + axis + (initiativeMarkup || '<section class="roadmap-empty"><h2>Henüz ürün hedefi yok</h2><p>Bir ürün hamlesi oluşturarak ölçülebilir hedefini, sahibini ve zaman aralığını belirle.</p><button class="button button-primary" data-action="create-roadmap">İlk ürün hamlesini oluştur</button></section>') + (unplanned.length ? '<section class="roadmap-unplanned"><h2>Henüz hedefe bağlanmayan işler <span class="count-chip">' + unplanned.length + '</span></h2><div class="roadmap-work-list">' + unplanned.map((item) => '<button class="roadmap-work-item" data-open-item="' + esc(item.id) + '"><span>' + esc(item.id) + '</span><strong>' + esc(item.title) + '</strong><span class="roadmap-product-stage">' + esc(item.productStage || "Sırada") + '</span><span class="status-pill ' + statusClass(item.status) + '"><i></i>' + esc(item.status) + '</span></button>').join("") + '</div></section>' : '') + '</div>';
+let roadmapProjectFilter = "";
+let roadmapStageFilter = "";
+function roadmapAction(action: string, label: string, glyph: string, attributes = ""): string {
+  return '<button type="button" class="personal-icon icon-action" data-action="' + action + '" ' + attributes + ' aria-label="' + label + '" data-tooltip="' + label + '">' + icon(glyph) + '</button>';
 }
+function roadmapWorkMarkup(items: WorkItem[]): string {
+  return items.map((item) => '<button type="button" class="roadmap-work-item" data-open-item="' + esc(item.id) + '"><span class="roadmap-work-identity">' + itemIcon(item.type) + '<span>' + esc(item.id) + '</span></span><strong>' + esc(item.title) + '</strong><span class="roadmap-product-stage">' + esc(item.productStage || "Sırada") + '</span><span class="status-pill ' + statusClass(item.status) + '"><i></i>' + esc(item.status) + '</span></button>').join("");
+}
+function renderRoadmap(): void {
+  const projects = state.projects.filter((project) => !project.archived);
+  const activeNames = new Set(projects.map((project) => project.name));
+  const nodes = state.roadmap.filter((node) => activeNames.has(node.project) && (!roadmapProjectFilter || node.project === roadmapProjectFilter));
+  const allInitiatives = nodes.filter((node) => node.type === "Initiative");
+  const initiatives = allInitiatives.filter((node) => !roadmapStageFilter || node.stage === roadmapStageFilter);
+  const items = state.items.filter((item) => !item.archived && activeNames.has(item.project) && (!roadmapProjectFilter || item.project === roadmapProjectFilter));
+  const dates = (node: RoadmapNode) => [node.startDate ? new Date(node.startDate + "T00:00:00").toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" }) : "Başlangıç yok", node.targetDate ? new Date(node.targetDate + "T00:00:00").toLocaleDateString("tr-TR", { day: "numeric", month: "short", year: "numeric" }) : "Hedef tarih yok"].join(" → ");
+  const cards = initiatives.map((initiative) => {
+    const epics = nodes.filter((node) => node.type === "Epic" && node.parentId === initiative.id);
+    const linked = items.filter((item) => item.roadmapNodeId === initiative.id || epics.some((epic) => epic.id === item.roadmapNodeId));
+    const completed = linked.filter((item) => item.status === "Tamamlandı").length;
+    const progress = linked.length ? Math.round(completed / linked.length * 100) : 0;
+    const epicMarkup = epics.map((epic) => {
+      const epicItems = linked.filter((item) => item.roadmapNodeId === epic.id);
+      const done = epicItems.filter((item) => item.status === "Tamamlandı").length;
+      return '<details class="roadmap-epic" data-context-roadmap-id="' + esc(epic.id) + '" open><summary><span class="roadmap-epic-chevron">' + icon("chevronRight") + '</span><span class="roadmap-epic-copy"><span class="roadmap-type-label">EPIC</span><strong>' + esc(epic.title) + '</strong><small>' + epicItems.length + ' iş · ' + done + ' tamamlandı</small></span><span class="roadmap-stage-badge">' + esc(epic.stage) + '</span></summary><div class="roadmap-epic-content"><div class="roadmap-epic-meta"><span>' + esc(dates(epic)) + '</span>' + roadmapAction("edit-roadmap", "Epic düzenle", "edit", 'data-id="' + esc(epic.id) + '"') + '</div>' + (epicItems.length ? '<div class="roadmap-work-list">' + roadmapWorkMarkup(epicItems) + '</div>' : '<p class="roadmap-empty-inline">Bu epic altında henüz iş yok.</p>') + '</div></details>';
+    }).join("");
+    const direct = linked.filter((item) => item.roadmapNodeId === initiative.id);
+    const dateChange = initiative.dateHistory?.[0];
+    return '<article class="roadmap-initiative" data-context-roadmap-id="' + esc(initiative.id) + '"><header class="roadmap-initiative-header"><div class="roadmap-initiative-copy"><div class="roadmap-card-kicker"><span class="roadmap-type-label">ÜRÜN HAMLESİ</span><span class="roadmap-stage-badge">' + esc(initiative.stage) + '</span></div><h2>' + esc(initiative.title) + '</h2><p>' + esc(initiative.project + " · " + (initiative.owner || "Sahip atanmadı")) + '</p></div><div class="roadmap-actions">' + roadmapAction("create-epic", "Epic ekle", "add", 'data-parent-id="' + esc(initiative.id) + '"') + roadmapAction("edit-roadmap", "Ürün hamlesini düzenle", "edit", 'data-id="' + esc(initiative.id) + '"') + roadmapAction("delete-roadmap", "Ürün hamlesini sil", "delete", 'data-id="' + esc(initiative.id) + '"') + '</div></header><p class="roadmap-goal">' + esc(initiative.goal || "Ürün hedefi henüz tanımlanmadı.") + '</p><div class="roadmap-outcome"><span>Başarı ölçütü</span><strong>' + esc(initiative.successMetric || "Henüz tanımlanmadı") + '</strong></div><div class="roadmap-delivery"><span>' + completed + ' / ' + linked.length + ' iş tamamlandı</span><strong>%' + progress + '</strong></div><div class="roadmap-progress" role="progressbar" aria-label="Tamamlanma" aria-valuenow="' + progress + '" aria-valuemin="0" aria-valuemax="100"><i style="width:' + progress + '%"></i></div><div class="roadmap-date-range">' + icon("calendar") + esc(dates(initiative)) + '</div>' + roadmapTimelineBar(initiative) + (dateChange ? '<small class="roadmap-date-change">Son tarih değişikliği: ' + esc((dateChange.from || "Belirlenmedi") + " → " + (dateChange.to || "Belirlenmedi") + " · " + dateChange.actor) + '</small>' : '') + epicMarkup + (direct.length ? '<div class="roadmap-direct-items"><h3>Doğrudan bağlı işler</h3><div class="roadmap-work-list">' + roadmapWorkMarkup(direct) + '</div></div>' : '') + (!epics.length && !direct.length ? '<p class="roadmap-empty-inline">Kapsamı oluşturmak için sağ üstten epic ekle.</p>' : '') + '</article>';
+  }).join("");
+  const unplanned = items.filter((item) => !item.roadmapNodeId);
+  const filtered = !!roadmapProjectFilter || !!roadmapStageFilter;
+  root.innerHTML = '<div class="page-content roadmap-page" data-scroll-layout="ready"><section class="page-title-row inventory-heading"><div class="inventory-identity"><span class="inventory-mark">' + icon("map") + '</span><div><div class="inventory-title"><h1>Yol haritası</h1><span class="inventory-count">' + initiatives.length + ' ürün hamlesi</span></div><p>Hedeften teslimata, ürünün yönü</p></div></div><button type="button" class="inventory-add icon-action" data-action="create-roadmap" aria-label="Ürün hamlesi oluştur" data-tooltip="Ürün hamlesi oluştur">' + icon("add") + '</button></section><div class="roadmap-controls"><label class="inventory-select">' + icon("folder") + '<select id="roadmap-project-filter" aria-label="Yol haritası projesi"><option value="">Tüm projeler</option>' + projects.map((project) => '<option value="' + esc(project.name) + '" ' + (roadmapProjectFilter === project.name ? "selected" : "") + '>' + esc(project.name) + '</option>').join("") + '</select></label><span class="roadmap-scope-note">' + icon("calendar") + 'Önümüzdeki 6 ay</span>' + (filtered ? '<button type="button" class="roadmap-clear" data-roadmap-clear>Filtreleri temizle</button>' : '') + '</div><div class="roadmap-stage-strip" role="group" aria-label="Ürün hamlesi aşaması">' + PRODUCT_STAGES.map((stage) => '<button type="button" data-roadmap-stage="' + esc(stage) + '" aria-pressed="' + (roadmapStageFilter === stage) + '"><span>' + esc(stage) + '</span><strong>' + allInitiatives.filter((node) => node.stage === stage).length + '</strong></button>').join("") + '</div><div class="roadmap-scroll-region"><div class="roadmap-initiative-list">' + (cards || '<section class="roadmap-empty"><span class="roadmap-empty-icon">' + icon("map") + '</span><h2>' + (filtered ? "Bu filtrede ürün hamlesi yok" : "Ürünün yolunu birlikte çiz") + '</h2><p>' + (filtered ? "Diğer aşamaları veya projeleri seçerek devam et." : "Bir ürün hamlesi oluştur; hedefini, epic kapsamını ve ilerleyişini burada takip et.") + '</p>' + (filtered ? '<button type="button" class="button button-secondary" data-roadmap-clear>Filtreleri temizle</button>' : '<button type="button" class="button button-secondary" data-action="create-roadmap">Ürün hamlesi oluştur</button>') + '</section>') + '</div>' + (unplanned.length ? '<details class="roadmap-unplanned" open><summary><span>' + icon("list") + 'Hedefe bağlanmayan işler<span class="inventory-count">' + unplanned.length + '</span></span>' + icon("chevronDown") + '</summary><div class="roadmap-work-list">' + roadmapWorkMarkup(unplanned) + '</div></details>' : '') + '</div></div>';
+}
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const stage = target?.closest<HTMLElement>("[data-roadmap-stage]");
+  if (stage) {
+    const selected = stage.dataset.roadmapStage!; roadmapStageFilter = roadmapStageFilter === selected ? "" : selected; renderRoadmap();
+    root.querySelector<HTMLButtonElement>('[data-roadmap-stage="' + CSS.escape(selected) + '"]')?.focus();
+  }
+  if (target?.closest("[data-roadmap-clear]")) { roadmapProjectFilter = ""; roadmapStageFilter = ""; renderRoadmap(); document.getElementById("roadmap-project-filter")?.focus(); }
+});
+document.addEventListener("change", (event) => {
+  if (event.target instanceof HTMLSelectElement && event.target.id === "roadmap-project-filter") { roadmapProjectFilter = event.target.value; renderRoadmap(); document.getElementById("roadmap-project-filter")?.focus(); }
+});
 
 const RELEASE_STATUSES: ReleaseStatus[] = ["Planlanıyor", "Hazırlanıyor", "Yayına hazır", "Yayınlandı", "Ertelendi", "İptal edildi"];
 
@@ -3186,7 +3379,7 @@ function openDecisionEditor(id?: string): void {
   const decision = id ? state.decisions.find((entry) => entry.id === id) : undefined;
   const multiOptions = (name: string, label: string, options: { id: string; label: string }[], selected: string[]) => '<label class="field-label">' + label + '<select class="field-input decision-multi-select" name="' + name + '" multiple size="' + Math.min(5, Math.max(3, options.length)) + '">' + options.map((option) => '<option value="' + esc(option.id) + '" ' + (selected.includes(option.id) ? 'selected' : '') + '>' + esc(option.label) + '</option>').join("") + '</select><small>Birden fazla kayıt seçmek için Ctrl (Mac’te ⌘) tuşunu kullan.</small></label>';
   const selectablePrevious = state.decisions.filter((entry) => entry.id !== id && !entry.supersededById);
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal decision-editor-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">KARAR KAYDI · ÜRÜN HAFIZASI</div><h2>' + (decision ? 'Kararı düzenle' : 'Yeni ürün kararı') + '</h2></div><button class="modal-close" data-close-modal aria-label="Pencereyi kapat">×</button></header><form id="decision-form" class="settings-form"><label class="field-label">Karar başlığı<input class="field-input" name="title" maxlength="160" required value="' + esc(decision?.title || '') + '" placeholder="Örn. FAST işleminde günlük limit kontrolü sunucu tarafında yapılır"></label><label class="field-label">Bağlam / ihtiyaç<textarea class="field-input field-textarea" name="context" rows="3" maxlength="2500" required placeholder="Kararı gerekli kılan ürün, müşteri veya operasyon ihtiyacı…">' + esc(decision?.context || '') + '</textarea></label><label class="field-label">Değerlendirilen seçenekler <small>(her satırda bir seçenek)</small><textarea class="field-input field-textarea" name="options" rows="3" maxlength="2500" placeholder="Seçenekleri ve temel etkilerini yaz…">' + esc((decision?.options || []).join('\n')) + '</textarea></label><label class="field-label">Karar ve gerekçe<textarea class="field-input field-textarea" name="rationale" rows="3" maxlength="2500" required placeholder="Seçilen yaklaşım ve nedenleri…">' + esc(decision?.rationale || '') + '</textarea></label><div class="form-two-col"><label class="field-label">Karar sahibi<input class="field-input" name="owner" maxlength="100" required value="' + esc(decision?.owner || state.profile.userName || '') + '"></label><label class="field-label">Karar tarihi<input class="field-input" name="decidedAt" type="date" required value="' + esc(decision?.decidedAt || new Date().toISOString().slice(0, 10)) + '"></label><label class="field-label">Gözden geçirme tarihi<input class="field-input" name="reviewAt" type="date" value="' + esc(decision?.reviewAt || '') + '"></label><label class="field-label">Durum<select class="field-input" name="status">' + (["Taslak", "Geçerli", "Gözden geçirilecek", "Geçersiz"] as ProductDecision["status"][]).map((status) => '<option ' + (status === (decision?.status || "Geçerli") ? 'selected' : '') + '>' + status + '</option>').join('') + '</select></label></div>' + multiOptions("workItemIds", "İlişkili backlog işleri", state.items.filter((item) => !item.archived).map((item) => ({ id: item.id, label: item.id + ' · ' + item.title })), decision?.workItemIds || []) + multiOptions("assetIds", "Ürün bileşenleri", state.assets.map((asset) => ({ id: asset.id, label: asset.code + ' · ' + asset.name })), decision?.assetIds || []) + multiOptions("projectIds", "Projeler", state.projects.map((project) => ({ id: project.id, label: project.name })), decision?.projectIds || []) + multiOptions("releaseIds", "Release kayıtları", state.releases.map((release) => ({ id: release.id, label: release.name + ' · ' + release.project })), decision?.releaseIds || []) + (!decision && selectablePrevious.length ? '<label class="field-label">Yerine geçtiği karar<select class="field-input" name="supersedesId"><option value="">Önceki kararı değiştirmiyor</option>' + selectablePrevious.map((entry) => '<option value="' + esc(entry.id) + '">' + esc(entry.title + ' · ' + entry.status) + '</option>').join('') + '</select><small>Kaydedince önceki karar geçersiz olarak işaretlenir ve yenisine bağlanır.</small></label>' : '') + '<input type="hidden" name="id" value="' + esc(decision?.id || '') + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Kararı kaydet</button></footer></form></section></div>';
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal decision-editor-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">KARAR KAYDI · ÜRÜN HAFIZASI</div><h2>' + (decision ? 'Kararı düzenle' : 'Yeni ürün kararı') + '</h2></div><button class="modal-close" data-close-modal aria-label="Pencereyi kapat">×</button></header><form id="decision-form" class="settings-form"><label class="field-label">Karar başlığı<input class="field-input" name="title" maxlength="160" required value="' + esc(decision?.title || '') + '" placeholder="Örn. FAST işleminde günlük limit kontrolü sunucu tarafında yapılır"></label><label class="field-label">Bağlam / ihtiyaç<textarea class="field-input field-textarea" name="context" rows="3" maxlength="2500" required placeholder="Kararı gerekli kılan ürün, müşteri veya operasyon ihtiyacı…">' + esc(decision?.context || '') + '</textarea></label><label class="field-label">Değerlendirilen seçenekler <small>(her satırda bir seçenek)</small><textarea class="field-input field-textarea" name="options" rows="3" maxlength="2500" placeholder="Seçenekleri ve temel etkilerini yaz…">' + esc((decision?.options || []).join('\n')) + '</textarea></label><label class="field-label">Karar ve gerekçe<textarea class="field-input field-textarea" name="rationale" rows="3" maxlength="2500" required placeholder="Seçilen yaklaşım ve nedenleri…">' + esc(decision?.rationale || '') + '</textarea></label><div class="form-two-col"><label class="field-label">Karar sahibi<input class="field-input" name="owner" maxlength="100" value="' + esc(decision?.owner || state.profile.userName || '') + '"></label><label class="field-label">Karar tarihi<input class="field-input" name="decidedAt" type="date" required value="' + esc(decision?.decidedAt || new Date().toISOString().slice(0, 10)) + '"></label><label class="field-label">Gözden geçirme tarihi<input class="field-input" name="reviewAt" type="date" value="' + esc(decision?.reviewAt || '') + '"></label><label class="field-label">Durum<select class="field-input" name="status">' + (["Taslak", "Geçerli", "Gözden geçirilecek", "Geçersiz"] as ProductDecision["status"][]).map((status) => '<option ' + (status === (decision?.status || "Geçerli") ? 'selected' : '') + '>' + status + '</option>').join('') + '</select></label></div>' + multiOptions("workItemIds", "İlişkili backlog işleri", state.items.filter((item) => !item.archived).map((item) => ({ id: item.id, label: item.id + ' · ' + item.title })), decision?.workItemIds || []) + multiOptions("assetIds", "Ürün bileşenleri", state.assets.map((asset) => ({ id: asset.id, label: asset.code + ' · ' + asset.name })), decision?.assetIds || []) + multiOptions("projectIds", "Projeler", state.projects.map((project) => ({ id: project.id, label: project.name })), decision?.projectIds || []) + multiOptions("releaseIds", "Release kayıtları", state.releases.map((release) => ({ id: release.id, label: release.name + ' · ' + release.project })), decision?.releaseIds || []) + (!decision && selectablePrevious.length ? '<label class="field-label">Yerine geçtiği karar<select class="field-input" name="supersedesId"><option value="">Önceki kararı değiştirmiyor</option>' + selectablePrevious.map((entry) => '<option value="' + esc(entry.id) + '">' + esc(entry.title + ' · ' + entry.status) + '</option>').join('') + '</select><small>Kaydedince önceki karar geçersiz olarak işaretlenir ve yenisine bağlanır.</small></label>' : '') + '<input type="hidden" name="id" value="' + esc(decision?.id || '') + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Kararı kaydet</button></footer></form></section></div>';
 }
 
 function openDecisionDetail(id: string): void {
@@ -3281,25 +3474,98 @@ function saveDecision(event: SubmitEvent): void {
   save(); closeModal(); activeView = 'decisions'; document.querySelectorAll<HTMLElement>('.nav-item').forEach((node) => node.classList.toggle('active', node.dataset.view === 'decisions')); (document.getElementById('breadcrumb-current') as HTMLElement).textContent = 'Ürün kararları'; render(); toast(existing ? 'Karar ve sürüm geçmişi kaydedildi.' : 'Ürün kararı kaydedildi.');
 }
 
+let releaseSelectedDate = workspaceFocusDate();
+let releaseProjectFilter = "";
+let releaseShowAll = false;
+const releaseSelectedItems = new Set<string>();
+function releaseLocalDate(date: Date): string { return [date.getFullYear(), String(date.getMonth() + 1).padStart(2, "0"), String(date.getDate()).padStart(2, "0")].join("-"); }
+function releaseEligibleItems(): WorkItem[] {
+  const projects = new Set(state.projects.filter((project) => !project.archived).map((project) => project.name));
+  return state.items.filter((item) => !item.archived && projects.has(item.project) && (!releaseProjectFilter || item.project === releaseProjectFilter) && isItemInActiveProject(item));
+}
 function renderReleases(): void {
-  const releases = state.releases.filter((release) => !release.archived && isItemInActiveProject({ project: release.project } as WorkItem)).sort((a, b) => (a.plannedDate || "9999").localeCompare(b.plannedDate || "9999"));
+  const activeProjects = state.projects.filter((project) => !project.archived);
+  const projects = new Set(activeProjects.map((project) => project.name));
+  const allReleases = state.releases.filter((release) => !release.archived && projects.has(release.project) && (!releaseProjectFilter || release.project === releaseProjectFilter) && isItemInActiveProject({ project: release.project } as WorkItem)).sort((a, b) => (a.plannedDate || "9999").localeCompare(b.plannedDate || "9999"));
+  const releases = allReleases.filter((release) => releaseShowAll || release.plannedDate === releaseSelectedDate);
+  const items = releaseEligibleItems();
+  const dueItems = items.filter((item) => item.targetDate === releaseSelectedDate);
+  const date = new Date(releaseSelectedDate + "T12:00:00");
+  const first = new Date(date.getFullYear(), date.getMonth(), 1, 12); const offset = (first.getDay() + 6) % 7;
+  const days = new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate();
+  const cellCount = Math.ceil((offset + days) / 7) * 7;
+  const today = workspaceFocusDate();
+  const cells = Array.from({ length: cellCount }, (_, index) => {
+    const cellDate = new Date(first); cellDate.setDate(index - offset + 1); const value = releaseLocalDate(cellDate);
+    const taskCount = items.filter((item) => item.targetDate === value).length;
+    const releaseCount = allReleases.filter((release) => release.plannedDate === value).length;
+    return '<button type="button" class="release-calendar-day' + (cellDate.getMonth() !== date.getMonth() ? ' is-other-month' : '') + (value === today ? ' is-today' : '') + '" data-release-day="' + value + '" aria-pressed="' + (value === releaseSelectedDate) + '" aria-label="' + esc(cellDate.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric" }) + " · " + taskCount + " iş · " + releaseCount + " release") + '"><span>' + cellDate.getDate() + '</span><span class="release-day-markers">' + (taskCount ? '<i class="release-task-dot"></i>' : '') + (releaseCount ? '<i class="release-publish-dot"></i>' : '') + '</span></button>';
+  }).join("");
   const cards = releases.map((release) => {
-    const scope = state.items.filter((item) => item.releaseId === release.id);
+    const scope = state.items.filter((item) => !item.archived && item.releaseId === release.id);
     const unfinished = scope.filter((item) => item.status !== "Tamamlandı");
     const blocked = unfinished.filter((item) => item.status === "Bloke");
     const completion = scope.length ? Math.round((scope.length - unfinished.length) / scope.length * 100) : 0;
     return '<article class="release-card" data-release-id="' + esc(release.id) + '"><header><div><div class="panel-kicker">' + esc(release.project) + ' · ' + esc(release.id) + '</div><h2>' + esc(release.name) + '</h2></div><span class="release-status release-status-' + esc(release.status.toLocaleLowerCase("tr-TR").replaceAll(" ", "-")) + '">' + esc(release.status) + '</span></header><p class="release-description">' + esc(release.description || "Açıklama eklenmedi.") + '</p><div class="release-dates"><span>Planlanan <strong>' + esc(release.plannedDate || "Belirtilmedi") + '</strong></span><span>Yayın tarihi <strong>' + esc(release.actualDate || "Henüz yayınlanmadı") + '</strong></span></div><div class="release-progress"><div><span>Kapsam tamamlanma</span><strong>' + completion + '% · ' + (scope.length - unfinished.length) + '/' + scope.length + ' iş</strong></div><i><b style="width:' + completion + '%"></b></i></div>' + (unfinished.length ? '<div class="release-warning">' + blocked.length + ' bloke, ' + (unfinished.length - blocked.length) + ' tamamlanmamış iş' + (release.status === "Yayına hazır" || release.status === "Yayınlandı" ? ' · Yayın durumu kapsam uyarısına rağmen seçilmiş' : '') + '</div>' : '<div class="release-ready">' + (scope.length ? 'Kapsamdaki işler tamamlandı.' : 'Bu release için henüz iş seçilmedi.') + '</div>') + (release.status === "Yayınlandı" ? '<div class="release-notes"><strong>Yayın notu</strong><p>' + esc(release.releaseNotes || "Yayın notu girilmedi.") + '</p><strong>Hedef sonucu</strong><p>' + esc(release.outcome || "Sonuç henüz değerlendirilmedi.") + '</p></div>' : '') + '<footer><button class="button button-secondary button-small" data-action="edit-release" data-id="' + esc(release.id) + '">Düzenle</button><button class="button button-quiet button-small" data-action="delete-release" data-id="' + esc(release.id) + '">Sil</button><button class="button button-primary button-small" data-action="release-scope" data-id="' + esc(release.id) + '">Kapsamı düzenle</button></footer></article>';
   }).join("");
-  root.innerHTML = '<div class="page-content releases-page"><section class="page-title-row"><div><div class="eyebrow"><span class="eyebrow-dot"></span>YAYIN YÖNETİMİ</div><h1>Release planı</h1><p>Planlanan yayınları, kapsamı, hazırlık risklerini ve gerçekleşen tarihleri takip et.</p></div><button class="button button-primary" data-action="create-release">＋ Release oluştur</button></section><section class="release-summary"><div><span>Planlanan</span><strong>' + releases.filter((release) => release.status !== "Yayınlandı" && release.status !== "İptal edildi").length + '</strong></div><div><span>Yayına hazır</span><strong>' + releases.filter((release) => release.status === "Yayına hazır").length + '</strong></div><div><span>Yayınlandı</span><strong>' + releases.filter((release) => release.status === "Yayınlandı").length + '</strong></div></section>' + (cards || '<section class="roadmap-empty"><h2>Henüz release yok</h2><p>İlk release kaydını oluşturup işleri kapsamına bağlayabilirsin.</p><button class="button button-primary" data-action="create-release">İlk release oluştur</button></section>') + '</div>';
+  const chosenProject = state.items.find((item) => releaseSelectedItems.has(item.id))?.project;
+  const taskRows = dueItems.map((item) => {
+    const assigned = state.releases.find((release) => release.id === item.releaseId);
+    return '<article class="release-due-row"><input type="checkbox" data-release-select-item="' + esc(item.id) + '" aria-label="Release için seç: ' + esc(item.title) + '" ' + (releaseSelectedItems.has(item.id) ? 'checked ' : '') + (item.releaseId || chosenProject && chosenProject !== item.project ? 'disabled' : '') + '><button type="button" data-open-item="' + esc(item.id) + '"><span>' + esc(item.id + " · " + item.project) + '</span><strong>' + esc(item.title) + '</strong>' + (item.releaseId ? '<small>' + esc(assigned?.name || "Başka bir release’e bağlı") + '</small>' : '') + '</button><span class="status-pill ' + statusClass(item.status) + '"><i></i>' + esc(item.status) + '</span></article>';
+  }).join("");
+  root.innerHTML = '<div class="page-content releases-page release-planner" data-scroll-layout="ready"><section class="page-title-row inventory-heading"><div class="inventory-identity"><span class="inventory-mark">' + icon("calendar") + '</span><div><div class="inventory-title"><h1>Release planı</h1><span class="inventory-count">' + allReleases.length + ' release</span></div><p>Hedef bitişlerden yayın takvimine</p></div></div><button type="button" class="inventory-add icon-action" data-action="create-release" aria-label="Seçili tarihe release oluştur" data-tooltip="Seçili tarihe release oluştur">' + icon("add") + '</button></section><div class="release-planner-toolbar"><label class="inventory-select">' + icon("folder") + '<select id="release-project-filter" aria-label="Release projesi"><option value="">Tüm projeler</option>' + activeProjects.map((project) => '<option ' + (releaseProjectFilter === project.name ? "selected" : "") + '>' + esc(project.name) + '</option>').join("") + '</select></label><button type="button" class="release-today" data-release-today>Bugün</button><input id="release-jump-date" type="date" aria-label="Tarihe git" value="' + releaseSelectedDate + '"></div><div class="release-planner-layout"><aside class="release-calendar"><header><button type="button" class="personal-icon" data-release-month="-1" aria-label="Önceki ay">' + icon("chevronLeft") + '</button><h2>' + esc(date.toLocaleDateString("tr-TR", { month: "long", year: "numeric" })) + '</h2><button type="button" class="personal-icon" data-release-month="1" aria-label="Sonraki ay">' + icon("chevronRight") + '</button></header><div class="release-calendar-weekdays">' + ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"].map((day) => '<span>' + day + '</span>').join("") + '</div><div class="release-calendar-grid">' + cells + '</div><div class="release-calendar-legend"><span><i class="release-task-dot"></i>Hedef bitiş</span><span><i class="release-publish-dot"></i>Release</span></div></aside><div class="release-day-agenda"><header class="release-day-heading"><div><span>SEÇİLİ TARİH</span><h2>' + esc(date.toLocaleDateString("tr-TR", { day: "numeric", month: "long", weekday: "long", year: "numeric" })) + '</h2></div><div><button type="button" class="personal-icon" data-release-step="-1" aria-label="Önceki gün">' + icon("chevronLeft") + '</button><button type="button" class="personal-icon" data-release-step="1" aria-label="Sonraki gün">' + icon("chevronRight") + '</button></div></header><section class="release-due-panel"><header><h3>Hedef bitişi gelen işler <span class="inventory-count">' + dueItems.length + '</span></h3><button type="button" class="release-create-date icon-action" data-action="create-release">' + icon("add") + (releaseSelectedItems.size ? releaseSelectedItems.size + ' işle release oluştur' : 'Bu tarihe release oluştur') + '</button></header><div class="release-due-list">' + (taskRows || '<p class="release-planner-empty">Bu tarihte hedef bitişi olan iş yok. Yine de release planlayabilirsin.</p>') + '</div></section><section class="release-day-releases"><header><h3>' + (releaseShowAll ? 'Tüm release kayıtları' : 'Bu tarihin release kayıtları') + '</h3><button type="button" class="release-list-toggle" data-release-show-all aria-pressed="' + releaseShowAll + '">' + (releaseShowAll ? 'Seçili tarih' : 'Tümünü gör') + '</button></header>' + (cards || '<div class="release-planner-empty">' + (releaseShowAll ? 'Henüz release kaydı yok.' : 'Bu tarih için release planlanmadı.') + '</div>') + '</section></div></div></div>';
 }
+function selectReleaseDate(value: string): void {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value) || !Number.isFinite(Date.parse(value + "T12:00:00"))) return;
+  releaseSelectedDate = value; releaseSelectedItems.clear(); releaseShowAll = false; renderReleases();
+}
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const day = target?.closest<HTMLElement>("[data-release-day]"); if (day) { selectReleaseDate(day.dataset.releaseDay!); return; }
+  if (target?.closest("[data-release-today]")) { selectReleaseDate(workspaceFocusDate()); return; }
+  const month = target?.closest<HTMLElement>("[data-release-month]"); const step = target?.closest<HTMLElement>("[data-release-step]");
+  if (month || step) {
+    const date = new Date(releaseSelectedDate + "T12:00:00");
+    if (month) { const day = date.getDate(); date.setDate(1); date.setMonth(date.getMonth() + Number(month.dataset.releaseMonth)); date.setDate(Math.min(day, new Date(date.getFullYear(), date.getMonth() + 1, 0).getDate())); }
+    else date.setDate(date.getDate() + Number(step!.dataset.releaseStep));
+    selectReleaseDate(releaseLocalDate(date)); return;
+  }
+  if (target?.closest("[data-release-show-all]")) { releaseShowAll = !releaseShowAll; renderReleases(); }
+});
+document.addEventListener("change", (event) => {
+  const input = event.target; if (!(input instanceof HTMLInputElement || input instanceof HTMLSelectElement)) return;
+  if (input.id === "release-jump-date") { selectReleaseDate(input.value); return; }
+  if (input.id === "release-project-filter") { releaseProjectFilter = input.value; releaseSelectedItems.clear(); renderReleases(); return; }
+  if (input instanceof HTMLInputElement && input.dataset.releaseSelectItem) {
+    if (input.checked) releaseSelectedItems.add(input.dataset.releaseSelectItem); else releaseSelectedItems.delete(input.dataset.releaseSelectItem);
+    renderReleases(); root.querySelector<HTMLInputElement>('[data-release-select-item="' + CSS.escape(input.dataset.releaseSelectItem) + '"]')?.focus();
+  }
+});
 
 function openReleaseEditor(id?: string): void {
   const release = id ? state.releases.find((entry) => entry.id === id) : undefined;
   const projects = state.projects.filter((project) => !project.archived || project.name === release?.project);
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal release-editor-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">YAYIN YÖNETİMİ</div><h2>' + (release ? 'Release düzenle' : 'Release oluştur') + '</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="release-form" class="settings-form"><div class="form-two-col"><label class="field-label">Ad / sürüm<input class="field-input" name="name" maxlength="120" required value="' + esc(release?.name || "") + '" placeholder="Örn. Ödeme 2026.11"></label><label class="field-label">Proje<select class="field-input" name="project">' + projects.map((project) => '<option ' + (project.name === release?.project ? 'selected' : '') + '>' + esc(project.name) + '</option>').join("") + '</select></label><label class="field-label">Planlanan yayın tarihi<input class="field-input" name="plannedDate" type="date" value="' + esc(release?.plannedDate || "") + '"></label><label class="field-label">Durum<select class="field-input" name="status">' + RELEASE_STATUSES.map((status) => '<option ' + (status === (release?.status || "Planlanıyor") ? 'selected' : '') + '>' + esc(status) + '</option>').join("") + '</select></label><label class="field-label">Gerçek yayın tarihi<input class="field-input" name="actualDate" type="date" value="' + esc(release?.actualDate || "") + '"></label>' + (release ? '<label class="field-label">Plan tarihi değişiklik nedeni<input class="field-input" name="dateReason" maxlength="300" placeholder="Neden değişti?"></label>' : '') + '</div><label class="field-label">Açıklama<textarea class="field-input field-textarea" name="description" rows="3" maxlength="1500">' + esc(release?.description || "") + '</textarea></label><label class="field-label">Yayın notu<textarea class="field-input field-textarea" name="releaseNotes" rows="3" maxlength="2000" placeholder="Yayın kapsamı veya önemli değişiklikler">' + esc(release?.releaseNotes || "") + '</textarea></label><label class="field-label">Yayın sonrası hedef sonucu / gözlem<textarea class="field-input field-textarea" name="outcome" rows="2" maxlength="1200" placeholder="Hedef ölçüt gerçekleşti mi? Sonraki gözlem notu">' + esc(release?.outcome || "") + '</textarea></label><input type="hidden" name="id" value="' + esc(release?.id || "") + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
+  const defaultDate = !release && activeView === "releases" ? releaseSelectedDate : "";
+  const defaultProject = release?.project || state.items.find((item) => releaseSelectedItems.has(item.id))?.project || releaseProjectFilter || state.projects.find((project) => project.id === activeProjectId)?.name || projects[0]?.name || "";
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal release-editor-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">YAYIN YÖNETİMİ</div><h2>' + (release ? 'Release düzenle' : 'Release oluştur') + '</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="release-form" class="settings-form"><div class="form-two-col"><label class="field-label">Ad / sürüm<input class="field-input" name="name" maxlength="120" required value="' + esc(release?.name || "") + '" placeholder="Örn. Ödeme 2026.11"></label><label class="field-label">Proje<select class="field-input" name="project">' + projects.map((project) => '<option ' + (project.name === defaultProject ? 'selected' : '') + '>' + esc(project.name) + '</option>').join("") + '</select></label><label class="field-label">Planlanan yayın tarihi<input class="field-input" name="plannedDate" type="date" value="' + esc(release?.plannedDate || defaultDate) + '"></label><label class="field-label">Durum<select class="field-input" name="status">' + RELEASE_STATUSES.map((status) => '<option ' + (status === (release?.status || "Planlanıyor") ? 'selected' : '') + '>' + esc(status) + '</option>').join("") + '</select></label><label class="field-label">Gerçek yayın tarihi<input class="field-input" name="actualDate" type="date" value="' + esc(release?.actualDate || "") + '"></label>' + (release ? '<label class="field-label">Plan tarihi değişiklik nedeni<input class="field-input" name="dateReason" maxlength="300" placeholder="Neden değişti?"></label>' : '') + '</div><label class="field-label">Açıklama<textarea class="field-input field-textarea" name="description" rows="3" maxlength="1500">' + esc(release?.description || "") + '</textarea></label><label class="field-label">Yayın notu<textarea class="field-input field-textarea" name="releaseNotes" rows="3" maxlength="2000" placeholder="Yayın kapsamı veya önemli değişiklikler">' + esc(release?.releaseNotes || "") + '</textarea></label><label class="field-label">Yayın sonrası hedef sonucu / gözlem<textarea class="field-input field-textarea" name="outcome" rows="2" maxlength="1200" placeholder="Hedef ölçüt gerçekleşti mi? Sonraki gözlem notu">' + esc(release?.outcome || "") + '</textarea></label><input type="hidden" name="id" value="' + esc(release?.id || "") + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
+  if (!release) {
+    modalRoot.querySelector("#release-form .modal-footer")?.insertAdjacentHTML("beforebegin", '<section class="release-initial-scope"></section>');
+    updateReleaseInitialScope();
+  }
   if (release) modalRoot.querySelector("#release-form .modal-footer")?.insertAdjacentHTML("afterbegin", '<button type="button" class="button button-quiet" data-action="archive-release" data-id="' + esc(release.id) + '">' + (release.archived ? "Arşivden çıkar" : "Arşivle") + '</button>');
   if (release?.dateHistory?.length) modalRoot.querySelector("#release-form .modal-footer")?.insertAdjacentHTML("beforebegin", '<details class="release-history" open><summary>Plan tarihi değişiklikleri · ' + release.dateHistory.length + '</summary>' + release.dateHistory.map((change) => '<p><strong>' + esc(change.from + " → " + change.to) + '</strong> · ' + esc(change.reason) + '<small>' + esc(change.actor + " · " + new Date(change.at).toLocaleString("tr-TR")) + '</small></p>').join("") + '</details>');
 }
+
+function updateReleaseInitialScope(): void {
+  const form = modalRoot.querySelector<HTMLFormElement>("#release-form"); const host = form?.querySelector(".release-initial-scope"); if (!form || !host) return;
+  const prior = new Set([...host.querySelectorAll<HTMLInputElement>("input:checked")].map((input) => input.value));
+  const values = new FormData(form); const project = String(values.get("project") || ""); const date = String(values.get("plannedDate") || "");
+  const items = state.items.filter((item) => !item.archived && !item.releaseId && item.project === project && !!date && item.targetDate === date);
+  host.innerHTML = '<h3>Bu tarihte biten işler</h3><p>Release kapsamına eklemek istediklerini seç.</p>' + (items.length ? items.map((item) => '<label class="release-scope-row"><input type="checkbox" name="initialScope" value="' + esc(item.id) + '" ' + (prior.has(item.id) || releaseSelectedItems.has(item.id) ? 'checked' : '') + '><span><strong>' + esc(item.id + " · " + item.title) + '</strong><small>' + esc(item.status) + '</small></span></label>').join("") : '<p>Seçili proje ve tarihte uygun iş yok. Kapsamı daha sonra düzenleyebilirsin.</p>');
+}
+document.addEventListener("change", (event) => {
+  if (event.target instanceof Element && event.target.matches('#release-form [name="project"], #release-form [name="plannedDate"]')) updateReleaseInitialScope();
+});
 
 function saveRelease(event: SubmitEvent): void {
   event.preventDefault();
@@ -3328,7 +3594,13 @@ function saveRelease(event: SubmitEvent): void {
     release.dateHistory ||= [];
     release.dateHistory.unshift({ from: oldPlannedDate || "Belirtilmedi", to: plannedDate || "Belirtilmedi", reason: dateReason, at: release.updated, actor: state.profile.userName || "PO" });
   }
-  if (!existing) state.releases.push(release);
+  if (!existing) {
+    state.releases.push(release);
+    const selected = new Set(values.getAll("initialScope").map(String));
+    state.items.filter((item) => selected.has(item.id) && !item.archived && !item.releaseId && item.project === release.project && item.targetDate === plannedDate).forEach((item) => { item.releaseId = release.id; addWorkActivity(item, "release", "Release kapsamına eklendi: " + release.name); });
+    if (activeView === "releases" && plannedDate) { releaseSelectedDate = plannedDate; releaseShowAll = false; }
+    releaseSelectedItems.clear();
+  }
   if (status === "Yayınlandı" && oldStatus !== "Yayınlandı") {
     const scope = state.items.filter((item) => item.releaseId === release.id);
     scope.forEach((item) => addWorkActivity(item, "release", release.name + " yayınlandı · " + actualDate + (release.releaseNotes ? " · " + release.releaseNotes : "")));
@@ -5770,25 +6042,6 @@ document.addEventListener("click", async (event) => {
     else if (action.dataset.action === "create-risk-for-item" && action.dataset.id) openRiskEditor(undefined, action.dataset.id);
     else if (action.dataset.action === "edit-risk" && action.dataset.id) openRiskEditor(action.dataset.id);
     else if (action.dataset.action === "risk-center") openRiskCenter();
-    else if (action.dataset.action === "remove-daily-entry" && action.dataset.type && action.dataset.id) {
-      const plan = getDailyPlan(); plan.entries = plan.entries.filter((entry) => entry.type !== action.dataset.type || entry.id !== action.dataset.id); save(); renderDailyPlan();
-    }
-    else if (action.dataset.action === "move-daily-entry" && action.dataset.type && action.dataset.id && action.dataset.direction) {
-      const plan = getDailyPlan(); const index = plan.entries.findIndex((entry) => entry.type === action.dataset.type && entry.id === action.dataset.id); const nextIndex = index + (action.dataset.direction === "up" ? -1 : 1);
-      if (index >= 0 && nextIndex >= 0 && nextIndex < plan.entries.length) { [plan.entries[index], plan.entries[nextIndex]] = [plan.entries[nextIndex], plan.entries[index]]; save(); renderDailyPlan(); }
-    }
-    else if (action.dataset.action === "carry-daily-entry" && action.dataset.type && action.dataset.id) {
-      const plan = getDailyPlan(); const entry = plan.entries.find((row) => row.type === action.dataset.type && row.id === action.dataset.id); if (!entry) return;
-      const next = new Date(plan.date + "T00:00:00"); next.setDate(next.getDate() + 1); const nextDate = [next.getFullYear(), String(next.getMonth() + 1).padStart(2, "0"), String(next.getDate()).padStart(2, "0")].join("-");
-      const nextPlan = getDailyPlan(nextDate); if (!nextPlan.entries.some((row) => row.type === entry.type && row.id === entry.id)) nextPlan.entries.push({ ...entry, carriedFrom: plan.date });
-      save(); renderDailyPlan(); toast("Kayıt sonraki güne taşındı; bugünkü plan geçmişi korundu.");
-    }
-    else if (action.dataset.action === "daily-plan-today") {
-      const today = new Date(); selectedDailyDate = [today.getFullYear(), String(today.getMonth() + 1).padStart(2, "0"), String(today.getDate()).padStart(2, "0")].join("-"); renderDailyPlan();
-    }
-    else if (action.dataset.action === "save-daily-plan") { getDailyPlan().note = root.querySelector<HTMLTextAreaElement>("#daily-plan-note")?.value.trim() || ""; save(); toast("Günlük PO planı kaydedildi."); }
-    else if (action.dataset.action === "save-weekly-summary") { state.weeklySummaryNotes ||= {}; state.weeklySummaryNotes[selectedWeeklyStart + (selectedWeeklyProjectId ? "::" + selectedWeeklyProjectId : "")] = root.querySelector<HTMLTextAreaElement>("#weekly-summary-note")?.value.trim() || ""; save(); renderWeeklySummary(); toast("Haftalık değerlendirme kaydedildi."); }
-    else if (action.dataset.action === "copy-weekly-summary") { state.weeklySummaryNotes ||= {}; state.weeklySummaryNotes[selectedWeeklyStart + (selectedWeeklyProjectId ? "::" + selectedWeeklyProjectId : "")] = root.querySelector<HTMLTextAreaElement>("#weekly-summary-note")?.value.trim() || ""; save(); void navigator.clipboard.writeText(weeklySummaryText()).then(() => toast("Haftalık özet panoya kopyalandı.")).catch(() => toast("Panoya kopyalanamadı; metni seçerek kopyalayabilirsin.")); }
     else if (action.dataset.action === "restore-item" && action.dataset.id) { const item = itemById(action.dataset.id); if (item) { item.archived = false; save(); renderArchiveSearch(); toast("İş arşivden çıkarıldı."); } }
     else if (action.dataset.action === "restore-project" && action.dataset.id) { archiveProject(action.dataset.id, false); renderArchiveSearch(); }
     else if (action.dataset.action === "restore-release" && action.dataset.id) { const release = state.releases.find((entry) => entry.id === action.dataset.id); if (release) { release.archived = false; save(); renderArchiveSearch(); toast("Release arşivden çıkarıldı."); } }
@@ -6067,7 +6320,16 @@ document.addEventListener("click", async (event) => {
     else if (action.dataset.action === "edit-roadmap" && action.dataset.id) openRoadmapEditor(action.dataset.id);
     else if (action.dataset.action === "delete-roadmap" && action.dataset.id) deleteRoadmapNode(action.dataset.id);
     else if (action.dataset.action === "new-asset") openAssetEditor();
-    else if (action.dataset.action === "asset-presentation") { assetPresentation = action.dataset.mode === "diagram" ? "diagram" : "cards"; updateAssetGrid(); const toggle = root.querySelector<HTMLElement>('[data-action="asset-presentation"]'); if (toggle) { toggle.dataset.mode = assetPresentation === "diagram" ? "cards" : "diagram"; toggle.textContent = assetPresentation === "diagram" ? "Kart görünümü" : "İlişki diyagramı"; } }
+    else if (action.dataset.action === "asset-presentation") {
+      assetPresentation = action.dataset.mode === "diagram" ? "diagram" : "cards"; updateAssetGrid();
+      root.querySelectorAll<HTMLElement>('[data-action="asset-presentation"]').forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.mode === assetPresentation)));
+    }
+    else if (action.dataset.action === "clear-asset-filters") {
+      assetQuery = ""; assetTypeFilter = ""; assetProjectFilter = ""; includeInactiveAssets = false;
+      for (const id of ["asset-search", "asset-type-filter", "asset-project-filter"]) { const input = document.getElementById(id) as HTMLInputElement | HTMLSelectElement | null; if (input) input.value = ""; }
+      const inactive = document.getElementById("asset-inactive-filter") as HTMLInputElement | null; if (inactive) inactive.checked = false;
+      updateAssetGrid(); document.getElementById("asset-search")?.focus();
+    }
     else if (action.dataset.action === "edit-asset" && action.dataset.id) openAssetEditor(action.dataset.id);
     else if (action.dataset.action === "toggle-asset" && action.dataset.id) toggleAssetActive(action.dataset.id);
     else if (action.dataset.action === "new-item-from-asset" && action.dataset.id) openNewModal("Backlog işi", action.dataset.id);
@@ -6290,10 +6552,8 @@ document.addEventListener("change", (event) => {
   }
   if (event.target instanceof HTMLSelectElement && event.target.dataset.boardMove && event.target.value) { moveBoardItem(event.target.dataset.boardMove, event.target.value as WorkStatus); return; }
   if (event.target instanceof HTMLInputElement && event.target.id === "backlog-status-age-min") { backlogStatusAgeMinDays = Math.min(3650, Math.max(0, Number(event.target.value) || 0)); updateBacklogRows(); return; }
-  if (event.target instanceof HTMLTextAreaElement && event.target.id === "daily-plan-note") { getDailyPlan().note = event.target.value.trim(); save(); return; }
   if (event.target instanceof HTMLInputElement && event.target.id === "risk-overdue-only") { openRiskCenter(event.target.checked); return; }
   if (event.target instanceof HTMLInputElement && event.target.id === "import-header") { importHasHeader = event.target.checked; renderExcelImport(); return; }
-  if (event.target instanceof HTMLInputElement && event.target.dataset.dailyDuration) { const [type, id] = event.target.dataset.dailyDuration.split("::"); const entry = getDailyPlan().entries.find((row) => row.type === type && row.id === id); if (entry) { entry.estimatedMinutes = Math.max(0, Number(event.target.value) || 0); save(); renderDailyPlan(); } return; }
   if (event.target instanceof HTMLSelectElement) {
     const select = event.target;
     if (event.target.id === "merge-target") {
@@ -6313,7 +6573,6 @@ document.addEventListener("change", (event) => {
       }
       return;
     }
-    if (event.target.id === "weekly-summary-project") { selectedWeeklyProjectId = event.target.value; renderWeeklySummary(); return; }
     if (event.target.id === "decision-filter") { decisionFilter = event.target.value as typeof decisionFilter; renderDecisions(); return; }
     if (event.target.id === "jira-board-select") { jiraSelectedBoardId = event.target.value; void loadJiraBoardDetails(); return; }
     if (event.target.id === "jira-project-select") { jiraSelectedProjectKey = event.target.value; void loadJiraProjectIssueTypes(); return; }
@@ -6322,8 +6581,6 @@ document.addEventListener("change", (event) => {
     if (event.target.id === "jira-issue-type-select") { jiraSelectedIssueTypeId = event.target.value; return; }
     if (event.target.id === "jira-rota-item-select") { jiraSelectedRotaItemId = event.target.value; renderJira(); return; }
   }
-  if (event.target instanceof HTMLInputElement && event.target.id === "daily-plan-date" && event.target.value) { selectedDailyDate = event.target.value; renderDailyPlan(); return; }
-  if (event.target instanceof HTMLInputElement && event.target.id === "weekly-summary-start" && event.target.value) { selectedWeeklyStart = weekStartDate(new Date(event.target.value + "T00:00:00")); renderWeeklySummary(); return; }
   if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-theme") { localStorage.setItem(THEME_KEY, event.target.value); document.body.classList.toggle("dark-theme", event.target.value === "dark" || (event.target.value === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)); syncThemeToggle(); }
   if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-app-zoom") { setAppZoom(Number(event.target.value)); }
   if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-high-contrast") { localStorage.setItem(HIGH_CONTRAST_KEY, event.target.value); document.body.classList.toggle("high-contrast", event.target.value === "true"); }
@@ -6490,8 +6747,67 @@ document.addEventListener("focusin", (event) => {
   target.setAttribute("aria-expanded", "true");
 });
 
+document.addEventListener("click", (event) => {
+  const trigger = event.target instanceof Element ? event.target.closest<HTMLElement>('[popovertarget="dashboard-priority-popover"]') : null;
+  const popover = document.getElementById("dashboard-priority-popover");
+  if (trigger && popover) {
+    const rect = trigger.getBoundingClientRect();
+    popover.style.left = Math.max(8, Math.min(rect.right - 190, window.innerWidth - 198)) + "px";
+    popover.style.top = Math.max(8, Math.min(rect.bottom + 6, window.innerHeight - 250)) + "px";
+  }
+});
+document.addEventListener("click", (event) => {
+  const trigger = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-panel-search-trigger]") : null;
+  if (!trigger) return;
+  const popover = document.getElementById(trigger.getAttribute("popovertarget")!); if (!popover) return;
+  const rect = trigger.getBoundingClientRect();
+  popover.style.left = Math.max(8, Math.min(rect.right - 250, innerWidth - 258)) + "px";
+  popover.style.top = Math.max(8, Math.min(rect.bottom + 6, innerHeight - 110)) + "px";
+});
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape" || !(event.target instanceof HTMLInputElement) || !event.target.dataset.panelSearch) return;
+  event.preventDefault(); event.stopImmediatePropagation();
+  event.target.closest<HTMLElement>("[popover]")?.hidePopover();
+  root.querySelector<HTMLButtonElement>('[data-panel-search-trigger="' + event.target.dataset.panelSearch + '"]')?.focus();
+}, true);
+document.addEventListener("input", (event) => {
+  if (!(event.target instanceof HTMLInputElement) || !event.target.dataset.panelSearch) return;
+  const kind = event.target.dataset.panelSearch as DashboardSearchKind;
+  dashboardSearches[kind] = event.target.value; applyDashboardSearch(kind);
+});
+
+document.addEventListener("change", (event) => {
+  if (event.target instanceof HTMLInputElement && event.target.name === "dashboard-priority") {
+    dashboardPriority = event.target.value; renderOverview();
+    root.querySelector<HTMLButtonElement>(".personal-priority-trigger")?.focus();
+  }
+});
+
+document.addEventListener("input", (event) => {
+  if (!(event.target instanceof HTMLTextAreaElement)) return;
+  const form = event.target.closest<HTMLFormElement>("[data-message-kind]");
+  if (form) {
+    workspaceMessageDrafts[form.dataset.messageKind as WorkspaceMessageKind] = event.target.value;
+    resizeWorkspaceMessage(event.target);
+    const ready = !!event.target.value.trim();
+    form.classList.toggle("has-message", ready);
+    form.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled = !ready;
+  }
+});
+document.addEventListener("keydown", (event) => {
+  if (event.target instanceof HTMLTextAreaElement && event.target.closest("[data-message-kind]") && event.key === "Enter" && !event.shiftKey && !event.isComposing) {
+    event.preventDefault(); event.target.closest<HTMLFormElement>("form")?.requestSubmit();
+  }
+});
+document.addEventListener("click", (event) => {
+  const button = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-message-focus]") : null;
+  if (button) button.closest(".personal-panel")?.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+});
+
 document.addEventListener("submit", (event) => {
-  const formId = (event.target as HTMLFormElement).getAttribute("id") || "";
+  const form = event.target as HTMLFormElement;
+  if (form.matches("[data-message-kind]")) { event.preventDefault(); sendWorkspaceMessage(form); return; }
+  const formId = form.getAttribute("id") || "";
   if (formId === "record-link-form") {
     event.preventDefault(); const values = new FormData(event.target as HTMLFormElement); const item = itemById(String(values.get("itemId") || "")); const [type, targetId] = String(values.get("target") || "").split("::");
     if (!item || !targetId || !["item", "asset", "release", "note", "question", "risk"].includes(type)) return;
@@ -6503,7 +6819,7 @@ document.addEventListener("submit", (event) => {
     const values = new FormData(event.target as HTMLFormElement);
     const text = String(values.get("text") || "").trim();
     const owner = String(values.get("owner") || "").trim();
-    if (!text || !owner) return;
+    if (!text) return;
     state.openQuestions ||= [];
     const id = String(values.get("id") || "");
     const existing = state.openQuestions.find((question) => question.id === id);
@@ -6761,8 +7077,8 @@ function trackNavIndicator(duration = 0): void {
 }
 
 function sidebarCustomizerBody(): string {
-  const groupTitles: Record<string, string> = { product: "Proje takip", personal: "Çalışma akışı" };
-  const groups = Object.entries(sidebarLayout.order).map(([group, views]) => '<section class="sidebar-custom-group"><h3>' + esc(groupTitles[group] || group) + '</h3><div class="sidebar-custom-list" data-sidebar-group="' + esc(group) + '">' + views.map((view, index) => {
+  const groupTitles: Record<string, string> = { product: "Proje takip" };
+  const groups = Object.entries(sidebarLayout.order).filter(([group]) => group in defaultSidebarOrder).map(([group, views]) => '<section class="sidebar-custom-group"><h3>' + esc(groupTitles[group] || group) + '</h3><div class="sidebar-custom-list" data-sidebar-group="' + esc(group) + '">' + views.map((view, index) => {
     const visible = !sidebarLayout.hidden.includes(view);
     const iconMarkup = document.querySelector('.nav-item[data-view="' + view + '"] .nav-icon')?.innerHTML || "";
     return '<div class="sidebar-custom-row' + (visible ? "" : " is-hidden") + '" draggable="true" data-sidebar-view="' + esc(view) + '"><span class="sidebar-custom-handle" aria-hidden="true">⠿</span><span class="sidebar-custom-icon" aria-hidden="true">' + iconMarkup + '</span><span class="sidebar-custom-label">' + esc(sidebarItemLabel(view)) + '</span><span class="sidebar-custom-move"><button type="button" class="button button-quiet button-small" data-sidebar-move="up" data-sidebar-view="' + esc(view) + '" aria-label="' + esc(sidebarItemLabel(view) + " öğesini yukarı taşı") + '" ' + (index === 0 ? "disabled" : "") + '>' + icon("chevronUp") + '</button><button type="button" class="button button-quiet button-small" data-sidebar-move="down" data-sidebar-view="' + esc(view) + '" aria-label="' + esc(sidebarItemLabel(view) + " öğesini aşağı taşı") + '" ' + (index === views.length - 1 ? "disabled" : "") + '>' + icon("chevronDown") + '</button></span><label class="sidebar-switch" title="' + (visible ? "Menüde gizle" : "Menüde göster") + '"><input type="checkbox" data-sidebar-visible="' + esc(view) + '" ' + (visible ? "checked" : "") + ' aria-label="' + esc(sidebarItemLabel(view) + " menüde görünsün") + '"><span aria-hidden="true"></span></label></div>';
