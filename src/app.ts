@@ -1,3 +1,4 @@
+import { renderFavspace, installFavspaceDrop } from "./favspace";
 import { appConfirm, appPrompt } from "./dialogs";
 import { Graph, type Edge, type Node } from "@antv/x6";
 import { initPomodoro } from "./pomodoro";
@@ -236,6 +237,7 @@ try {
   state = saved ? {
     ...structuredClone(seed), ...saved,
     items: savedItems,
+    favspace: saved.favspace,
     tasks: workspaceRecords<PersonalTask>(saved.tasks, seed.tasks),
     notes: workspaceRecords<PersonalNote>(saved.notes, seed.notes),
     projects: savedProjects,
@@ -1109,7 +1111,7 @@ function setView(view: string): void {
   activeBacklogViewId = "";
   document.querySelectorAll<HTMLElement>(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   document.querySelector<HTMLElement>(".workspace-switcher")?.classList.toggle("active", view === "overview");
-  const names: Record<string, string> = { overview: "Genel bakış", meetings: "Toplantı modu", "my-actions": "Bana düşenler", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", roadmap: "Yol haritası", decisions: "Ürün kararları", releases: "Release planı", questions: "Açık sorular", "archive-search": "Arşivde ara" };
+  const names: Record<string, string> = { overview: "Genel bakış", favspace: "Favspace", meetings: "Toplantı modu", "my-actions": "Bana düşenler", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", roadmap: "Yol haritası", decisions: "Ürün kararları", releases: "Release planı", questions: "Açık sorular", "archive-search": "Arşivde ara" };
   (document.getElementById("breadcrumb-current") as HTMLElement).textContent = names[view] ?? "Genel bakış";
   render();
   animateViewEnter();
@@ -1306,6 +1308,7 @@ function render(): void {
   else if (activeView === "meetings") poTools.renderMeetings();
   else if (activeView === "my-actions") poTools.renderMine();
   else if (activeView === "backlog") renderBacklog();
+  else if (activeView === "favspace") renderFavspace(root, state, save, (kind, id) => { if (kind === "notes") showNote(id); else if (kind === "tasks") openTask(id); else if (kind === "items") openItem(id); else if (kind === "assets") openAsset(id); else if (kind === "decisions") openDecisionDetail(id); else if (kind === "releases") openReleaseEditor(id); else if (["roadmap", "meetings"].includes(kind)) setView(kind); else if (state.items.some((item) => item.id === id)) openItem(id); else toast("Kaynak kayıt: " + kind); });
   else if (activeView === "jira") renderJira();
   else if (activeView === "assets") renderAssets();
   else if (activeView === "roadmap") renderRoadmap();
@@ -7378,3 +7381,5 @@ if (!hasStoredWorkspace) openSetupWizard(true);
 
 
 window.addEventListener("beforeunload", () => { window.clearTimeout(formDraftTimer); persistCurrentFormDraft(); });
+
+installFavspaceDrop(() => state, () => activeView === "favspace", save, render);

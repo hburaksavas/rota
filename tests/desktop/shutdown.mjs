@@ -25,7 +25,8 @@ if (process.argv[2] === "--child") {
     console.log(JSON.stringify({ port, disposed: true }));
   });
   app.run();
-  setTimeout(() => window.close(), 1500);
+  const closeTimer = setTimeout(() => { if (!window.isDisposed()) window.close(); }, 1500);
+  window.once("close", () => clearTimeout(closeTimer));
 } else {
   for (const mode of ["window", "reopen"]) {
     const profile = await mkdtemp(join(tmpdir(), "rota-shutdown-"));

@@ -411,7 +411,11 @@ interface PoRequest { id: string; itemId: string; kind: PoRequestKind; text: str
 interface WorkConversation { id: string; itemId: string; text: string; author: string; createdAt: string; }
 interface ProductRule { id: string; projectId: string; title: string; body: string; updatedAt: string; }
 
+interface FavspaceResource {
+  id: string; title: string; url: string; shortcutPath?: string; collection: string; tags: string; note: string; projectId: string; itemId: string; pinned: boolean;
+}
 interface WorkspaceState {
+  favspace?: { enabled: boolean; sourcePins?: Record<string, boolean>; resources: FavspaceResource[] };
   meetings?: PoMeeting[];
   poRequests?: PoRequest[];
   workConversations?: WorkConversation[];
@@ -523,6 +527,10 @@ interface DesktopBridge {
   jiraSaveToken(token: string): Promise<void>;
   jiraRemoveToken(): Promise<void>;
   jiraOpenTokenPage(baseUrl: string): Promise<void>;
+  resolveDroppedFileShortcuts?(): Promise<{ name: string; path: string }[]>;
+  openFileShortcut?(path: string): Promise<void>;
+  pickFileShortcuts?(): Promise<{ name: string; path: string }[]>;
+  openResourceUrl?(url: string): Promise<void>;
   jiraOpenIssue(baseUrl: string, issueKey: string): Promise<void>;
   jiraListDashboards(baseUrl: string): Promise<JiraDashboard[]>;
   jiraListFilters(baseUrl: string): Promise<JiraSavedFilter[]>;

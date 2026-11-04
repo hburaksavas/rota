@@ -63,3 +63,15 @@ Bu akışların testleri `npm run test:po` ile çalıştırılır; testler ayrı
 - Örnek başlangıç verisi test amaçlıdır; gerçek müşteri, hesap veya kart bilgisi girmeyin.
 
 Güncel feature planı [`docs/feature-takibi.md`](docs/feature-takibi.md) dosyasındadır.
+
+## Favspace eklentisi
+
+Sol menüde **Favspace** üzerinden kaynak bağlantıları ekleyin; koleksiyon, etiket, not, proje ve ilgili backlog işi belirleyin. Kaynakları arayabilir, proje veya koleksiyonla filtreleyebilir ve sabitleyebilirsiniz. Seçilen kaynağın detayından düzenleme, silme ve varsayılan tarayıcıda açma yapılır. Notlar, backlog, görevler ve diğer içerik kayıtlarındaki HTTP/HTTPS bağlantıları ve dosya ekleri otomatik görünür. Kaynak kayıtlar kopyalanmaz; değişiklikler Favspace yeniden açıldığında yansır. Otomatik kaynaklar sabitlenebilir; düzenleme ve silme asıl kayıtta yapılır. Veriler çalışma alanı yedeklerine dahildir. Bu sürüm Rota içinde yerleşik bir modüldür; harici Favspace hesabına bağlanmaz.
+
+Doğrulama: `npm run build` ve `node tests/feature/favspace.mjs` (ayrı tarayıcı profili).
+
+Favspace açıkken Windows Explorer’dan bir veya birden fazla dosya sürükleyin: kaynak çekmecesi açılır; bıraktığınız dosyalar **kısayol** olarak eklenir. Dosya içeriği kopyalanmaz, uzantı veya dosya boyutu sınırı uygulanmaz (tek seferde en fazla 100 dosya). Aynı dosya tekrar eklenmez. **Dosyayı aç** orijinal konumu açar; kısayolu kaldırmak orijinal dosyayı silmez. Dosya taşınır/silinirse yeniden ekleyin. Yedeklerde dosyanın kendisi yerine konumu saklanır. Çekmece Esc ile kapatılır, hareketi azaltma tercihi desteklenir.
+
+Yerel sürükle-bırak WebViewJS 0.6.0 ile WebView2 içerik alanının native olaylarını kullanır. Bu güncellemeden sonra `npm install` çalıştırıp uygulamayı tamamen yeniden başlatın. Explorer’dan bırakılan dosyaların tam konumu yerel host üzerinden alınır; HTML File nesnesinden yol çıkarılmaz. Native yönlendirme testi: `node tests/desktop/native-file-drop.mjs`.
+
+Favspace’te dosya kartına çift tıklayarak veya kart odaktayken Enter’a basarak dosyayı doğrudan açabilirsiniz. Tek tıklama detayları gösterir; bu davranış hem dosya kısayollarında hem kayıtlardan gelen dosya eklerinde çalışır.

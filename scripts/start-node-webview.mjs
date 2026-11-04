@@ -1,3 +1,5 @@
+import { installNativeFileDrop } from "./native-file-drop.mjs";
+import { fileShortcuts } from "./file-shortcuts.mjs";
 import { Application, Notification } from "@webviewjs/webview";
 import { createPomodoroController } from "./pomodoro.mjs";
 import { installDesktopShutdown } from "./desktop-lifecycle.mjs";
@@ -257,7 +259,7 @@ const appIcon = await loadWindowIcon();
 const appWindow = app.createBrowserWindow({ title: "Rota", width: 1440, height: 920, minWidth: 1080, minHeight: 720, windowsClassName: "HburakSavasRota", windowsTaskbarIcon: { data: appIcon.pixels, width: appIcon.width, height: appIcon.height } });
 appWindow.setWindowIcon(appIcon.pixels, appIcon.width, appIcon.height);
 appWindow.setTaskbarIcon(appIcon.pixels, appIcon.width, appIcon.height);
-const webview = appWindow.createWebview({ url: `${appOrigin}/index.html`, enableDevtools: process.env.ROTA_WEBVIEW_DEVTOOLS === "1", webContext: app.createWebContext({ dataDirectory: profilePath }), navigationHandler: (url) => url.startsWith(`${appOrigin}/`) });
+const webview = appWindow.createWebview({ url: `${appOrigin}/index.html`, nativeFileDrop: true, enableDevtools: process.env.ROTA_WEBVIEW_DEVTOOLS === "1", webContext: app.createWebContext({ dataDirectory: profilePath }), navigationHandler: (url) => url.startsWith(`${appOrigin}/`) });
 const pomodoro = createPomodoroController({
   notify: (session) => new Promise((resolveNotification, rejectNotification) => {
     const notification = new Notification(session.phase === "focus" ? "Rota · Odak süren tamamlandı" : "Rota · Molan tamamlandı", {
@@ -270,6 +272,10 @@ const pomodoro = createPomodoroController({
 });
 appWindow.on("close", () => pomodoro.dispose());
 webview.expose("rotaDesktop", {
+  resolveDroppedFileShortcuts: async () => { const paths = nativeDropBridge.consumePaths(); return paths.length ? fileShortcuts(paths) : []; },
+  createFileShortcuts: fileShortcuts,
+  pickFileShortcuts: async () => { const paths = await appWindow.openFileDialog({ multiple: true, title: "Favspace’e dosya kısayolu ekle", filters: [{ name: "Tüm dosyalar", extensions: ["*"] }] }); return paths.length ? fileShortcuts(paths) : []; },
+  openFileShortcut: async (path) => { const [file] = await fileShortcuts([path]); await execFileAsync("explorer.exe", [file.path]); return null; },
   pomodoroGet: () => pomodoro.get(),
   pomodoroStart: (input) => pomodoro.start(input),
   pomodoroPause: (id) => pomodoro.pause(id),
@@ -305,7 +311,7 @@ webview.expose("rotaDesktop", {
   exportUnreadableWorkspace: async (raw) => { if (typeof raw !== "string" || Buffer.byteLength(raw, "utf8") > 100 * 1024 * 1024) throw new Error("Kurtarma verisi 100 MB sınırını aşıyor."); const path = await savePathDialog({ title: "Okunamayan Rota verisini kaydet", defaultPath: `Rota-kurtarma-${new Date().toISOString().slice(0, 10)}.txt`, filters: [{ name: "Metin dosyası", extensions: ["txt"] }] }); if (!path) return null; await writeFile(path, raw, "utf8"); return path; },
   exportBacklogExcel: sheetsExcel,
   pickBacklogExcelImport,
-  getDiagnostics: async () => ({ uygulama: "Rota 0.1.0", host: "Node.js " + process.versions.node, webview: "WebViewJS 0.4.9 / WebView2", platform: process.platform, mimari: process.arch }),
+  getDiagnostics: async () => ({ uygulama: "Rota 0.1.0", host: "Node.js " + process.versions.node, webview: "WebViewJS 0.6.0 / WebView2", platform: process.platform, mimari: process.arch }),
   stageWorkspaceRestore: async () => { const paths = await appWindow.openFileDialog({ title: "Rota yedeğini geri yükle", filters: [{ name: "Rota yedeği", extensions: ["rota", "json"] }] }); if (!paths.length) return null; const bytes = await readFile(paths[0]); if (bytes.length > 1024 ** 3) throw new Error("Yedek dosyası 1 GB sınırını aşıyor."); let data; try { data = JSON.parse((bytes.subarray(0, 6).toString() === "ROTA1\n" ? gunzipSync(bytes.subarray(6)) : bytes).toString("utf8")); } catch { throw new Error("Yedek dosyası okunamadı. Dosya bozuk veya JSON değil."); } if (data.format !== "rota-workspace-backup" || data.version !== 1 || !Array.isArray(data.attachments)) throw new Error("Bu dosya desteklenen Rota yedeği değil."); for (const file of data.attachments) { checkedStoredPath(file.storedName); if (typeof file.data !== "string" || !Number.isSafeInteger(file.size) || file.size < 0 || !/^[a-f0-9]{64}$/.test(file.sha256 || "")) throw new Error("Yedek eki bilgisi geçersiz."); const content = Buffer.from(file.data, "base64"); const hash = createHash("sha256").update(content).digest("hex"); if (content.length !== file.size || !timingSafeEqual(Buffer.from(hash), Buffer.from(file.sha256))) throw new Error(`Yedek eki doğrulanamadı: ${file.storedName}`); } const token = randomUUID(); restoreSessions.set(token, data); return { token, workspace: data.workspace, attachmentCount: data.attachments.length }; },
   commitWorkspaceRestore: async (token) => { const data = restoreSessions.get(token); if (!data) throw new Error("Geri yükleme oturumunun süresi doldu."); for (const file of data.attachments) { const dest = checkedStoredPath(file.storedName); const bytes = Buffer.from(file.data, "base64"); const hash = createHash("sha256").update(bytes).digest("hex"); if (bytes.length !== file.size || !timingSafeEqual(Buffer.from(hash), Buffer.from(file.sha256))) throw new Error(`Yedek eki doğrulanamadı: ${file.storedName}`); await writeFile(dest, bytes); } restoreSessions.delete(token); return null; },
   cancelWorkspaceRestore: async (token) => { restoreSessions.delete(token); return null; },
@@ -313,6 +319,7 @@ webview.expose("rotaDesktop", {
   jiraSaveToken: (token) => { if (String(token).trim().length < 8 || String(token).length > 2048) throw new Error("Jira PAT geçerli değil."); keyring.setPassword(String(token).trim()); return null; },
   jiraRemoveToken: () => { try { keyring.deletePassword(); } catch {} return null; },
   jiraOpenTokenPage: async (base) => { const url = validateJira(base); await execFileAsync("explorer.exe", [new URL("/secure/ViewProfile.jspa?selectedTab=com.atlassian.pats.pats-plugin%3Ajira-user-personal-access-tokens", url).href]); return null; },
+  openResourceUrl: async (value) => { const url = new URL(value); if (!["https:", "http:"].includes(url.protocol) || url.username || url.password) throw new Error("Geçersiz kaynak adresi."); await execFileAsync("explorer.exe", [url.href]); return null; },
   jiraOpenIssue: async (base, issueKey) => { if (!/^[A-Z][A-Z0-9_]{0,29}-\d{1,12}$/.test(issueKey)) throw new Error("Jira issue key geçersiz."); await execFileAsync("explorer.exe", [new URL(`/browse/${encodeURIComponent(issueKey)}`, validateJira(base)).href]); return null; },
   jiraListDashboards: async (base) => { const result = await jiraRequest(base, "/rest/api/2/dashboard"); return (Array.isArray(result) ? result : result.dashboards || []).map((x) => ({ id: String(x.id), name: x.name, viewUrl: x.view })); },
   jiraListFilters: async (base) => { const all = []; for (const route of ["/rest/api/2/filter/favourite", "/rest/api/2/filter/my"]) try { const r = await jiraRequest(base, route); all.push(...(Array.isArray(r) ? r : r.values || [])); } catch {} return [...new Map(all.filter((x) => x.id && x.name).map((x) => [String(x.id), { id: String(x.id), name: x.name, jql: x.jql }])).values()]; },
@@ -339,11 +346,6 @@ webview.expose("rotaDesktop", {
   jiraCreateIssue: async (base, boardId, projectKey, issueTypeId, summary, description) => { if (!/^[A-Z][A-Z0-9_]{0,29}$/.test(projectKey) || !String(summary).trim() || summary.length > 255 || description.length > 30000) throw new Error("Jira issue alanları geçersiz."); const [projects, types] = await Promise.all([jiraProjects(base, boardId), jiraRequest(base, `/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&expand=projects.issuetypes`)]); if (!projects.some((x) => x.key === projectKey)) throw new Error("Seçilen Jira projesi bu board kapsamı içinde değil."); const project = (types.projects || []).find((x) => x.key === projectKey); if (!(project?.issuetypes || []).some((x) => String(x.id) === String(issueTypeId) && !x.subtask)) throw new Error("Issue türü bu Jira projesinde oluşturulabilir değil."); return jiraRequest(base, "/rest/api/2/issue", "POST", { fields: { project: { key: projectKey }, issuetype: { id: String(issueTypeId) }, summary: summary.trim(), description: description.trim() } }); },
 });
 
-// Native file drops are converted into regular DOM File objects so the existing
-// Outlook and attachment workflows remain shared with browser-based UI code.
-appWindow.on("file-drop", ({ files }) => {
-  const quoted = JSON.stringify(files);
-  webview.evaluateScript(`window.rotaDesktop.nativeDrop(${quoted}).then(items=>{const dt=new DataTransfer();for(const item of items){const bytes=Uint8Array.from(atob(item.data),c=>c.charCodeAt(0));dt.items.add(new File([bytes],item.name));}window.dispatchEvent(new DragEvent('drop',{bubbles:true,cancelable:true,dataTransfer:dt}));}).catch(error=>window.dispatchEvent(new CustomEvent('rota-native-error',{detail:String(error)})));`);
-});
+const nativeDropBridge = installNativeFileDrop(appWindow, webview);
 installDesktopShutdown(app, assetServer, appWindow);
 app.run();

@@ -1,6 +1,7 @@
 # Feature takibi
 
-## Bekleyen- ROTA-THREAD-001 — İş üzerinde konuşma geçmişi: işe bağlı not, soru, yanıt ve kararları tarih sırasıyla gösterme; doğrudan konuşma notu ekleme.
+## Bekleyen
+- ROTA-THREAD-001 — İş üzerinde konuşma geçmişi: işe bağlı not, soru, yanıt ve kararları tarih sırasıyla gösterme; doğrudan konuşma notu ekleme.
 - ROTA-INVEST-001 — Ürün yatırım dengesi: backlog işlerini yeni özellik, hata, teknik borç ve zorunlu iş kategorileriyle dağılım halinde gösterme; ağırlık verilen ve ertelenen ihtiyaçları görünür kılma. Sayı ve efor dağılımlarını birbirinden ayırma.
 - ROTA-DEMO-001 — Demo hazırlık akışı: Sprint Review için gösterilecek senaryoyu, gerekli test verisini, beklenen davranışı ve paydaşlara sorulacak soruları hazırlama; Review çalışma alanıyla ilişkilendirme.
 - ROTA-ACCHANGE-001 — Kabul kriteri değişiklik takibi: geliştirme başladıktan sonra değişen kriterleri önceki haliyle karşılaştırma; değişikliğin ekipçe görüşülme durumunu kaydetme.
@@ -54,6 +55,27 @@
 - ROTA-FOCUS-003 — Bugünkü odağımdan süre seçerek animasyonlu Pomodoro başlatma, duraklatma/devam ve Windows tamamlanma bildirimi.
 
 ## Tamamlanan
+
+- ROTA-FAVSPACE-007 — Dosya kısayolları ve kaynak kayıtlardaki dosya ekleri kartına çift tıklama veya Enter ile doğrudan açılır. Tek tıklama seçimi anında gösterir; detay açılışı çift tıklamayı bozmamak için kısa gecikmeyle yapılır. Bulunamayan dosyalar hata mesajı gösterir. Build ve tek tıklama/çift tıklama/Enter/dosya eki regresyonları geçti.
+
+
+- ROTA-FAVSPACE-006 — WebViewJS 0.6.0 ve nativeFileDrop ile WebView2 içerik alanının drag-enter/drag-drop/drag-leave olayları gerçek dosya yollarıyla bağlandı; pencerenin file-drop olaylarına bağımlılık kaldırıldı, başlık çubuğu hedefi korundu. Yerel test penceresine bırakılan ZIP’in tam konumu doğrulandı. Native yönlendirme, ZIP/kısayol, hata/iptal ve kapanış/yeniden açılış testleri geçti. Favspace karşılama alanındaki kalp yıldız olarak değiştirildi.
+
+
+- ROTA-FAVSPACE-005 — ZIP bırakıldığında çekmecenin süresiz hazırlanıyor durumunda kalması giderildi: DOM bırakma native hover sırasında alınan konumları tek kullanımlık tüketerek kısayolu oluşturur. Native sonuç gelmezse dört saniye sonra dosya seçerek devam etme mesajı gösterilir. İptal sonrası geç bridge yanıtı kayıt oluşturmaz. Build, ZIP bırakma/kurtarma/iptal regresyonları ve dosya kısayolu testleri geçti; gerçek Explorer sürüklemesi ayrıca doğrulanmalı.
+
+
+- ROTA-FAVSPACE-004 — Favspace üzerinde dosya sürüklenirken Windows native hover ve DOM olaylarıyla açılan animasyonlu kaynak çekmecesi. Birden fazla dosya, uzantı/boyut bağımsız kısayol olarak konumuyla saklanır; içerik kopyalanmaz. Tekrar ekleme engellenir, iptal/Esc/ekrandan çıkış temizlenir; erişilebilir durum mesajları ve azaltılmış hareket desteklenir. Kısayollar açılır, Favspace’ten kaldırılması orijinal dosyayı silmez. Build, tarayıcı olay testleri ve yerel dosya doğrulama testleri geçti; Explorer’dan gerçek native sürükleme elle doğrulanmalıdır.
+
+
+- ROTA-FAVSPACE-003 — Başlık ve arama/filtre alanı vurgu rengine uyumlu tek yüzeyde birleştirildi; eklentiyi kapatma kaldırıldı. Notlar, backlog, görevler, konuşmalar, iş kuralları ve diğer içeriklerden HTTP/HTTPS bağlantıları ve dosya ekleri kaynak kayda bağlı olarak türetilir. Kaynak sabitlemeleri ayrı saklanır; asıl kayıtlar kopyalanmaz veya Favspace üzerinden silinmez. Dosyalar mevcut açma/önizleme akışını kullanır. Build, kaynak değişimi/silinmesi, yeniden yükleme, eski kapalı durum, URL tekrarları, dosya erişimi, tema ve üç pencere genişliği kontrolleri geçti.
+
+
+- ROTA-FAVSPACE-002 — Favspace görsel yenilemesi: renkli koleksiyonlar, geometrik kapaklı kaynak kartları, gradyan karşılama alanı ve sayaçlar. Sıralı kart girişi, hover ve detay paneli animasyonları; azaltılmış hareket tercihi. Açık/koyu tema, 990/1100/1440 px taşma kontrolleri, build ve Favspace akış testleri doğrulandı.
+
+
+- ROTA-FAVSPACE-001 — Favspace yerleşik eklentisi: tema uyumlu koleksiyon/liste/detay görünümü, kaynak oluşturma/düzenleme/silme, arama, sabitleme, proje ve iş bağlantıları. Eklenti veri kaybı olmadan kapatılıp açılır; kayıtlar çalışma alanı ve yedekleriyle saklanır. HTTP/HTTPS doğrulaması ve masaüstünden varsayılan tarayıcıda açma eklendi. Build ve bağımsız tarayıcı profiliyle akış testleri geçti.
+
 
 - ROTA-DIALOG-001 — Tarayıcı confirm/prompt kullanan 22 akış ortak Rota dialoguna taşındı: silme, yedek geri yükleme, Jira, proje araması, diyagram etiketleri, kabul kriteri şablonları ve toplu etiket düzenleme. Açık form/taslak korunur; Escape ile iptal, Enter ile kayıt, klavye odağı ve açık/koyu tema desteklenir. Build ve `node tests/feature/dialogs.mjs` geçti.
 
