@@ -3149,3 +3149,10 @@ body.reduced-motion .inventory-controls * { transition: none !important; }
 .release-initial-scope p { margin: 6px 0; color: var(--text-3); font-size: 11px; }
 @media (max-width: 1180px) { .release-planner-layout { grid-template-columns: 235px minmax(0, 1fr); gap: 14px; } }
 @media (max-width: 1050px) { .release-planner-layout { grid-template-columns: minmax(0, 1fr); } .release-calendar { position: static; } .release-calendar-day { height: 30px; } }
+
+/* Shared Rota confirmation and text entry dialogs. */
+dialog.app-dialog { padding: 0; margin: auto; color: var(--text, #2b3240); width: min(480px, calc(100vw - 32px)); }
+dialog.app-dialog::backdrop { background: #20273570; backdrop-filter: blur(3px); }
+.app-dialog-body { padding: 18px 21px 4px; }
+.app-dialog-body p { margin: 0 0 14px; white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.6; }
+.app-dialog-body .field-input { width: 100%; }

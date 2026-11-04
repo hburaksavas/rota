@@ -55,6 +55,8 @@
 
 ## Tamamlanan
 
+- ROTA-DIALOG-001 — Tarayıcı confirm/prompt kullanan 22 akış ortak Rota dialoguna taşındı: silme, yedek geri yükleme, Jira, proje araması, diyagram etiketleri, kabul kriteri şablonları ve toplu etiket düzenleme. Açık form/taslak korunur; Escape ile iptal, Enter ile kayıt, klavye odağı ve açık/koyu tema desteklenir. Build ve `node tests/feature/dialogs.mjs` geçti.
+
 - ROTA-MEET-001 — Toplantı modu eklendi: adlandırılmış ve projeyle ilişkili oturumlarda satırları görev/soru/karar olarak yakalama, ilgili işe bağlama ve bekleyen satırları bir kez dönüştürme. Kararlar taslak olarak oluşur; satırlar ve oturumlar yerel çalışma alanında korunur.
 - ROTA-MINE-001 — Bana düşenler eklendi: işe bağlı açıklama/örnek/teyit/karar beklentileri ve mevcut kullanıcıya/PO’ya atanmış sorular; tür, metin ve yanıt durumu filtreleri, yanıt kaydetme, beklentiyi yeniden açma ve önceki yanıtları koruma.
 - ROTA-THREAD-001 — İş detayına Konuşma sekmesi eklendi: ilişkili notlar, sorular/yanıtlar, kararlar, ilerleme notları ve PO beklentileri tarih sırasıyla bir araya gelir; arama ve doğrudan konuşma notu ekleme desteklenir. Yeni notlar oluşturulma tarihini saklar; tarihi olmayan eski notlar açıkça belirtilir.

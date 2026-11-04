@@ -1,3 +1,4 @@
+import { appConfirm, appPrompt } from "./dialogs";
 import { Graph, type Edge, type Node } from "@antv/x6";
 import { initPomodoro } from "./pomodoro";
 import { createPoTools } from "./po-tools";
@@ -1131,10 +1132,10 @@ function validJiraBaseUrl(value: string): boolean {
   } catch { return false; }
 }
 
-function setProject(id: string): void {
+async function setProject(id: string): Promise<void> {
   const project = state.projects.find((entry) => entry.id === id);
   if (!project || project.archived) return;
-  const keepQuery = Boolean(query) && window.confirm("Proje değiştirirken mevcut arama metnini koruyayım mı?");
+  const keepQuery = Boolean(query) && (await appConfirm("Proje değiştirirken mevcut arama metnini koruyayım mı?"));
   activeProjectId = id;
   activeBacklogViewId = "";
   activeView = "backlog";
@@ -1412,7 +1413,7 @@ async function createJiraIssueFromRota(): Promise<void> {
   const project = jiraProjects.find((entry) => entry.key === jiraSelectedProjectKey);
   const issueType = jiraIssueTypes.find((entry) => entry.id === jiraSelectedIssueTypeId);
   if (!item || item.jiraIssueKey || !project || !issueType || !summary || !jiraSelectedBoardId || !state.profile.jiraBaseUrl) return;
-  const okay = window.confirm('Jira’da "' + summary + '" başlıklı ' + issueType.name + ' oluşturulsun mu?\n\nBoard: ' + (jiraBoards.find((entry) => entry.id === jiraSelectedBoardId)?.name || "") + '\nProje: ' + project.key + ' · ' + project.name + '\nRota işi: ' + item.id);
+  const okay = (await appConfirm('Jira’da "' + summary + '" başlıklı ' + issueType.name + ' oluşturulsun mu?\n\nBoard: ' + (jiraBoards.find((entry) => entry.id === jiraSelectedBoardId)?.name || "") + '\nProje: ' + project.key + ' · ' + project.name + '\nRota işi: ' + item.id));
   if (!okay) return;
   jiraLoading = true; jiraError = ""; renderJira();
   try {
@@ -1470,7 +1471,7 @@ async function saveJiraPat(): Promise<void> {
 }
 
 async function removeJiraPat(): Promise<void> {
-  if (!window.confirm("Jira PAT’i bu bilgisayardan kaldırmak istiyor musun?")) return;
+  if (!(await appConfirm("Jira PAT’i bu bilgisayardan kaldırmak istiyor musun?"))) return;
   await desktop.jiraRemoveToken(); jiraHasSavedToken = false; jiraBoards = []; jiraProjects = []; jiraSprints = []; jiraIssueTypes = []; jiraIssues = []; renderJira(); toast("Jira bağlantı anahtarı kaldırıldı.");
 }
 
@@ -2941,13 +2942,13 @@ function renderAssetDiagram(container: HTMLElement, assets: ProductAsset[]): voi
     save();
   });
   graph.on("node:dblclick", ({ node }: { node: Node }) => openAsset(node.id));
-  graph.on("edge:dblclick", ({ edge }: { edge: Edge }) => {
+  graph.on("edge:dblclick", async ({ edge }: { edge: Edge }) => {
     const sourceId = edge.getSourceCellId();
     const targetId = edge.getTargetCellId();
     if (!sourceId || !targetId) return;
     const source = state.assets.find((asset) => asset.id === sourceId);
     const currentLabel = source?.relatedAssetLabels?.[targetId] || "İlişkili";
-    const label = window.prompt("Ok ilişki etiketini düzenle", currentLabel);
+    const label = (await appPrompt("Ok ilişki etiketini düzenle", currentLabel));
     if (label === null) return;
     persistAssetRelation(sourceId, targetId, label.trim().slice(0, 80) || "İlişkili");
     edge.setLabels([{ attrs: { text: { text: label.trim().slice(0, 80) || "İlişkili", fill: "#5d6784", fontSize: 11 } }, position: 0.5 }]);
@@ -3640,9 +3641,9 @@ function saveReleaseScope(id: string): void {
   save(); closeModal(); render(); toast("Release kapsamı güncellendi.");
 }
 
-function deleteRelease(id: string): void {
+async function deleteRelease(id: string): Promise<void> {
   const release = state.releases.find((entry) => entry.id === id);
-  if (!release || !window.confirm('"' + release.name + '" release kaydını silmek istiyor musun? Backlog işleri korunur, release bağlantıları kaldırılır.')) return;
+  if (!release || !(await appConfirm('"' + release.name + '" release kaydını silmek istiyor musun? Backlog işleri korunur, release bağlantıları kaldırılır.'))) return;
   state.items.forEach((item) => { if (item.releaseId === id) { item.releaseId = undefined; addWorkActivity(item, "release", "Silinen release bağlantısı kaldırıldı: " + release.name); } });
   state.releases = state.releases.filter((entry) => entry.id !== id);
   save(); render(); toast("Release silindi.");
@@ -3689,9 +3690,9 @@ function saveRoadmapNode(event: SubmitEvent): void {
   save(); closeModal(); render(); toast(type + " kaydedildi.");
 }
 
-function deleteRoadmapNode(id: string): void {
+async function deleteRoadmapNode(id: string): Promise<void> {
   const node = state.roadmap.find((entry) => entry.id === id);
-  if (!node || !window.confirm('"' + node.title + '" hedefini silmek istiyor musun? Bağlı backlog işleri korunur ve hedef bağlantıları kaldırılır.')) return;
+  if (!node || !(await appConfirm('"' + node.title + '" hedefini silmek istiyor musun? Bağlı backlog işleri korunur ve hedef bağlantıları kaldırılır.'))) return;
   const removed = new Set([id, ...state.roadmap.filter((entry) => entry.parentId === id).map((entry) => entry.id)]);
   state.roadmap = state.roadmap.filter((entry) => !removed.has(entry.id));
   state.items.forEach((item) => { if (item.roadmapNodeId && removed.has(item.roadmapNodeId)) { item.roadmapNodeId = undefined; addWorkActivity(item, "change", "Silinen ürün hedefi bağlantısı kaldırıldı."); } });
@@ -4077,7 +4078,7 @@ async function restoreWorkspaceBackup(): Promise<void> {
     const attachmentCount = staged.attachmentCount;
     const candidate = staged.workspace as Partial<WorkspaceState>;
     if (!candidate || !Array.isArray(candidate.items) || !Array.isArray(candidate.tasks) || !Array.isArray(candidate.notes) || !Array.isArray(candidate.projects) || !Array.isArray(candidate.teams) || !Array.isArray(candidate.assets) || !Array.isArray(candidate.roadmap) || !Array.isArray(candidate.releases) || (candidate.decisions !== undefined && !Array.isArray(candidate.decisions)) || (candidate.diagrams !== undefined && !Array.isArray(candidate.diagrams)) || !candidate.profile) throw new Error("Yedek bu Rota sürümüyle uyumlu değil.");
-    if (!window.confirm("Bu yedek çalışma alanındaki mevcut kayıtların yerini alacak. " + candidate.items.length + " backlog işi ve " + staged.attachmentCount + " dosya eki yüklenecek. Devam edilsin mi?")) {
+    if (!(await appConfirm("Bu yedek çalışma alanındaki mevcut kayıtların yerini alacak. " + candidate.items.length + " backlog işi ve " + staged.attachmentCount + " dosya eki yüklenecek. Devam edilsin mi?"))) {
       await desktop.cancelWorkspaceRestore(restoreToken);
       return;
     }
@@ -4145,7 +4146,7 @@ async function deleteProject(projectId: string): Promise<void> {
   const projectAssets = state.assets.filter((asset) => asset.project === project.name);
   const projectReleases = state.releases.filter((release) => release.project === project.name);
   const prompt = '"' + project.name + '" projesini kalıcı olarak silmek istiyor musun? ' + projectItems.length + ' backlog işi, ' + projectAssets.length + ' ürün bileşeni ve ' + projectReleases.length + ' release silinecek. Bağlı kişisel görev ve notlar korunup bağımsız hale gelecek.';
-  if (!window.confirm(prompt)) return;
+  if (!(await appConfirm(prompt))) return;
   const removedItemIds = new Set(projectItems.map((item) => item.id));
   const removedAssetIds = new Set(projectAssets.map((asset) => asset.id));
   await Promise.all(projectItems.flatMap((item) => (item.attachments || []).flatMap((file) => file.storedName && desktop ? [desktop.removeAttachment(file.storedName).catch(() => false)] : [])));
@@ -4414,8 +4415,8 @@ function renderDiagramEdgeList(diagram: WorkDiagram): void {
     : '<p class="asset-muted">Henüz ok yok. Bir adımın mavi bağlantı noktasından diğer adıma sürükle.</p>';
 }
 
-function addDiagramNode(diagram: WorkDiagram): void {
-  const label = window.prompt("Diyagram adımının adı");
+async function addDiagramNode(diagram: WorkDiagram): Promise<void> {
+  const label = (await appPrompt("Diyagram adımının adı"));
   if (!label?.trim()) return;
   const node: DiagramNode = { id: nextId("DGN"), label: label.trim().slice(0, 120), x: 32 + (diagram.nodes.length % 3) * 260, y: 40 + Math.floor(diagram.nodes.length / 3) * 150 };
   diagram.nodes.push(node);
@@ -4485,14 +4486,14 @@ function renderWorkDiagramEditor(diagram: WorkDiagram, preserveHistory = false):
     if (!entry) return;
     const pos = node.position(); entry.x = Math.round(pos.x); entry.y = Math.round(pos.y); diagram.updated = "Az önce"; save();
   });
-  graph.on("node:dblclick", ({ node }: { node: Node }) => {
+  graph.on("node:dblclick", async ({ node }: { node: Node }) => {
     const entry = diagram.nodes.find((candidate) => candidate.id === node.id); if (!entry) return;
-    const label = window.prompt("Diyagram adımını düzenle", entry.label); if (!label?.trim()) return;
+    const label = (await appPrompt("Diyagram adımını düzenle", entry.label)); if (!label?.trim()) return;
     entry.label = label.trim().slice(0, 120); node.attr("label/text", entry.label); diagram.updated = "Az önce"; save(); renderDiagramToolbar(diagram);
   });
-  graph.on("edge:dblclick", ({ edge }: { edge: Edge }) => {
+  graph.on("edge:dblclick", async ({ edge }: { edge: Edge }) => {
     const entry = diagram.edges.find((candidate) => candidate.id === edge.id); if (!entry) return;
-    const label = window.prompt("Ok üzerindeki ilişki", entry.label); if (label === null) return;
+    const label = (await appPrompt("Ok üzerindeki ilişki", entry.label)); if (label === null) return;
     entry.label = label.trim().slice(0, 80) || "Akış"; edge.setLabels([{ attrs: { text: { text: entry.label, fill: "#5d6784", fontSize: 11 } }, position: 0.5 }]); diagram.updated = "Az önce"; save(); renderDiagramEdgeList(diagram);
   });
   graph.on("edge:connected", ({ edge, isNew }: { edge: Edge; isNew: boolean }) => {
@@ -4515,9 +4516,9 @@ function openWorkDiagramEditor(ownerType: WorkDiagram["ownerType"], ownerId: str
   renderWorkDiagramEditor(target);
 }
 
-function deleteWorkDiagram(id: string): void {
+async function deleteWorkDiagram(id: string): Promise<void> {
   const diagram = state.diagrams.find((entry) => entry.id === id);
-  if (!diagram || !window.confirm('"' + diagram.title + '" diyagramını silmek istiyor musun?')) return;
+  if (!diagram || !(await appConfirm('"' + diagram.title + '" diyagramını silmek istiyor musun?'))) return;
   state.diagrams = state.diagrams.filter((entry) => entry.id !== id);
   const { ownerType, ownerId } = diagram;
   save(); closeModal();
@@ -5192,7 +5193,7 @@ function openRecordEditor(kind: "item" | "task" | "note", id: string): void {
 async function deleteBacklogItems(ids: string[], confirmation: string): Promise<void> {
   const idsToDelete = new Set(ids);
   const itemsToDelete = state.items.filter((item) => idsToDelete.has(item.id));
-  if (!itemsToDelete.length || !window.confirm(confirmation)) return;
+  if (!itemsToDelete.length || !(await appConfirm(confirmation))) return;
   const undoSnapshot = structuredClone(state);
   const deletedAttachments = itemsToDelete.flatMap((item) => item.attachments || []);
   const removedIds = new Set(itemsToDelete.map((item) => item.id));
@@ -5230,7 +5231,7 @@ async function deleteRecord(kind: "item" | "task" | "note", id: string): Promise
     return;
   }
   const label = kind === "task" ? "kişisel görevi" : "notu";
-  if (!window.confirm('"' + record.title + '" ' + label + ' silinsin mi? Silme işlemini 6 saniye içinde geri alabilirsin.')) return;
+  if (!(await appConfirm('"' + record.title + '" ' + label + ' silinsin mi? Silme işlemini 6 saniye içinde geri alabilirsin.'))) return;
   const undoSnapshot = structuredClone(state);
   if (kind === "task") state.tasks = state.tasks.filter((entry) => entry.id !== id);
   else {
@@ -5420,11 +5421,11 @@ function saveAsset(event: SubmitEvent): void {
   save(); render(); openAsset(asset.id); toast(existing ? "Bileşen güncellendi." : "Bileşen envantere eklendi.");
 }
 
-function toggleAssetActive(id: string): void {
+async function toggleAssetActive(id: string): Promise<void> {
   const asset = state.assets.find((entry) => entry.id === id);
   if (!asset) return;
   const nextActive = !asset.active;
-  if (!nextActive && !window.confirm('"' + asset.name + '" bileşenini pasife almak istiyor musun? Bağlı backlog işleri korunur.')) return;
+  if (!nextActive && !(await appConfirm('"' + asset.name + '" bileşenini pasife almak istiyor musun? Bağlı backlog işleri korunur.'))) return;
   asset.active = nextActive;
   asset.updated = "Az önce";
   save(); render(); openAsset(id); toast(nextActive ? "Bileşen yeniden etkinleştirildi." : "Bileşen pasife alındı.");
@@ -6079,7 +6080,7 @@ document.addEventListener("click", async (event) => {
     else if (action.dataset.action === "edit-open-question" && action.dataset.id) openQuestionForm(action.dataset.id);
     else if (action.dataset.action === "answer-open-question" && action.dataset.id) openQuestionAnswerForm(action.dataset.id);
     else if (action.dataset.action === "reopen-question" && action.dataset.id) { const question = state.openQuestions?.find((entry) => entry.id === action.dataset.id); if (question) { question.status = "Açık"; question.answeredAt = undefined; questionFilter = "open"; save(); renderOpenQuestions(); toast("Soru yeniden açıldı."); } }
-    else if (action.dataset.action === "delete-open-question" && action.dataset.id) { if (window.confirm("Bu soruyu silmek istiyor musun?")) { state.openQuestions = (state.openQuestions || []).filter((entry) => entry.id !== action.dataset.id); save(); renderOpenQuestions(); } }
+    else if (action.dataset.action === "delete-open-question" && action.dataset.id) { if ((await appConfirm("Bu soruyu silmek istiyor musun?"))) { state.openQuestions = (state.openQuestions || []).filter((entry) => entry.id !== action.dataset.id); save(); renderOpenQuestions(); } }
     else if (action.dataset.action === "toggle-ready-pool") { readyWorkPool = !readyWorkPool; renderBacklog(); }
     else if (action.dataset.action === "apply-acceptance-template" && action.dataset.target) {
       const select = modalRoot.querySelector<HTMLSelectElement>('[data-acceptance-template-target="' + action.dataset.target + '"]');
@@ -6093,11 +6094,11 @@ document.addEventListener("click", async (event) => {
       const textarea = modalRoot.querySelector<HTMLTextAreaElement>(action.dataset.target === "new-acceptance" ? "#new-acceptance" : 'textarea[name="acceptance"]');
       const criteria = textarea?.value.split(/\r?\n/).map((line) => line.trim()).filter(Boolean) || [];
       if (!criteria.length) { toast("Şablon kaydetmek için önce kriterleri gir."); return; }
-      const name = window.prompt("Bu kabul kriteri şablonuna bir ad ver");
+      const name = (await appPrompt("Bu kabul kriteri şablonuna bir ad ver"));
       if (!name?.trim()) return;
       const selectedType = modalRoot.querySelector<HTMLSelectElement>('#edit-item-form select[name="type"]')?.value || (document.getElementById("new-item-type") as HTMLSelectElement | null)?.value || "Story";
       state.acceptanceTemplates ||= [];
-      const category: AcceptanceTemplate["category"] = window.confirm("Bu şablonu bankacılık değişikliği kontrol listesi olarak mı işaretleyelim?") ? "Bankacılık değişikliği" : selectedType === "Bug" ? "Bug" : selectedType === "Story" ? "Story" : "Genel";
+      const category: AcceptanceTemplate["category"] = (await appConfirm("Bu şablonu bankacılık değişikliği kontrol listesi olarak mı işaretleyelim?")) ? "Bankacılık değişikliği" : selectedType === "Bug" ? "Bug" : selectedType === "Story" ? "Story" : "Genel";
       const savedTemplate: AcceptanceTemplate = { id: nextId("TPL"), name: name.trim(), category, criteria };
       state.acceptanceTemplates.push(savedTemplate);
       save();
@@ -6221,7 +6222,7 @@ document.addEventListener("click", async (event) => {
     }
     else if (action.dataset.action === "delete-backlog-view" && action.dataset.viewId) {
       const view = savedBacklogViews.find((entry) => entry.id === action.dataset.viewId);
-      if (view && window.confirm('"' + view.name + '" görünümünü silmek istiyor musun?')) {
+      if (view && (await appConfirm('"' + view.name + '" görünümünü silmek istiyor musun?'))) {
         savedBacklogViews = savedBacklogViews.filter((entry) => entry.id !== view.id);
         if (activeBacklogViewId === view.id) activeBacklogViewId = "";
         persistBacklogViews();
@@ -6289,7 +6290,7 @@ document.addEventListener("click", async (event) => {
       const selected = getSelectedBacklogItems();
       if (!selected.length) return;
       const before = structuredClone(selected);
-      const input = window.prompt("Etiket işlemlerini virgülle ayır. Yeni etiket için ad, kaldırmak için -etiket yaz. Örnek: EFT,-Eski", "");
+      const input = (await appPrompt("Etiket işlemlerini virgülle ayır. Yeni etiket için ad, kaldırmak için -etiket yaz. Örnek: EFT,-Eski", ""));
       if (input === null) return;
       const operations = input.split(",").map((part) => part.trim()).filter(Boolean);
       if (!operations.length) return;
@@ -6364,7 +6365,7 @@ document.addEventListener("click", async (event) => {
   const deleteTeam = target.closest<HTMLElement>("[data-delete-team]");
   if (deleteTeam?.dataset.deleteTeam) {
     const team = state.teams.find((entry) => entry.id === deleteTeam.dataset.deleteTeam);
-    if (!team || !window.confirm('"' + team.name + '" takımını silmek istiyor musun? Bu takıma atanmış backlog işleri atamasız kalır.')) return;
+    if (!team || !(await appConfirm('"' + team.name + '" takımını silmek istiyor musun? Bu takıma atanmış backlog işleri atamasız kalır.'))) return;
     state.teams = state.teams.filter((entry) => entry.id !== team.id);
     state.items.forEach((item) => { item.assignments = getWorkAssignments(item).filter((assignment) => assignment.teamId !== team.id); syncLegacyAssignmentFields(item); });
     state.projects.forEach((project) => { project.assignments = (project.assignments || []).filter((assignment) => assignment.teamId !== team.id); });
@@ -6388,7 +6389,7 @@ document.addEventListener("click", async (event) => {
   if (removeDashboardMember?.dataset.removeDashboardMember && removeDashboardMember.dataset.teamMember) {
     const team = state.teams.find((entry) => entry.id === removeDashboardMember.dataset.removeDashboardMember);
     const member = removeDashboardMember.dataset.teamMember;
-    if (!team || !window.confirm(member + " üyesini takımdan çıkarmak istiyor musun? Üzerindeki işler takımda sorumlusuz kalır.")) return;
+    if (!team || !(await appConfirm(member + " üyesini takımdan çıkarmak istiyor musun? Üzerindeki işler takımda sorumlusuz kalır."))) return;
     team.members = team.members.filter((name) => name !== member);
     state.items.forEach((item) => { item.assignments = validAssignments(getWorkAssignments(item)); syncLegacyAssignmentFields(item); });
     state.projects.forEach((project) => { project.assignments = validAssignments(project.assignments || []); });
@@ -6399,7 +6400,7 @@ document.addEventListener("click", async (event) => {
   const openSourceEmail = target.closest<HTMLElement>("[data-open-source-email]");
   if (openSourceEmail?.dataset.openSourceEmail) { await openAttachment(openSourceEmail.dataset.openSourceEmail); return; }
   const decisionProject = target.closest<HTMLElement>("[data-decision-open-project]");
-  if (decisionProject?.dataset.decisionOpenProject) { setProject(decisionProject.dataset.decisionOpenProject); closeModal(); return; }
+  if (decisionProject?.dataset.decisionOpenProject) { await setProject(decisionProject.dataset.decisionOpenProject); closeModal(); return; }
   if (target.closest("[data-select-backlog-item], [data-select-visible-backlog]")) { event.stopPropagation(); return; }
   if (open?.dataset.openItem && !open.classList.contains("detail-modal")) {
     const backlogRow = target.closest<HTMLTableRowElement>("tr[data-open-item]");
