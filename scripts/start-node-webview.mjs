@@ -236,7 +236,7 @@ const automaticBackup = async (workspace) => {
   for (const name of previous) await rm(join(directory, name), { force: true });
   return { path, attachmentCount };
 };
-const allowedAssets = new Set(["/", "/index.html", "/src/styles.css", "/dist/renderer/app.js"]);
+const allowedAssets = new Set(["/", "/index.html", "/src/styles.css", "/src/po-tools.css", "/dist/renderer/app.js"]);
 const assetServer = createServer(async (request, response) => {
   let pathname;
   try { pathname = decodeURIComponent(new URL(request.url || "/", "http://127.0.0.1").pathname); }

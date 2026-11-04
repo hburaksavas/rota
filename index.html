@@ -6,6 +6,7 @@
     <meta name="theme-color" content="#f5f6f5">
     <title>Rota · PO çalışma alanı</title>
     <link rel="stylesheet" href="./src/styles.css">
+    <link rel="stylesheet" href="./src/po-tools.css">
   </head>
   <body>
     <div class="app-shell">
@@ -71,6 +72,8 @@
             <button type="button" class="workspace-tool workspace-tool-create" data-workspace-create="item" data-tooltip="Yeni backlog işi" aria-label="Yeni backlog işi"><span class="workspace-tool-icon" data-workspace-icon="add"></span><span>İş</span></button>
             <button type="button" class="workspace-tool" data-workspace-create="task" data-tooltip="Yeni görev" aria-label="Yeni görev"><span class="workspace-tool-icon" data-workspace-icon="task"></span><span>Görev</span></button>
             <button type="button" class="workspace-tool" data-workspace-create="note" data-tooltip="Yeni not" aria-label="Yeni not"><span class="workspace-tool-icon" data-workspace-icon="note"></span><span>Not</span></button>
+            <button type="button" class="workspace-tool" data-po="meetings" aria-label="Toplantı modu" data-tooltip="Toplantı modu"><span class="workspace-tool-icon" data-workspace-icon="calendar"></span><span>Toplantı</span></button>
+            <button type="button" class="workspace-tool" data-po="mine" aria-label="Bana düşenler" data-tooltip="Bana düşenler"><span class="workspace-tool-icon" data-workspace-icon="help"></span><span>Bana düşenler</span><small data-po-mine-count>0</small></button>
             <span class="workspace-tool-divider" aria-hidden="true"></span>
             <button type="button" class="workspace-tool" data-workspace-panel="tasks" aria-label="Çalışma alanı görevleri" aria-controls="workspace-shelf" aria-expanded="false"><span class="workspace-tool-icon" data-workspace-icon="list"></span><span>Görevler</span><small data-workspace-count="tasks">0</small></button>
             <button type="button" class="workspace-tool" data-workspace-panel="notes" aria-label="Çalışma alanı notları" aria-controls="workspace-shelf" aria-expanded="false"><span class="workspace-tool-icon" data-workspace-icon="notes"></span><span>Notlar</span><small data-workspace-count="notes">0</small></button>

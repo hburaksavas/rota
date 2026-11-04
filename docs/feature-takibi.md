@@ -1,7 +1,6 @@
 # Feature takibi
 
-## Bekleyen
-
+## Bekleyen- ROTA-THREAD-001 — İş üzerinde konuşma geçmişi: işe bağlı not, soru, yanıt ve kararları tarih sırasıyla gösterme; doğrudan konuşma notu ekleme.
 - ROTA-INVEST-001 — Ürün yatırım dengesi: backlog işlerini yeni özellik, hata, teknik borç ve zorunlu iş kategorileriyle dağılım halinde gösterme; ağırlık verilen ve ertelenen ihtiyaçları görünür kılma. Sayı ve efor dağılımlarını birbirinden ayırma.
 - ROTA-DEMO-001 — Demo hazırlık akışı: Sprint Review için gösterilecek senaryoyu, gerekli test verisini, beklenen davranışı ve paydaşlara sorulacak soruları hazırlama; Review çalışma alanıyla ilişkilendirme.
 - ROTA-ACCHANGE-001 — Kabul kriteri değişiklik takibi: geliştirme başladıktan sonra değişen kriterleri önceki haliyle karşılaştırma; değişikliğin ekipçe görüşülme durumunu kaydetme.
@@ -55,6 +54,11 @@
 - ROTA-FOCUS-003 — Bugünkü odağımdan süre seçerek animasyonlu Pomodoro başlatma, duraklatma/devam ve Windows tamamlanma bildirimi.
 
 ## Tamamlanan
+
+- ROTA-MEET-001 — Toplantı modu eklendi: adlandırılmış ve projeyle ilişkili oturumlarda satırları görev/soru/karar olarak yakalama, ilgili işe bağlama ve bekleyen satırları bir kez dönüştürme. Kararlar taslak olarak oluşur; satırlar ve oturumlar yerel çalışma alanında korunur.
+- ROTA-MINE-001 — Bana düşenler eklendi: işe bağlı açıklama/örnek/teyit/karar beklentileri ve mevcut kullanıcıya/PO’ya atanmış sorular; tür, metin ve yanıt durumu filtreleri, yanıt kaydetme, beklentiyi yeniden açma ve önceki yanıtları koruma.
+- ROTA-THREAD-001 — İş detayına Konuşma sekmesi eklendi: ilişkili notlar, sorular/yanıtlar, kararlar, ilerleme notları ve PO beklentileri tarih sırasıyla bir araya gelir; arama ve doğrudan konuşma notu ekleme desteklenir. Yeni notlar oluşturulma tarihini saklar; tarihi olmayan eski notlar açıkça belirtilir.
+- ROTA-SIDE-001 — Yan yana çalışma eklendi: aynı iş detayı solda düzenlenebilir kalırken sağda not veya ürüne bağlı iş kuralı seçilir/oluşturulur/düzenlenir. Sağdaki değişiklikler otomatik kaydedilir. Build ve test:po; toplantı dağıtımı, tekrarsızlık, kalıcılık, PO yanıt geçmişi, arama, iki tarafta düzenleme, açık/koyu tema ve 990/1100/1440 px kontrolleri geçti.
 
 - ROTA-BACKLOG-001 — Backlog liste yüksekliğindeki 64vh/760px üst sınırı kaldırıldı; liste toolbar ve alt bilgi arasında pencerenin kalan alanını doldurur, içerik kendi içinde kayar.
 

@@ -1,5 +1,6 @@
 import { Graph, type Edge, type Node } from "@antv/x6";
 import { initPomodoro } from "./pomodoro";
+import { createPoTools } from "./po-tools";
 
 const seed: WorkspaceState = {
   schemaVersion: 6,
@@ -242,6 +243,10 @@ try {
     roadmap: workspaceRecords<RoadmapNode>(saved.roadmap, []),
     releases: workspaceRecords<ProductRelease>(saved.releases, []),
     decisions: workspaceRecords<ProductDecision>(saved.decisions, []),
+    meetings: workspaceRecords<PoMeeting>(saved.meetings, []).map((meeting) => ({ ...meeting, entries: Array.isArray(meeting.entries) ? meeting.entries : [] })),
+    poRequests: workspaceRecords<PoRequest>(saved.poRequests, []),
+    workConversations: workspaceRecords<WorkConversation>(saved.workConversations, []),
+    productRules: workspaceRecords<ProductRule>(saved.productRules, []),
     diagrams: workspaceRecords<WorkDiagram>(saved.diagrams, []),
     sprints: workspaceRecords<Sprint>(saved.sprints, []),
     assets: workspaceRecords<ProductAsset>(saved.assets, legacySampleWorkspace ? seed.assets : []),
@@ -1103,7 +1108,7 @@ function setView(view: string): void {
   activeBacklogViewId = "";
   document.querySelectorAll<HTMLElement>(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   document.querySelector<HTMLElement>(".workspace-switcher")?.classList.toggle("active", view === "overview");
-  const names: Record<string, string> = { overview: "Genel bakış", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", roadmap: "Yol haritası", decisions: "Ürün kararları", releases: "Release planı", questions: "Açık sorular", "archive-search": "Arşivde ara" };
+  const names: Record<string, string> = { overview: "Genel bakış", meetings: "Toplantı modu", "my-actions": "Bana düşenler", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", roadmap: "Yol haritası", decisions: "Ürün kararları", releases: "Release planı", questions: "Açık sorular", "archive-search": "Arşivde ara" };
   (document.getElementById("breadcrumb-current") as HTMLElement).textContent = names[view] ?? "Genel bakış";
   render();
   animateViewEnter();
@@ -1297,6 +1302,8 @@ function render(): void {
   if (jiraNav) { jiraNav.disabled = !jiraEnabled; jiraNav.title = jiraEnabled ? "Jira Server paneli" : "Jira kapalı · Ayarlar › Entegrasyonlar bölümünden Base URL ekleyin"; jiraNav.classList.toggle("nav-disabled", !jiraEnabled); }
   if (jiraState) jiraState.textContent = jiraEnabled ? "Hazır" : "Kapalı";
   if (activeView === "overview") renderOverview();
+  else if (activeView === "meetings") poTools.renderMeetings();
+  else if (activeView === "my-actions") poTools.renderMine();
   else if (activeView === "backlog") renderBacklog();
   else if (activeView === "jira") renderJira();
   else if (activeView === "assets") renderAssets();
@@ -1481,6 +1488,7 @@ function syncWorkspaceToolbar(): void {
   const scope = document.getElementById("workspace-command-scope");
   if (scope) scope.textContent = state.projects.find((project) => project.id === activeProjectId)?.name || "Tüm projeler";
   if (workspaceShelf) renderWorkspaceShelf();
+  poTools.syncBadge();
 }
 type WorkspaceMessageKind = WorkspaceShelf | "items";
 let dashboardPriority = "";
@@ -1506,7 +1514,7 @@ function sendWorkspaceMessage(form: HTMLFormElement): void {
   if (!message) return;
   const title = message.split("\n")[0].slice(0, 120);
   if (kind === "tasks") state.tasks.unshift({ id: nextId("TASK"), title, description: message, due: "", done: false, linked: "", attachments: [] });
-  else if (kind === "notes") state.notes.unshift({ id: nextId("NOTE"), title, body: message, linked: "", updated: "Az önce", attachments: [] });
+  else if (kind === "notes") state.notes.unshift({ id: nextId("NOTE"), createdAt: new Date().toISOString(), title, body: message, linked: "", updated: "Az önce", attachments: [] });
   else if (kind === "items") {
     const project = state.projects.find((entry) => entry.id === activeProjectId && !entry.archived) || state.projects.find((entry) => !entry.archived);
     let id = nextId("PAY"); while (state.items.some((entry) => entry.id === id)) id = nextId("PAY");
@@ -3060,7 +3068,7 @@ function saveQuickCreate(event: SubmitEvent): void {
     state.tasks.unshift({ id: nextId("TASK"), title, due: dueDate || "Tarih belirlenmedi", done: false, linked, description, attachments: [], remindAt: remindAt || undefined });
 
   } else {
-    state.notes.unshift({ id: nextId("NOTE"), title, body: description, linked, updated: "Az önce", attachments: [] });
+    state.notes.unshift({ id: nextId("NOTE"), createdAt: new Date().toISOString(), title, body: description, linked, updated: "Az önce", attachments: [] });
 
   }
   if (kind === "Backlog işi" && assignmentValue) localStorage.setItem(QUICK_ASSIGNMENT_PREFERENCE_KEY, assignmentValue);
@@ -4923,6 +4931,7 @@ function openItem(id: string, direction?: "previous" | "next"): void {
     section.hidden = tab !== "overview";
   });
   installDetailInline(item);
+  poTools.enhanceDetail(item);
   if (current) {
     for (const group of modalRoot.querySelectorAll<HTMLDetailsElement>("[data-detail-group]")) group.open = openGroups.includes(group.dataset.detailGroup!);
     modalRoot.querySelector<HTMLButtonElement>('[data-detail-tab="' + selectedTab + '"]')?.click();
@@ -5118,7 +5127,7 @@ async function saveNewRecord(event: SubmitEvent): Promise<void> {
     toast("Görev çalışma alanına eklendi.");
 
   } else {
-    state.notes.unshift({ id: nextId("NOTE"), title, body: description, linked: field("new-linked-note").value, updated: "Az önce", attachments: [...draftAttachments], sourceEmail: pendingDroppedEmailSource || undefined });
+    state.notes.unshift({ id: nextId("NOTE"), createdAt: new Date().toISOString(), title, body: description, linked: field("new-linked-note").value, updated: "Az önce", attachments: [...draftAttachments], sourceEmail: pendingDroppedEmailSource || undefined });
     toast("Not çalışma alanına eklendi.");
 
   }
@@ -7352,6 +7361,7 @@ function toggleTheme(): void {
 
 syncThemeToggle();
 
+const poTools = createPoTools({ state: () => state, save, id: nextId, icon, esc, navigate: setView, view: () => activeView, activeProject: () => activeProjectId, openItem, toast, commitItemEdit: () => !detailEdit || commitDetailEdit() });
 initSidebarCustomization();
 initWorkspaceToolbar();
 initPomodoro({ desktop, modalRoot, record: workspaceFocusRecord, toast });

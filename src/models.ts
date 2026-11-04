@@ -351,6 +351,7 @@ interface PersonalTask {
 }
 
 interface PersonalNote {
+  createdAt?: string;
   id: string;
   title: string;
   body: string;
@@ -402,7 +403,19 @@ interface WorkspaceFocusEntry {
 type DashboardPanelId = "tasks" | "notes" | "questions" | "items";
 interface DashboardPanelLayout { id: DashboardPanelId; width: number; height: number; }
 
+type PoMeetingKind = "task" | "question" | "decision";
+interface PoMeetingEntry { id: string; text: string; kind: PoMeetingKind; linkedItemId: string; createdAt: string; recordId?: string; }
+interface PoMeeting { id: string; title: string; projectId: string; createdAt: string; updatedAt: string; entries: PoMeetingEntry[]; }
+type PoRequestKind = "clarification" | "example" | "confirmation" | "decision";
+interface PoRequest { id: string; itemId: string; kind: PoRequestKind; text: string; requestedBy: string; createdAt: string; answer?: string; resolvedAt?: string; replies?: { text: string; author: string; createdAt: string }[]; }
+interface WorkConversation { id: string; itemId: string; text: string; author: string; createdAt: string; }
+interface ProductRule { id: string; projectId: string; title: string; body: string; updatedAt: string; }
+
 interface WorkspaceState {
+  meetings?: PoMeeting[];
+  poRequests?: PoRequest[];
+  workConversations?: WorkConversation[];
+  productRules?: ProductRule[];
   dashboardLayout?: DashboardPanelLayout[];
   schemaVersion?: number;
   items: WorkItem[];

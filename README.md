@@ -45,6 +45,15 @@ Sütun adları büyük/küçük harfe duyarsızdır. `Başlık` yerine `Title`, 
 Dosya en fazla 20 MB, içe aktarım ise en fazla 500 iş olabilir. Başlık en fazla 120 karakterdir; açıklama 4.000 karaktere kadar alınır. Önizlemede hedef projeyi ve oluşturulacak iş türünü seçebilirsiniz. Her iş **Yeni** durumda, **Orta** öncelikte ve **Genel** alanında oluşturulur.
 
 
+## PO çalışma araçları
+
+- Üst araç çubuğundaki **Toplantı** ile oturum açın. Satırları görev, soru veya karar olarak işaretleyip ilgili backlog işini seçin. **Kayıtları oluştur**, bekleyen satırları bir kez dönüştürür; kararlar mevcut karar ekranında tamamlanabilecek taslaklar olarak kaydedilir. Oturumlar ve eklenmiş satırlar yeniden açılışta korunur.
+- İş detayındaki **Konuşma** sekmesinde not bırakın veya **PO’dan yanıt bekle** ile açıklama, örnek, teyit ya da karar talebi kaydedin. **Bana düşenler**, bu beklentileri ve mevcut kullanıcıya/PO’ya atanmış açık soruları gösterir. Yanıtlar ilgili işin konuşma geçmişine yansır; yeniden açılan beklentilerde önceki yanıtlar korunur.
+- Konuşma geçmişi, işe bağlı notları, soruları, yanıtları, kararları ve ilerleme notlarını tarih sırasıyla bir araya getirir. Tarihi bulunmayan eski notlar ayrıca belirtilir.
+- İş detayının sağ üstündeki **Yan yana çalış** ikonuyla mevcut işi solda tutup sağda not veya o ürünün iş kuralını açın. Her iki tarafta düzenleme yapılabilir; sağdaki değişiklikler otomatik kaydedilir. + ikonu işe bağlı not veya ürüne bağlı kural oluşturur.
+
+Bu akışların testleri `npm run test:po` ile çalıştırılır; testler ayrı tarayıcı profili kullanır ve kullanıcı çalışma alanını değiştirmez.
+
 ## Veri ve özellik notları
 
 - Çalışma alanı verileri WebView2 profilinde, ek dosyalar uygulama kullanıcı veri klasöründe yerel olarak saklanır. Kullanıcı profili `%APPDATA%\\rota-po` altındadır.
