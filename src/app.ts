@@ -1162,8 +1162,7 @@ function enhanceActionControls(scope: ParentNode = document): void {
   const leadingIcons = [
     { selector: 'button[data-action="new"], button[data-action="new-asset"], button[data-action="new-decision"], button[data-action="new-open-question"], button[data-action="new-team"], button[data-action="create-release"], button[data-action="create-roadmap"]', icon: "add" },
     { selector: 'button[data-action="archive-item"], button[data-action="archive-release"]', icon: "archive" },
-    { selector: 'button[data-action^="restore-"]', icon: "restore" },
-    { selector: ".toast-undo-button", icon: "undo" }
+    { selector: 'button[data-action^="restore-"]', icon: "restore" }
   ] as const;
   leadingIcons.forEach((definition) => {
     const buttons = [...scope.querySelectorAll<HTMLButtonElement>(definition.selector)];
@@ -1202,12 +1201,21 @@ function toast(message: string): void {
   toastTimer = window.setTimeout(() => toastRoot.classList.remove("show"), 2500);
 }
 
+function toastUndoButton(action: "undo-backlog-change" | "undo-deletion"): HTMLButtonElement {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "toast-undo-button";
+  button.dataset.action = action;
+  button.setAttribute("aria-label", "Geri al");
+  button.dataset.tooltip = "Geri al";
+  button.innerHTML = icon("undo");
+  return button;
+}
+
 function toastUndo(message: string, before: WorkItem[]): void {
   lastUndoWorkItems = structuredClone(before);
   toastRoot.replaceChildren(document.createTextNode(message + " "));
-  const undo = document.createElement("button");
-  undo.type = "button"; undo.className = "toast-undo-button"; undo.dataset.action = "undo-backlog-change"; undo.textContent = "Geri al";
-  toastRoot.append(undo); toastRoot.classList.add("show");
+  toastRoot.append(toastUndoButton("undo-backlog-change")); toastRoot.classList.add("show");
   window.clearTimeout(toastTimer); window.clearTimeout(lastUndoTimer);
   toastTimer = window.setTimeout(() => toastRoot.classList.remove("show"), 6000);
   lastUndoTimer = window.setTimeout(() => { lastUndoWorkItems = null; }, 6000);
@@ -1218,8 +1226,7 @@ function toastUndoDeletion(message: string, snapshot: WorkspaceState, attachment
   window.clearTimeout(pendingDeletionTimer);
   pendingDeletionUndo = { snapshot, attachments };
   toastRoot.replaceChildren(document.createTextNode(message + " "));
-  const undo = document.createElement("button"); undo.type = "button"; undo.className = "toast-undo-button"; undo.dataset.action = "undo-deletion"; undo.textContent = "Geri al";
-  toastRoot.append(undo); toastRoot.classList.add("show"); window.clearTimeout(toastTimer);
+  toastRoot.append(toastUndoButton("undo-deletion")); toastRoot.classList.add("show"); window.clearTimeout(toastTimer);
   toastTimer = window.setTimeout(() => toastRoot.classList.remove("show"), 6000);
   pendingDeletionTimer = window.setTimeout(() => {
     const attachmentsToRemove = pendingDeletionUndo?.attachments || [];
