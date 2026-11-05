@@ -2105,7 +2105,7 @@ function applyDashboardLayout(): void {
     panel.style.setProperty("--panel-height", entry.height + "px");
     grid.append(panel);
     if (!panel.querySelector(".dashboard-panel-grip")) {
-      panel.querySelector(".personal-panel-heading")?.insertAdjacentHTML("afterbegin", '<button type="button" class="personal-icon dashboard-panel-grip" draggable="true" aria-label="Paneli taşı" title="Sürükleyerek taşı · Ok tuşlarıyla sırala"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01" stroke-width="4"/></svg></button>');
+      panel.querySelector(".personal-panel-heading")?.insertAdjacentHTML("afterbegin", '<button type="button" class="personal-icon dashboard-panel-grip" aria-label="Paneli taşı" title="Sürükleyerek taşı · Ok tuşlarıyla sırala"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01" stroke-width="4"/></svg></button>');
       panel.insertAdjacentHTML("beforeend", '<button type="button" class="dashboard-panel-resize" aria-label="Paneli boyutlandır" title="Sürükleyerek boyutlandır · Ok tuşlarıyla ayarla"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5 13 8-8m-3 8 3-3"/></svg></button>');
     }
   });
@@ -2117,31 +2117,50 @@ function moveDashboardPanel(from: DashboardPanelId, to: DashboardPanelId): void 
   const [entry] = layout.splice(source, 1); layout.splice(target, 0, entry);
   state.dashboardLayout = layout; save(); applyDashboardLayout();
 }
-let dashboardDraggedPanel: DashboardPanelId | null = null;
-document.addEventListener("dragstart", (event) => {
-  const grip = event.target instanceof Element ? event.target.closest(".dashboard-panel-grip") : null;
-  const panel = grip?.closest<HTMLElement>("[data-dashboard-panel]"); if (!panel || !event.dataTransfer) return;
-  dashboardDraggedPanel = panel.dataset.dashboardPanel as DashboardPanelId;
-  event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", dashboardDraggedPanel);
-  event.dataTransfer.setDragImage(panel, 30, 20); panel.classList.add("is-panel-dragging");
+// Use pointer capture so the native WebView2 file-drop target does not own panel moves.
+document.addEventListener("pointerdown", (event) => {
+  if (!event.isPrimary || event.button !== 0 || !(event.target instanceof Element)) return;
+  const grip = event.target.closest<HTMLButtonElement>(".dashboard-panel-grip");
+  const panel = grip?.closest<HTMLElement>("[data-dashboard-panel]");
+  const grid = panel?.parentElement;
+  if (!grip || !panel || !grid) return;
+
+  const { pointerId, clientX, clientY } = event;
+  let target: HTMLElement | null = null;
+  let moving = false;
+  grip.setPointerCapture(pointerId);
+
+  const move = (pointer: PointerEvent) => {
+    if (pointer.pointerId !== pointerId) return;
+    if (!moving && Math.hypot(pointer.clientX - clientX, pointer.clientY - clientY) < 6) return;
+    moving = true;
+    panel.classList.add("is-panel-dragging");
+    const hovered = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest<HTMLElement>("[data-dashboard-panel]");
+    const next = hovered && hovered !== panel && hovered.parentElement === grid ? hovered : null;
+    if (next === target) return;
+    target?.classList.remove("is-panel-drop-target");
+    target = next;
+    target?.classList.add("is-panel-drop-target");
+  };
+
+  const finish = (pointer: PointerEvent) => {
+    if (pointer.pointerId !== pointerId) return;
+    grip.removeEventListener("pointermove", move);
+    grip.removeEventListener("pointerup", finish);
+    grip.removeEventListener("pointercancel", finish);
+    grip.removeEventListener("lostpointercapture", finish);
+    panel.classList.remove("is-panel-dragging");
+    target?.classList.remove("is-panel-drop-target");
+    if (pointer.type !== "pointerup" || !target) return;
+    moveDashboardPanel(panel.dataset.dashboardPanel as DashboardPanelId, target.dataset.dashboardPanel as DashboardPanelId);
+    grip.focus({ preventScroll: true });
+  };
+
+  grip.addEventListener("pointermove", move);
+  grip.addEventListener("pointerup", finish);
+  grip.addEventListener("pointercancel", finish);
+  grip.addEventListener("lostpointercapture", finish);
 });
-document.addEventListener("dragover", (event) => {
-  if (!dashboardDraggedPanel) return;
-  const panel = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-dashboard-panel]") : null;
-  root.querySelectorAll(".is-panel-drop-target").forEach((entry) => entry.classList.remove("is-panel-drop-target"));
-  if (panel) { event.preventDefault(); if (event.dataTransfer) event.dataTransfer.dropEffect = "move"; panel.classList.add("is-panel-drop-target"); }
-});
-function finishDashboardDrag(): void {
-  dashboardDraggedPanel = null;
-  root.querySelectorAll(".is-panel-dragging, .is-panel-drop-target").forEach((entry) => entry.classList.remove("is-panel-dragging", "is-panel-drop-target"));
-}
-document.addEventListener("drop", (event) => {
-  if (!dashboardDraggedPanel) return;
-  const panel = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-dashboard-panel]") : null;
-  if (panel) { event.preventDefault(); moveDashboardPanel(dashboardDraggedPanel, panel.dataset.dashboardPanel as DashboardPanelId); }
-  finishDashboardDrag();
-});
-document.addEventListener("dragend", finishDashboardDrag);
 document.addEventListener("pointerdown", (event) => {
   const handle = event.target instanceof Element ? event.target.closest<HTMLButtonElement>(".dashboard-panel-resize") : null;
   const panel = handle?.closest<HTMLElement>("[data-dashboard-panel]"); const grid = panel?.parentElement;
@@ -2523,29 +2542,13 @@ function updateBacklogRows(): void {
     const columns = ["Yeni", "Analiz ediliyor", "Hazır", "Devam ediyor", "Bloke", "Tamamlandı"];
     board.innerHTML = columns.map((column) => {
       const cards = items.filter((item) => item.status === column);
-      return '<section class="board-column" data-board-status="' + esc(column) + '"><header><span><i class="board-status-dot ' + statusClass(column) + '"></i>' + esc(column) + '</span><b>' + cards.length + '</b></header><div class="board-cards">' + (cards.length ? cards.slice(0, boardDrawLimits[column] || 40).map((item) => '<button class="board-card" data-board-card="' + esc(item.id) + '" data-open-item="' + esc(item.id) + '" aria-label="' + esc(item.id + " · " + item.title + " · " + item.status + ". Durumu değiştirmek için başka bir sütuna sürükleyin.") + '"><span class="board-card-id"><span class="board-card-key">' + esc(item.id) + '</span><span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span></span><strong class="backlog-preview-trigger" data-preview-item="' + esc(item.id) + '" tabindex="0" aria-haspopup="dialog">' + esc(item.title) + '</strong><span class="board-card-footer"><span>' + esc(item.area) + '</span><span class="board-assignment" title="' + esc(assignmentSummary(item)) + '">' + (getWorkAssignments(item).length ? esc(assignmentSummary(item)) : "Atanmamış") + '</span><span class="table-type ' + (item.type === "Bug" ? "bug-type" : item.type === "Task" ? "task-type" : "story-type") + '">' + itemIcon(item.type) + '</span></span></button>').join("") : '<div class="board-empty">Henüz iş yok</div>') + '</div></section>';
+      return '<section class="board-column" data-board-status="' + esc(column) + '"><header><span><i class="board-status-dot ' + statusClass(column) + '"></i>' + esc(column) + '</span><b>' + cards.length + '</b></header><div class="board-cards">' + (cards.length ? cards.slice(0, boardDrawLimits[column] || 40).map((item) => '<button class="board-card" data-board-card="' + esc(item.id) + '" data-open-item="' + esc(item.id) + '" aria-label="' + esc(item.id + " · " + item.title + " · " + item.status + ". Durumu değiştirmek için başka bir sütuna sürükle veya Shift+Sol/Sağ kullan.") + '"><span class="board-card-id"><span class="board-card-key">' + esc(item.id) + '</span><span class="priority ' + priorityClass(item.priority) + '"><b>' + priorityMark(item.priority) + '</b>' + esc(item.priority) + '</span></span><strong class="backlog-preview-trigger" data-preview-item="' + esc(item.id) + '" tabindex="0" aria-haspopup="dialog">' + esc(item.title) + '</strong><span class="board-card-footer"><span>' + esc(item.area) + '</span><span class="board-assignment" title="' + esc(assignmentSummary(item)) + '">' + (getWorkAssignments(item).length ? esc(assignmentSummary(item)) : "Atanmamış") + '</span><span class="table-type ' + (item.type === "Bug" ? "bug-type" : item.type === "Task" ? "task-type" : "story-type") + '">' + itemIcon(item.type) + '</span></span></button>').join("") : '<div class="board-empty">Henüz iş yok</div>') + '</div></section>';
     }).join("");
     for (const [index, status] of columns.entries()) {
       const count = items.filter((item) => item.status === status).length;
       const limit = boardDrawLimits[status] || 40;
       if (count > limit) board.querySelectorAll<HTMLElement>(".board-column")[index]?.insertAdjacentHTML("beforeend", '<button class="button button-quiet button-small" data-action="board-load-more" data-status="' + esc(status) + '">' + Math.min(40, count - limit) + ' kart daha · ' + limit + ' / ' + count + '</button>');
     }
-    board.querySelectorAll<HTMLButtonElement>(".board-card[data-board-card]").forEach((card) => {
-      const item = itemById(card.dataset.boardCard || "");
-      if (!item) return;
-      const wrapper = document.createElement("div");
-      wrapper.className = "board-card-wrap";
-      card.replaceWith(wrapper);
-      wrapper.append(card);
-      const select = document.createElement("select");
-      select.className = "board-card-move";
-      select.dataset.boardMove = item.id;
-      select.setAttribute("aria-label", item.id + " işini başka duruma taşı");
-      select.title = "Durumu değiştir";
-      select.innerHTML = '<option value="">Duruma taşı…</option>' + columns.filter((status) => status !== item.status).map((status) => '<option value="' + esc(status) + '">' + esc(status) + '</option>').join("");
-      wrapper.append(select);
-      card.setAttribute("aria-label", item.id + " · " + item.title + ". Ayrıntıyı aç; Shift+Sol/Sağ ile durumu değiştir.");
-    });
     (document.getElementById("visible-count") as HTMLElement).textContent = String(items.length);
     (document.getElementById("total-count") as HTMLElement).textContent = String(state.items.filter((item) => !project || item.project === project.name).length);
     renderActiveBacklogFilterChips();
@@ -6021,6 +6024,40 @@ async function toggleAssetActive(id: string): Promise<void> {
   save(); render(); openAsset(id); toast(nextActive ? "Bileşen yeniden etkinleştirildi." : "Bileşen pasife alındı.");
 }
 
+function highlightBacklogMove(target: HTMLElement): void {
+  target.classList.add("backlog-move-highlight");
+  window.setTimeout(() => target.classList.remove("backlog-move-highlight"), 850);
+}
+
+function renderBoardMove(item: WorkItem): void {
+  const board = root.querySelector<HTMLElement>("#board-wrap");
+  const scrollLeft = board?.scrollLeft || 0;
+  const columnOffsets = new Map([...root.querySelectorAll<HTMLElement>("[data-board-status]")].map((column) =>
+    [column.dataset.boardStatus, column.querySelector(".board-cards")?.scrollTop || 0]
+  ));
+  render();
+  const nextBoard = root.querySelector<HTMLElement>("#board-wrap");
+  if (!nextBoard) return;
+  nextBoard.scrollLeft = scrollLeft;
+  nextBoard.querySelectorAll<HTMLElement>("[data-board-status]").forEach((column) => {
+    const cards = column.querySelector(".board-cards");
+    if (cards) cards.scrollTop = columnOffsets.get(column.dataset.boardStatus) || 0;
+  });
+  const card = nextBoard.querySelector<HTMLElement>('[data-board-card="' + CSS.escape(item.id) + '"]');
+  const cards = card?.closest(".board-cards");
+  if (!card || !cards) return;
+  const bounds = card.getBoundingClientRect();
+  const viewport = cards.getBoundingClientRect();
+  const boardBounds = nextBoard.getBoundingClientRect();
+  if (bounds.bottom <= viewport.top || bounds.top >= viewport.bottom ||
+      bounds.right <= boardBounds.left || bounds.left >= boardBounds.right) return;
+  card.focus({ preventScroll: true });
+  highlightBacklogMove(card);
+  if (!matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    card.animate([{ translate: "0 10px" }, { translate: "0 0" }], { duration: 180, easing: "ease-out" });
+  }
+}
+
 function moveBoardItem(itemId: string, nextStatus: WorkStatus): void {
   const item = itemById(itemId);
   if (!item || item.status === nextStatus) return;
@@ -6028,8 +6065,7 @@ function moveBoardItem(itemId: string, nextStatus: WorkStatus): void {
   if (!applyWorkStatus(item, nextStatus, item.blocker)) return;
   item.updated = "Az önce";
   if (!save()) return;
-  render();
-  root.querySelector<HTMLElement>('[data-board-card="' + CSS.escape(itemId) + '"]')?.focus();
+  renderBoardMove(item);
   toast("İş " + nextStatus + " durumuna taşındı.");
 }
 
@@ -6190,8 +6226,24 @@ function reorderBacklogRow(sourceId: string, target: HTMLElement, clientY: numbe
   let index = 0;
   state.items = state.items.map((item) => visible.has(item.id) ? itemsById.get(visibleIds[index++])! : item);
   if (!save()) return;
+  const selector = ".backlog-work-row[data-open-item]";
+  const reducedMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const previousTops = new Map<string | undefined, number>();
+  if (!reducedMotion) {
+    root.querySelectorAll<HTMLElement>(selector).forEach((row) => {
+      previousTops.set(row.dataset.openItem, row.getBoundingClientRect().top);
+    });
+  }
   backlogWindowSignature = visibleIds.join("|");
   updateBacklogRows();
+  root.querySelectorAll<HTMLElement>(selector).forEach((row) => {
+    if (row.dataset.openItem === sourceId) highlightBacklogMove(row);
+    const previousTop = previousTops.get(row.dataset.openItem);
+    if (previousTop === undefined) return;
+    const offset = (previousTop - row.getBoundingClientRect().top) / appZoom;
+    if (Math.abs(offset) < 1) return;
+    row.animate([{ translate: "0 " + offset + "px" }, { translate: "0 0" }], { duration: 180, easing: "ease-out" });
+  });
   toast("Backlog sırası güncellendi.");
 }
 
@@ -6524,8 +6576,15 @@ document.addEventListener("click", async (event) => {
     item.updated = "Az önce";
     const returnToBoard = statusUpdateReturnToBoard;
     statusUpdateReturnToBoard = false;
-    save(); render();
-    if (returnToBoard) closeModal(); else openItem(item.id);
+    if (!save()) return;
+    if (returnToBoard) {
+      closeModal();
+      if (backlogMode === "board") renderBoardMove(item);
+      else render();
+    } else {
+      render();
+      openItem(item.id);
+    }
     toast("İşin durumu güncellendi.");
     return;
   }
@@ -7245,7 +7304,6 @@ document.addEventListener("change", (event) => {
     backlogOverdueCondition = Boolean(root.querySelector<HTMLInputElement>("#advanced-overdue")?.checked);
     updateBacklogRows(); return;
   }
-  if (event.target instanceof HTMLSelectElement && event.target.dataset.boardMove && event.target.value) { moveBoardItem(event.target.dataset.boardMove, event.target.value as WorkStatus); return; }
   if (event.target instanceof HTMLInputElement && event.target.id === "backlog-status-age-min") { backlogStatusAgeMinDays = Math.min(3650, Math.max(0, Number(event.target.value) || 0)); updateBacklogRows(); return; }
   if (event.target instanceof HTMLInputElement && event.target.id === "risk-overdue-only") { openRiskCenter(event.target.checked); return; }
   if (event.target instanceof HTMLInputElement && event.target.id === "import-header") { importHasHeader = event.target.checked; renderExcelImport(); return; }

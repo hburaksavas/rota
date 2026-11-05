@@ -16,9 +16,11 @@
 
 - **Kişisel takipler.** Görev, soru ve notlardaki zil simgesiyle belirli bir tarih veya kayıt güncellemesi için takip başlatılabilir. Kayıtsız konular **Hızlı takip ekle** ile başlık ve tarih girilerek oluşturulabilir, sonradan bir işe bağlanabilir. Zamanı gelen takipler **Bana düşenler → Takipler** bölümünde görünme nedeni ve varsa bağlı işiyle listelenir. Kullanıcı kaydı açabilir, takibi erteleyebilir veya bitirebilir. Aynı kaydı birden fazla kişi kendi koşuluyla takip edebilir.
 
-- **Backlog’da işin konum değişimini göster.** Durum veya öncelik düzenlemesi sonucu ekranda yer değiştiren iş, Liste ya da Board görünümünde eski konumundan yenisine kısa bir animasyonla geçer. Hedef ekran dışındaysa kaydırma konumu korunur ve bildirimde **İşe git** eylemi sunulur. Azaltılmış hareket tercihinde hedef konum kısa süre vurgulanır. Kullanıcı, düzenlediği işin nereye taşındığını takip edebilir.
+- **Backlog’da düzenleme sonrası işin konumunu göster.** Liste’de durum veya öncelik düzenlemesi ve Board’da öncelik düzenlemesi işi görünür alanda taşıdığında hedef kısa süre vurgulanır. Hedef ekran dışındaysa bildirimde **İşe git** eylemi sunulur.
 
 ## Tamamlanan
+
+- **Backlog taşıma animasyonu** · 6 Kasım 2026. Liste sıralamasında yer değiştiren satırlar kayar ve taşınan satır vurgulanır. Board’da yeni sütunda görünen kart, sürükle-bırak veya klavyeyle durum değişikliği sonrasında kısa bir hareket ve vurgu alır. Azaltılmış hareket ayarında yalnızca vurgu gösterilir.
 
 - **Backlog ve dashboard arayüzü** · 6 Kasım 2026. Liste dar pencerelerde ikincil sütunları gizler. Filtreler, sonuç sayısı ve toplu işlemler listenin üstünde görünür. Satır içi kayıtta başarı veya hata hücrede gösterilir. İş önizlemesi ayrı bir eylemdir ve detay kapanınca odak listeye döner. Board’da hedef sütun vurgulanır. Dashboard’da bugünkü görevler ile bloke ve geciken işler öne çıkar.
 
