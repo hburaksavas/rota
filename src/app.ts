@@ -5851,10 +5851,10 @@ function openRecordEditor(kind: "item" | "task" | "note", id: string): void {
   }
 }
 
-async function deleteBacklogItems(ids: string[], confirmation: string): Promise<void> {
+async function deleteBacklogItems(ids: string[], confirmation?: string): Promise<void> {
   const idsToDelete = new Set(ids);
   const itemsToDelete = state.items.filter((item) => idsToDelete.has(item.id));
-  if (!itemsToDelete.length || !(await appConfirm(confirmation))) return;
+  if (!itemsToDelete.length || (confirmation && !(await appConfirm(confirmation)))) return;
   const undoSnapshot = structuredClone(state);
   const deletedAttachments = itemsToDelete.flatMap((item) => item.attachments || []);
   const removedIds = new Set(itemsToDelete.map((item) => item.id));
@@ -5868,9 +5868,13 @@ async function deleteBacklogItems(ids: string[], confirmation: string): Promise<
   });
   state.tasks.forEach((task) => { if (removedIds.has(task.linked)) task.linked = ""; });
   state.notes.forEach((note) => { if (removedIds.has(note.linked)) note.linked = ""; });
+  if (!save()) {
+    state = undoSnapshot;
+    return;
+  }
   removedIds.forEach((removedId) => selectedBacklogItemIds.delete(removedId));
   if (inlineBacklogEdit && removedIds.has(inlineBacklogEdit.itemId)) inlineBacklogEdit = null;
-  save(); closeModal(); render();
+  closeModal(); render();
   toastUndoDeletion(itemsToDelete.length === 1 ? "Backlog işi silindi." : itemsToDelete.length + " backlog işi silindi.", undoSnapshot, deletedAttachments);
 }
 
@@ -6203,6 +6207,7 @@ type BacklogPointerDrag = {
   board: boolean;
   started: boolean;
   target: HTMLElement | null;
+  trash: HTMLElement | null;
 };
 let backlogPointerDrag: BacklogPointerDrag | null = null;
 let suppressBacklogDragClick = false;
@@ -6211,12 +6216,12 @@ document.addEventListener("pointerdown", (event) => {
   suppressBacklogDragClick = false;
   if (!event.isPrimary || event.button !== 0 || !(event.target instanceof Element)) return;
   const boardCard = event.target.closest<HTMLElement>(".board-card[data-board-card]");
-  const source = boardCard || event.target.closest<HTMLElement>(".backlog-reorder-row[data-open-item]");
+  const source = boardCard || event.target.closest<HTMLElement>(".backlog-work-row[data-open-item]");
   if (!source || !root.contains(source)) return;
   if (!boardCard && (inlineBacklogEdit || inlineInsertAfterId !== null || event.target.closest("input, select, textarea, button:not(.backlog-title-open)"))) return;
   const itemId = source.dataset.openItem;
   if (!itemId) return;
-  backlogPointerDrag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, source, itemId, board: !!boardCard, started: false, target: null };
+  backlogPointerDrag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, source, itemId, board: !!boardCard, started: false, target: null, trash: null };
 });
 
 function backlogDropTarget(drag: BacklogPointerDrag, event: PointerEvent): HTMLElement | null {
@@ -6235,9 +6240,16 @@ document.addEventListener("pointermove", (event) => {
     closeBacklogPreview();
     drag.source.classList.add(drag.board ? "is-dragging" : "backlog-row-dragging");
     root.classList.add("backlog-pointer-dragging");
+    const trash = document.createElement("div");
+    trash.className = "backlog-drag-trash";
+    trash.innerHTML = icon("delete") + "<span>Silmek için bırak</span>";
+    drag.source.closest(".backlog-page")?.append(trash);
+    drag.trash = trash;
   }
   event.preventDefault();
-  const target = backlogDropTarget(drag, event);
+  const overTrash = drag.trash?.contains(document.elementFromPoint(event.clientX, event.clientY));
+  drag.trash?.classList.toggle("is-drop-target", !!overTrash);
+  const target = overTrash ? null : backlogDropTarget(drag, event);
   const highlight = drag.board ? "drop-target" : "backlog-row-drop-target";
   drag.target?.classList.remove(highlight, "backlog-row-drop-after");
   drag.target = target;
@@ -6257,7 +6269,13 @@ function finishBacklogPointerDrag(event: PointerEvent): void {
   root.classList.remove("backlog-pointer-dragging");
   drag.source.classList.remove("is-dragging", "backlog-row-dragging");
   drag.target?.classList.remove("drop-target", "backlog-row-drop-target", "backlog-row-drop-after");
+  const droppedInTrash = event.type === "pointerup" && drag.trash?.contains(document.elementFromPoint(event.clientX, event.clientY));
+  drag.trash?.remove();
   if (event.type !== "pointerup") return;
+  if (droppedInTrash) {
+    void deleteBacklogItems([drag.itemId]);
+    return;
+  }
   const target = backlogDropTarget(drag, event);
   if (!target) return;
   if (drag.board) {

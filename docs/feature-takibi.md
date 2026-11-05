@@ -20,6 +20,8 @@
 
 ## Tamamlanan
 
+- **Backlog’da sürükleyerek sil** · 6 Kasım 2026. Liste veya Board’da iş sürüklenirken Backlog’un sağ kenarında, dikey ortada çöp kutusu görünür. Kutunun üzerine bırakılan iş silinir ve altı saniye boyunca **Geri al** gösterilir.
+
 - **Toplantı sohbetinde gönderme animasyonu** · 6 Kasım 2026. Kaydedilen not, görev, açık soru ve karar görünür hedefe 180 ms’de kayar ve yeni satır vurgulanır. Azaltılmış hareket ayarında yalnızca vurgu gösterilir. Hedef ekran dışındaysa kaydırma konumu korunur ve kayıt bildirimi gösterilir.
 
 - **Bugünkü odağa ekleme animasyonu** · 6 Kasım 2026. İğnelenen kaydın küçük bir kopyası görünür hedefe 200 ms’de kayar. Azaltılmış hareket ayarında kayıt kısa süre vurgulanır. Hedef ekran dışındaysa kaydırma konumu korunur ve ekleme bildirimi gösterilir.

@@ -3527,3 +3527,49 @@ body.dark-theme :is(.asset-diagram-canvas, .work-diagram-canvas) .x6-edge-label 
   fill: var(--surface-2);
   stroke: var(--border-1);
 }
+
+.backlog-work-row .backlog-title-open { cursor: grab; user-select: none; touch-action: pan-y; }
+.backlog-page { position: relative; }
+.backlog-drag-trash {
+  position: absolute;
+  inset: 50% 12px auto auto;
+  translate: 0 -50%;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 13px 16px;
+  color: #a43e4d;
+  background: #fff3f4;
+  border: 1px dashed currentColor;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  font-size: var(--text-body);
+  font-weight: 650;
+}
+body.dark-theme .backlog-drag-trash { color: #f4b6bc; background: #402c33; }
+.backlog-drag-trash.is-drop-target { color: #fff; background: #a43e4d; border-style: solid; }
+body.dark-theme .backlog-drag-trash.is-drop-target { color: #fff; background: #9c4250; }
+.backlog-drag-trash .svg-icon { width: 21px; height: 21px; flex: 0 0 auto; }
+.toast-root:has(.toast-undo-button) {
+  color: var(--text-1);
+  background: var(--surface-1);
+  border: 1px solid var(--border-2);
+}
+.toast-undo-button {
+  margin-inline-start: 6px;
+  padding: 4px 8px;
+  color: var(--text-1);
+  background: var(--surface-2);
+  border: 1px solid var(--border-2);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+.toast-undo-button:is(:hover, :focus-visible) {
+  background: var(--hover);
+  border-color: var(--accent-strong);
+}
+.toast-root:not(.show) .toast-undo-button { visibility: hidden; }
+.toast-root.show .toast-undo-button { pointer-events: auto; }
