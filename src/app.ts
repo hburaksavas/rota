@@ -1117,6 +1117,7 @@ const icon = (name: string): string => {
     check: '<path d="m5 12 4 4L19 6"/>',
     help: '<circle cx="12" cy="12" r="9"/><path d="M9.8 9a2.4 2.4 0 1 1 3.4 2.2c-.8.4-1.2.9-1.2 1.8M12 17h.01"/>',
     more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+    eye: '<path d="M2 12s3.5-6 10-6 10 6 10 6-3.5 6-10 6S2 12 2 12Z"/><circle cx="12" cy="12" r="2.5"/>',
     search: '<circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/>',
     list: '<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
     board: '<rect x="3.5" y="4" width="17" height="16" rx="2.5"/><path d="M9.5 4v16M15 4v16"/>',
@@ -2713,7 +2714,7 @@ function renderBacklogTitleCell(item: WorkItem): string {
   const typeControl = editingType
     ? '<span class="inline-type-editor" data-inline-zone><select class="field-input" data-inline-type="' + esc(item.id) + '" aria-label="İş türü seç">' + (["Story", "Bug", "Task"] as WorkItem["type"][]).map((type) => '<option ' + (type === item.type ? "selected" : "") + '>' + type + '</option>').join("") + '</select><button type="button" class="inline-icon-action inline-icon-confirm" data-inline-action="save-type" data-item-id="' + esc(item.id) + '" aria-label="Türü kaydet" title="Kaydet">✓</button><button type="button" class="inline-icon-action inline-icon-dismiss" data-inline-action="cancel" aria-label="Tür düzenlemeyi iptal et" title="İptal">×</button></span>'
     : '<button type="button" class="backlog-type-edit" data-inline-action="edit-type" data-item-id="' + esc(item.id) + '" aria-label="İş türünü değiştir: ' + esc(item.type) + '" title="Türü değiştirmek için tıkla">' + itemTypeIcon(item.type) + '</button>';
-  return '<td><div class="table-title">' + typeControl + '<span class="backlog-title-cell"><button type="button" class="backlog-title-open" title="' + esc(item.title) + '" data-open-item="' + esc(item.id) + '" aria-label="' + esc("İşi aç: " + item.title) + '">' + highlightBacklogText(item.title) + '</button>' + (backlogPreviewEnabled ? '<button type="button" class="backlog-preview-button" data-action="open-backlog-preview" data-preview-item="' + esc(item.id) + '" aria-haspopup="dialog" aria-label="Önizle: ' + esc(item.title) + '" title="İşi önizle">' + icon("search") + '</button>' : '') + '<button type="button" class="inline-edit-button" data-inline-action="edit-title" data-item-id="' + esc(item.id) + '" aria-label="Başlığı düzenle" title="Başlığı düzenle">✎</button><small>' + (secondary ? esc(secondary) : "") + (item.attachments?.length ? ' <span class="attachment-indicator">▤ ' + item.attachments.length + '</span>' : "") + '</small>' + agingSummary + '</span></div></td>';
+  return '<td><div class="table-title">' + typeControl + '<span class="backlog-title-cell"><span class="backlog-title-main"><button type="button" class="backlog-title-open" title="' + esc(item.title) + '" data-open-item="' + esc(item.id) + '" aria-label="' + esc("İşi aç: " + item.title) + '">' + highlightBacklogText(item.title) + '</button>' + '<button type="button" class="inline-edit-button" data-inline-action="edit-title" data-item-id="' + esc(item.id) + '" aria-label="Başlığı düzenle" title="Başlığı düzenle">✎</button><button type="button" class="backlog-preview-button" data-open-item="' + esc(item.id) + '"' + (backlogPreviewEnabled ? ' data-preview-item="' + esc(item.id) + '"' : '') + ' aria-haspopup="dialog" aria-label="' + esc((backlogPreviewEnabled ? "Önizle veya işi aç: " : "İşi aç: ") + item.title) + '">' + icon("eye") + '</button></span><small>' + (secondary ? esc(secondary) : "") + (item.attachments?.length ? ' <span class="attachment-indicator">▤ ' + item.attachments.length + '</span>' : "") + '</small>' + agingSummary + '</span></div></td>';
 }
 
 function renderBacklogSelectionCell(item: WorkItem): string {
@@ -3156,7 +3157,7 @@ function positionBacklogPreview(anchor: HTMLElement, card: HTMLElement): void {
 
 function openBacklogPreview(itemId: string, anchor: HTMLElement): void {
   const item = itemById(itemId);
-  if (!item || !backlogPreviewEnabled) return;
+  if (!item || !backlogPreviewEnabled || !anchor.isConnected || modalRoot.querySelector('[role="dialog"]')) return;
   window.clearTimeout(backlogPreviewTimer);
   if (backlogPreviewItemId === itemId && document.querySelector("[data-preview-card]")) return;
   closeBacklogPreview();
@@ -4973,9 +4974,10 @@ function closeModal(preserveDraftAttachments = false): void {
   }
   backlogDetailScroll = null;
   if (modalReturnFocus?.isConnected) modalReturnFocus.focus({ preventScroll: true });
-  else if (modalReturnFocus?.matches(".backlog-title-open, .board-card")) {
+  else if (modalReturnFocus?.matches(".backlog-title-open, .backlog-preview-button, .board-card")) {
     const id = CSS.escape(modalReturnFocus.dataset.openItem || "");
-    const origin = root.querySelector<HTMLElement>('.backlog-title-open[data-open-item="' + id + '"], .board-card[data-open-item="' + id + '"]');
+    const eye = modalReturnFocus.matches(".backlog-preview-button") && root.querySelector<HTMLElement>('.backlog-preview-button[data-open-item="' + id + '"]');
+    const origin = eye || root.querySelector<HTMLElement>('.backlog-title-open[data-open-item="' + id + '"], .board-card[data-open-item="' + id + '"]');
     (origin || root.querySelector<HTMLElement>(".view-tab.selected"))?.focus({ preventScroll: true });
   }
   modalReturnFocus = null;
@@ -6936,10 +6938,6 @@ document.addEventListener("click", async (event) => {
       renderBacklog();
       root.querySelector<HTMLButtonElement>('[data-action="manual-backlog-order"]')?.focus();
     }
-    else if (action.dataset.action === "open-backlog-preview") {
-      openBacklogPreview(action.dataset.previewItem || "", action);
-      root.querySelector<HTMLButtonElement>("[data-close-backlog-preview]")?.focus({ preventScroll: true });
-    }
     else if (action.dataset.action === "clear-backlog-selection") {
       selectedBacklogItemIds.clear();
       updateBacklogRows();
@@ -7044,10 +7042,7 @@ document.addEventListener("click", async (event) => {
         toggle.setAttribute("aria-pressed", String(backlogPreviewEnabled));
         toggle.textContent = backlogPreviewEnabled ? "◉ Önizleme açık" : "○ Önizleme kapalı";
       }
-      if (backlogPreviewEnabled) {
-        const trigger = root.querySelector<HTMLElement>("[data-preview-item]:hover") || (document.activeElement instanceof HTMLElement && document.activeElement.matches("[data-preview-item]") ? document.activeElement : null);
-        if (trigger && !trigger.matches(".backlog-preview-button")) openBacklogPreview(trigger.dataset.previewItem || "", trigger);
-      } else closeBacklogPreview();
+      updateBacklogRows();
     }
     else if (action.dataset.action === "diagram-add-node" && activeWorkDiagramId) { const diagram = state.diagrams.find((entry) => entry.id === activeWorkDiagramId); if (diagram) addDiagramNode(diagram); }
     else if (action.dataset.action === "diagram-delete" && activeWorkDiagramId) deleteWorkDiagram(activeWorkDiagramId);
@@ -7203,7 +7198,8 @@ document.addEventListener("click", async (event) => {
   if (open?.dataset.openItem && !open.classList.contains("detail-modal")) {
     const backlogRow = target.closest<HTMLTableRowElement>("tr[data-open-item]");
     if (backlogRow && open === backlogRow && !target.closest(".backlog-title-open")) return;
-    if (open.matches(".backlog-title-open, .board-card") && !modalRoot.querySelector(".detail-modal")) {
+    closeBacklogPreview();
+    if (open.matches(".backlog-title-open, .backlog-preview-button, .board-card") && !modalRoot.querySelector(".detail-modal")) {
       modalReturnFocus = open;
       backlogDetailScroll = open.closest(".backlog-table-wrap")?.scrollTop ?? null;
     }
@@ -7264,7 +7260,7 @@ document.addEventListener("click", async (event) => {
 document.addEventListener("pointerover", (event) => {
   const target = event.target instanceof Element ? event.target : null;
   const trigger = target?.closest<HTMLElement>("[data-preview-item]");
-  if (trigger && !trigger.matches(".backlog-preview-button")) {
+  if (trigger) {
     window.clearTimeout(backlogPreviewTimer);
     if (backlogPreviewItemId === trigger.dataset.previewItem) return;
     backlogPreviewTimer = window.setTimeout(() => openBacklogPreview(trigger.dataset.previewItem || "", trigger), 260);
@@ -7286,7 +7282,7 @@ document.addEventListener("pointerout", (event) => {
 document.addEventListener("focusin", (event) => {
   const target = event.target instanceof HTMLElement ? event.target : null;
   const trigger = target?.closest<HTMLElement>("[data-preview-item]");
-  if (trigger) openBacklogPreview(trigger.dataset.previewItem || "", trigger);
+  if (trigger && !trigger.matches(".backlog-preview-button")) openBacklogPreview(trigger.dataset.previewItem || "", trigger);
   if (target?.closest("[data-preview-card]")) window.clearTimeout(backlogPreviewTimer);
 });
 

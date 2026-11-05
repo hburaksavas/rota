@@ -16,6 +16,8 @@
 - Backlog Liste görünümünde sütun hizaları, seçim kutuları ve satır eylemleri dikkatle hizalanmalıdır. Board ve Liste davranışlarını ayrı ele al.
 - Başlık, durum, tür ve atama satır içi düzenlemeleri dışarı tıklanınca otomatik kaydedilir. Açık `×` iptal simgesi düzenlemeyi iptal eder; eksik/geçersiz atama sessizce kaybolmamalıdır.
 - Backlog başlığına tıklamak iş detayını açar; tür simgesi başlığın solunda yer alır. Tür seçicinin onay/iptal ikonları aynı satırda görünür olmalıdır.
+- Backlog Liste’de başlık alanına gelince kalem ve göz ikonları başlık metninin hemen yanında belirir. Başlık ve göz tıklanınca iş detayı açılır. Önizleme açıksa gözün üzerine gelmek önizlemeyi açar. Başlığın üzerine gelmek önizleme açmaz. Önizleme kapalıyken göz ikonu detay kısayolu olarak kalır.
+- Koyu temada Backlog Liste başlıkları ana metin rengini kullanır ve fareyle üzerine gelindiğinde ya da klavye odağında kontrastını korur. Arama eşleşmesi koyu zeminde okunur kalır. Ekler boş durumu ve dosya kartları, not ve görev detayları dahil, aktif temanın yüzey renklerini kullanır.
 - Bir işe birden fazla takım üyesi atanabilir. Üye seçimi takım bilgisini arka planda belirler. Takımlar ve üyeler çalışma alanı ayarlarından yönetilir; ayrı Takım Paneli yoktur.
 - PO devir paketi kaldırıldı. Jira paneli mevcut uygulamada yer alır; canlı Jira sunucusu testleri ayrıca ele alınmalıdır.
 
