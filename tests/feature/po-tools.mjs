@@ -59,6 +59,97 @@ try {
   await page.reload(); await page.locator('[data-po="meetings"]').click();
   assert.equal((await stored()).meetings[0].id, meetingId);
   assert.equal(await page.locator('.po-record-created').count(), 3);
+  await page.locator('[data-view="backlog"]').click();
+  const stageStart = page.locator('[data-action="start-meeting-stage"]');
+  assert.equal(await stageStart.isVisible(), false);
+  const stageChoices = page.locator('[data-select-backlog-item]');
+  await stageChoices.nth(0).check();
+  await stageChoices.nth(1).check();
+  await stageStart.click();
+  const agenda = page.locator('.meeting-stage-agenda button');
+  assert.equal(await agenda.count(), 2);
+  const firstTopic = await agenda.nth(0).getAttribute('data-id');
+  const secondTopic = await agenda.nth(1).getAttribute('data-id');
+  const closingButton = page.getByRole('button', { name: 'Kapanış kartı', exact: true });
+  const copySummary = page.getByRole('button', { name: 'Özeti kopyala', exact: true });
+  const closingTopics = page.locator('.meeting-closing-topic');
+  await closingButton.click();
+  assert.equal(await copySummary.isDisabled(), true);
+  await page.getByRole('button', { name: 'Gündeme dön' }).click();
+  assert.equal(await page.locator('.meeting-stage-agenda [aria-current="step"]').getAttribute('data-id'), firstTopic);
+  await page.keyboard.press('ArrowRight');
+  assert.equal(await page.locator('.meeting-stage-agenda [aria-current="step"]').getAttribute('data-id'), secondTopic);
+  const previous = page.getByRole('button', { name: 'Önceki iş', exact: true });
+  const next = page.getByRole('button', { name: 'Sonraki iş', exact: true });
+  assert.equal(await next.innerText(), '');
+  assert.equal(await next.isDisabled(), true);
+  assert.equal(await page.locator('.meeting-stage-nav span').innerText(), secondTopic);
+  await previous.click();
+  assert.equal(await previous.isDisabled(), true);
+  assert.equal(await page.getByRole('button', { name: 'Karar kaydet', exact: true }).count(), 0);
+  assert.equal(await page.getByRole('button', { name: 'Soru aç', exact: true }).count(), 0);
+  const composer = page.locator('#meeting-stage-record-form');
+  const message = composer.locator('[name="text"]');
+  const send = composer.getByRole('button', { name: 'Gönder' });
+  assert.equal(await send.innerText(), '');
+  assert.equal(await send.isDisabled(), true);
+  await message.fill('İlk işin kaydedilmemiş notu');
+  await message.press('ArrowRight');
+  assert.equal(await composer.getAttribute('data-item-id'), firstTopic);
+  await agenda.nth(1).click();
+  assert.equal(await message.inputValue(), '');
+  for (const [kind, collection, content, link] of [
+    ['decision', 'decisions', 'rationale', 'workItemIds'],
+    ['question', 'openQuestions', 'text', 'linkedItemId'],
+    ['task', 'tasks', 'description', 'linked'],
+    ['note', 'notes', 'body', 'linked']
+  ]) {
+    const text = 'Hızlı toplantı kaydı ' + kind;
+    await composer.locator('input[name="kind"][value="' + kind + '"]').check();
+    await message.fill(text);
+    if (kind === 'note') await send.click(); else await message.press('Enter');
+    const record = (await stored())[collection][0];
+    assert.equal(record[content], text);
+    assert.equal(kind === 'decision' ? record[link][0] : record[link], secondTopic);
+    if (kind === 'decision') assert.equal(record.status, 'Taslak');
+    assert.equal(await message.inputValue(), '');
+    assert.equal(await message.evaluate(input => input === document.activeElement), true);
+    assert.match(await page.locator('.meeting-stage-records').innerText(), new RegExp(text));
+  }
+  await agenda.nth(0).click();
+  assert.equal(await message.inputValue(), 'İlk işin kaydedilmemiş notu');
+  await capture('meeting-stage');
+  await composer.locator('input[name="kind"][value="task"]').check();
+  await message.fill('İlk gündem maddesinin görevi\nİkinci satır');
+  await message.press('Enter');
+  await message.fill('Panoya girmemesi gereken taslak');
+  await closingButton.click();
+  assert.equal(await closingTopics.count(), 2);
+  assert.ok((await closingTopics.nth(0).locator('h2').innerText()).startsWith(firstTopic + ' · '));
+  assert.ok((await closingTopics.nth(1).locator('h2').innerText()).startsWith(secondTopic + ' · '));
+  assert.deepEqual(await closingTopics.nth(1).locator('h3').allTextContents(), ['Kararlar', 'Açık sorular', 'Görevler']);
+  await page.evaluate(() => {
+    Object.defineProperty(navigator.clipboard, 'writeText', { value: async text => { window.meetingSummary = text; } });
+  });
+  await copySummary.click();
+  const summary = await page.evaluate(() => window.meetingSummary);
+  assert.ok(summary.indexOf(firstTopic + ' · ') < summary.indexOf(secondTopic + ' · '));
+  assert.match(summary, /Görevler\n• İlk gündem maddesinin görevi\n  İkinci satır/);
+  assert.match(summary, /Kararlar\n• Hızlı toplantı kaydı decision/);
+  assert.match(summary, /Açık sorular\n• Hızlı toplantı kaydı question/);
+  assert.doesNotMatch(summary, /kaydı note|İstisnai müşteri limiti|panoya girmemesi/i);
+  await capture('meeting-closing');
+  await page.getByRole('button', { name: 'Gündeme dön' }).click();
+  assert.equal(await message.inputValue(), 'Panoya girmemesi gereken taslak');
+  await closingButton.click();
+  await page.locator('[data-action="end-meeting-stage"]').click();
+  assert.equal(await page.locator('[data-select-backlog-item]:checked').count(), 2);
+  await stageStart.click();
+  await closingButton.click();
+  assert.equal(await copySummary.isDisabled(), true);
+  await page.locator('[data-action="end-meeting-stage"]').click();
+  await page.locator('[data-po="meetings"]').click();
+  assert.equal(await page.locator('.po-record-created').count(), 3);
   await openItem(); await conversation();
   assert.match(await page.locator('.po-thread-list').innerText(), /İstisnai müşteri limiti/);
   assert.match(await page.locator('.po-thread-list').innerText(), /İlk sürüm yalnızca/);
@@ -152,6 +243,75 @@ try {
   await page.locator('[data-po="distribute"]').click();
   assert.equal((await stored()).tasks.length, taskCount);
   assert.match(await page.locator('#toast-root').innerText(), /Boş satırları/);
+
+  const week = await page.evaluate(key => {
+    const workspace = JSON.parse(localStorage.getItem(key));
+    const date = new Date();
+    date.setDate(8);
+    const monday = new Date(date);
+    monday.setDate(date.getDate() - (date.getDay() + 6) % 7);
+    const local = date => [date.getFullYear(), String(date.getMonth() + 1).padStart(2, '0'), String(date.getDate()).padStart(2, '0')].join('-');
+    const item = workspace.items.find(item => item.id === 'PAY-241');
+    delete item.roadmapNodeId;
+    item.startDate = item.targetDate = local(date);
+    item.attachments = [
+      { name: 'ileti.eml', storedName: 'mail.eml', size: 12 },
+      { name: 'ileti-eki.pdf', storedName: 'child.pdf', size: 5, addedAt: '2026-02-01T12:00:00Z' },
+      { name: 'bağımsız.pdf', storedName: 'standalone.pdf', size: 6, addedAt: '2026-03-01T12:00:00Z' },
+      { name: 'eski-ileti.eml', storedName: 'legacy.eml', size: 12 },
+      { name: 'eski-ek.pdf', storedName: 'legacy-child.pdf', size: 7 }
+    ];
+    item.sourceEmail = { name: 'ileti.eml', from: 'Analiz', date: '2026-02-01T12:00:00Z', fingerprint: 'fixture', originalStoredName: 'mail.eml', attachmentStoredNames: ['child.pdf'] };
+    item.sourceEmails = [{ name: 'eski-ileti.eml', from: 'Analiz', date: '2026-01-01T12:00:00Z', fingerprint: 'legacy' }];
+    item.activity.unshift({ id: 'ACT-STACK', kind: 'comment', message: 'E-posta: Eski ileti', actor: 'Analiz', occurredAt: '2026-01-02T12:00:00Z', attachments: item.attachments.slice(-2) });
+    workspace.notes.unshift({ id: 'N-STACK', title: 'Yığın notu', body: 'Bağlı not içeriği', linked: item.id, updated: 'Az önce', createdAt: '2026-04-01T12:00:00Z' });
+    localStorage.setItem(key, JSON.stringify(workspace));
+    return local(monday);
+  }, key);
+  await page.reload();
+  await page.locator('[data-view="roadmap"]').click();
+  const weekButton = page.locator('[data-roadmap-week="' + week + '"]');
+  const roadmapCard = page.locator('.roadmap-work-item[data-open-item="PAY-241"]');
+  const weekResults = page.locator('.roadmap-week-results');
+  await weekButton.hover();
+  assert.match(await roadmapCard.getAttribute('class'), /roadmap-week-match/);
+  assert.equal(await weekResults.isVisible(), false);
+  await weekButton.click();
+  await page.locator('.roadmap-weeks > .roadmap-week-strip > strong').hover();
+  assert.match(await roadmapCard.getAttribute('class'), /roadmap-week-match/);
+  assert.match(await weekResults.locator('[data-open-item="PAY-241"]').innerText(), /Başlangıç ve hedef/);
+  await capture('roadmap-week');
+  await weekResults.locator('[data-open-item="PAY-241"]').click();
+  const detail = page.locator('.detail-modal');
+  await detail.locator('[data-detail-tab="attachments"]').click();
+  const stack = detail.locator('.record-stack');
+  await stack.locator('summary').click();
+  const stackRows = stack.locator('.record-stack-list > li').filter({ hasText: /Yığın notu|bağımsız\.pdf|ileti\.eml/ });
+  assert.match(await stackRows.nth(0).innerText(), /Yığın notu/);
+  assert.match(await stackRows.nth(1).innerText(), /bağımsız.pdf/);
+  assert.deepEqual(await stack.locator('.record-stack-children strong').allTextContents(), ['ileti-eki.pdf', 'eski-ek.pdf']);
+  assert.match(await stackRows.nth(2).innerText(), /01\.02\.2026/);
+  await detail.getByRole('button', { name: 'Masanın kenarına iğnele' }).click();
+  await detail.locator('.modal-close').click();
+  await weekButton.click();
+  assert.equal(await weekResults.isVisible(), false);
+  await page.locator('[data-view="backlog"]').click();
+  const other = page.locator('.backlog-work-row:not([data-open-item="PAY-241"]) .backlog-title-open').first();
+  await other.click();
+  const otherId = await detail.getAttribute('data-open-item');
+  await detail.locator('[data-detail-tab="activity"]').click();
+  await detail.getByRole('button', { name: 'Masanın kenarına iğnele' }).click();
+  await detail.locator('[data-desk-open="PAY-241"]').click();
+  assert.equal(await detail.locator('[data-detail-tab].selected').getAttribute('data-detail-tab'), 'attachments');
+  assert.equal(await stack.getAttribute('open'), '');
+  await stack.locator('[data-open-note="N-STACK"]').click();
+  await page.locator('.note-modal .modal-close').click();
+  await page.locator('#desk-edge [data-desk-open="' + otherId + '"]').click();
+  assert.equal(await detail.locator('[data-detail-tab].selected').getAttribute('data-detail-tab'), 'activity');
+  await detail.getByRole('button', { name: 'İğneyi kaldır' }).click();
+  await detail.locator('.modal-close').click();
+  assert.equal(await page.locator('#desk-edge button').count(), 1);
+  await capture('desk-edge');
   assert.deepEqual(errors, []);
   console.log('PASS: toplantı kayıt dağıtımı/tekrarsızlık/kalıcılık, dört PO beklentisi/yanıt, kronolojik konuşmalar, aynı iş detayında not ve ürün kuralı düzenleme, sol alanı düzenleme, arama, tema ve 990/1100/1440 px. Görseller: '+output);
 } finally { await context.close(); await browser.close(); }

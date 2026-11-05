@@ -84,7 +84,7 @@ const saveAttachment = async (name, bytes) => {
   if (bytes.byteLength > 25 * 1024 * 1024) throw new Error("Dosya 25 MB sınırını aşıyor.");
   const storedName = `${randomUUID()}.${ext}`;
   await writeFile(checkedStoredPath(storedName), bytes, { flag: "wx" });
-  return { storedName, name: clean, size: bytes.byteLength };
+  return { storedName, name: clean, size: bytes.byteLength, addedAt: new Date().toISOString() };
 };
 const importPaths = async (paths) => {
   const result = [];

@@ -50,6 +50,46 @@ export function createPoTools(api: PoToolsApi) {
     const content = meeting ? '<div class="po-meeting-meta"><label>Oturum adı<input data-po-meeting-title maxlength="140" aria-label="Toplantı adı" value="' + e(meeting.title) + '"></label><label>Ürün / proje<select data-po-meeting-project ' + (meeting.entries.length ? 'disabled' : '') + '><option value="">Tüm projeler</option>' + projects().map(project => '<option value="' + e(project.id) + '" ' + (project.id === meeting.projectId ? 'selected' : '') + '>' + e(project.name) + '</option>').join('') + '</select></label></div><div class="po-meeting-lines">' + (meeting.entries.map(entry => '<article class="po-meeting-line" data-po-entry="' + e(entry.id) + '"><select data-po-entry-kind aria-label="Kayıt türü" ' + (entry.recordId ? 'disabled' : '') + '>' + Object.entries(meetingLabels).map(([key, label]) => '<option value="' + key + '" ' + (entry.kind === key ? 'selected' : '') + '>' + label + '</option>').join('') + '</select><textarea data-po-entry-text rows="2" maxlength="12000" aria-label="Toplantı satırı" ' + (entry.recordId ? 'readonly' : '') + '>' + e(entry.text) + '</textarea><select data-po-entry-link aria-label="İlişkili iş" ' + (entry.recordId ? 'disabled' : '') + '>' + itemOptions(entry.linkedItemId, meeting.projectId) + '</select>' + (entry.recordId ? '<span class="po-record-created">' + icon('check') + 'Oluşturuldu</span>' : tool('delete-entry', 'Satırı kaldır', 'delete', 'data-id="' + e(entry.id) + '"')) + '</article>').join('') || empty('Görüşme sırasında görev, soru ve kararları aşağıya yaz.')) + '</div><form data-po-form="meeting-entry" class="po-meeting-composer"><div><select name="kind" aria-label="Yeni kayıt türü">' + Object.entries(meetingLabels).map(([key, label]) => '<option value="' + key + '">' + label + '</option>').join('') + '</select><select name="linkedItemId" aria-label="Yeni satırın ilişkili işi">' + itemOptions('', meeting.projectId) + '</select></div><div class="po-message-box"><textarea name="text" rows="2" maxlength="12000" aria-label="Toplantıya satır ekle" placeholder="Görüşmede konuşulanı yaz…">' + e(drafts.get('meeting:' + meeting.id) || '') + '</textarea><button type="submit" aria-label="Satır ekle" title="Satır ekle">' + icon('arrowUp') + '</button></div></form><footer class="po-meeting-footer"><span>' + meeting.entries.filter(entry => entry.recordId).length + ' kayıt oluşturuldu · ' + meeting.entries.filter(entry => !entry.recordId).length + ' bekliyor</span><button type="button" class="button button-primary button-small" data-po="distribute" ' + (!meeting.entries.some(entry => !entry.recordId) ? 'disabled' : '') + '>Kayıtları oluştur</button></footer>' : '<div class="po-meeting-welcome">' + icon('note') + '<h2>Toplantıyı kayda dönüştür</h2><p>Satırları görev, soru veya karar olarak yakala; hazır olduğunda ilgili işlere bağla.</p><button type="button" class="button button-secondary" data-po="new-meeting">Toplantı başlat</button></div>';
     root.innerHTML = '<div class="page-content po-page" data-scroll-layout="ready">' + heading('Toplantı modu', 'Görüşmeden aksiyona, bağlamı kaybetmeden', 'note', tool('new-meeting', 'Yeni toplantı', 'add')) + '<div class="po-meeting-layout"><aside class="po-meeting-list">' + (meetings.map(entry => '<button type="button" data-po="select-meeting" data-id="' + e(entry.id) + '" aria-pressed="' + (meetingId === entry.id) + '"><strong>' + e(entry.title || 'Adsız toplantı') + '</strong><small>' + e(dateLabel(entry.createdAt)) + ' · ' + entry.entries.length + ' satır</small></button>').join('') || empty('Kayıtlı toplantı yok.')) + '</aside><section class="po-meeting-editor">' + content + '</section></div></div>';
   }
+  function createMeetingRecord(kind: PoMeetingKind | "note", text: string, meetingTitle: string, at: string, item?: WorkItem, projectId?: string): string {
+    const workspace = state();
+    const title = text.split('\n')[0];
+    if (kind === 'task') {
+      const id = api.id('TASK');
+      workspace.tasks.unshift({ id, title: title.slice(0, 120), description: text, due: '', done: false, linked: item?.id || '' });
+      return id;
+    }
+    if (kind === 'question') {
+      const id = api.id('Q');
+      (workspace.openQuestions ||= []).unshift({ id, text, owner: '', expectedAt: '', linkedItemId: item?.id, status: 'Açık', createdAt: at });
+      return id;
+    }
+    if (kind === 'note') {
+      const id = api.id('N');
+      workspace.notes.unshift({ id, title: title.slice(0, 120), body: text, linked: item?.id || '', updated: 'Az önce', createdAt: at });
+      return id;
+    }
+    const id = api.id('DEC');
+    (workspace.decisions ||= []).unshift({
+      id, title: title.slice(0, 140), context: 'Toplantı: ' + meetingTitle, rationale: text, options: [],
+      owner: workspace.profile.userName || 'PO', decidedAt: at.slice(0, 10), status: 'Taslak',
+      workItemIds: item ? [item.id] : [],
+      projectIds: item ? workspace.projects.filter(project => project.name === item.project).map(project => project.id) : projectId ? [projectId] : [],
+      assetIds: [], releaseIds: [], history: [], updatedAt: at
+    });
+    return id;
+  }
+
+  function saveStageRecord(kind: PoMeetingKind | "note", text: string, item: WorkItem): string | undefined {
+    const workspace = state();
+    const snapshot = {
+      tasks: [...workspace.tasks], notes: [...workspace.notes],
+      openQuestions: workspace.openQuestions?.slice(), decisions: workspace.decisions?.slice()
+    };
+    const id = createMeetingRecord(kind, text, 'Toplantı sahnesi', now(), item);
+    if (persist()) return id;
+    Object.assign(workspace, snapshot);
+  }
+
   function distributeMeeting() {
     const meeting = currentMeeting(); if (!meeting) return;
     const pending = meeting.entries.filter(entry => !entry.recordId);
@@ -59,14 +99,8 @@ export function createPoTools(api: PoToolsApi) {
     const snapshot = structuredClone({ tasks: state().tasks, openQuestions: state().openQuestions, decisions: state().decisions, meetings: state().meetings });
     const at = now();
     pending.forEach(entry => {
-      const text = entry.text.trim(); const item = state().items.find(item => item.id === entry.linkedItemId);
-      if (entry.kind === 'task') {
-        const id = api.id('TASK'); state().tasks.unshift({ id, title: text.split('\n')[0].slice(0, 120), description: text, due: '', done: false, linked: item?.id || '' }); entry.recordId = id;
-      } else if (entry.kind === 'question') {
-        const id = api.id('Q'); state().openQuestions ||= []; state().openQuestions!.unshift({ id, text, owner: '', expectedAt: '', linkedItemId: item?.id, status: 'Açık', createdAt: at }); entry.recordId = id;
-      } else {
-        const id = api.id('DEC'); state().decisions ||= []; state().decisions!.unshift({ id, title: text.split('\n')[0].slice(0, 140), context: 'Toplantı: ' + meeting.title, rationale: text, options: [], owner: state().profile.userName || 'PO', decidedAt: at.slice(0, 10), status: 'Taslak', workItemIds: item ? [item.id] : [], projectIds: item ? state().projects.filter(project => project.name === item.project).map(project => project.id) : meeting.projectId ? [meeting.projectId] : [], assetIds: [], releaseIds: [], history: [], updatedAt: at }); entry.recordId = id;
-      }
+      const item = state().items.find(item => item.id === entry.linkedItemId);
+      entry.recordId = createMeetingRecord(entry.kind, entry.text.trim(), meeting.title, at, item, meeting.projectId);
     });
     meeting.updatedAt = at;
     if (!persist()) { Object.assign(state(), snapshot); return; }
@@ -250,5 +284,5 @@ export function createPoTools(api: PoToolsApi) {
     event.preventDefault(); event.target.closest('form')?.requestSubmit();
   });
   syncBadge();
-  return { renderMeetings, renderMine, enhanceDetail, syncBadge };
+  return { renderMeetings, renderMine, enhanceDetail, syncBadge, saveStageRecord };
 }

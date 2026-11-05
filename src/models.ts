@@ -8,6 +8,7 @@ interface AttachmentInfo {
   size: number;
   storedName?: string;
   demoOnly?: boolean;
+  addedAt?: string;
 }
 
 interface EmailSourceInfo {
@@ -15,6 +16,8 @@ interface EmailSourceInfo {
   from: string;
   date: string;
   fingerprint: string;
+  originalStoredName?: string;
+  attachmentStoredNames?: string[];
 }
 
 interface WorkItem {
