@@ -1432,6 +1432,8 @@ function submitMeetingStageRecord(form: HTMLFormElement): void {
   const draft = meetingStageDraft(form);
   const text = draft?.text.trim();
   if (!item || item.archived || !draft || !text) return;
+  const origin = form.querySelector("textarea")!.getBoundingClientRect();
+  const bodyScroll = root.querySelector(".meeting-stage-body")?.scrollTop || 0;
   const id = poTools.saveStageRecord(draft.kind, text, item);
   if (!id) return;
   if (draft.kind !== "note") {
@@ -1443,8 +1445,20 @@ function submitMeetingStageRecord(form: HTMLFormElement): void {
   }
   meetingStage.drafts.set(item.id, { kind: draft.kind, text: "" });
   render();
-  root.querySelector('[data-stage-record="' + esc(id) + '"]')?.scrollIntoView({ block: "nearest" });
+  const body = root.querySelector<HTMLElement>(".meeting-stage-body");
+  if (body) body.scrollTop = bodyScroll;
   root.querySelector<HTMLTextAreaElement>("#meeting-stage-record-form textarea")?.focus({ preventScroll: true });
+  const entry = body?.querySelector<HTMLElement>('[data-stage-record="' + CSS.escape(id) + '"]');
+  if (body && entry) {
+    const target = entry.getBoundingClientRect();
+    const viewport = body.getBoundingClientRect();
+    const x = target.left + target.width / 2;
+    const y = target.top + Math.min(target.height / 2, 20);
+    if (target.width && target.height && x >= viewport.left && x <= viewport.right &&
+        y >= Math.max(0, viewport.top) && y <= Math.min(window.innerHeight, viewport.bottom)) {
+      animateRecordArrival(origin, x, y, text, entry, 180);
+    }
+  }
   toast(meetingStageRecordLabels[draft.kind] + " kaydedildi.");
 }
 
@@ -2034,22 +2048,74 @@ function workspaceFocusPin(kind: WorkspaceFocusKind, id: string): string {
   return '<button type="button" class="personal-icon personal-pin' + (pinned ? ' is-pinned' : '') + '" data-focus-kind="' + kind + '" data-focus-id="' + esc(id) + '" aria-pressed="' + pinned + '" aria-label="' + label + '" data-tooltip="' + label + '">' + icon("pin") + '</button>';
 }
 
+function animateWorkspaceFocusAddition(kind: WorkspaceFocusKind, id: string, origin: DOMRect, title: string): void {
+  const list = root.querySelector<HTMLElement>(".personal-focus-list");
+  const dashboard = list?.closest(".personal-dashboard-body");
+  const entry = list?.querySelector<HTMLElement>('[data-focus-entry-kind="' + kind + '"][data-focus-entry-id="' + CSS.escape(id) + '"]');
+  if (!list || !dashboard || !entry) return;
+
+  const destination = entry.getBoundingClientRect();
+  const bounds = [list.getBoundingClientRect(), dashboard.getBoundingClientRect()];
+  const centerX = destination.left + destination.width / 2;
+  const centerY = destination.top + destination.height / 2;
+  if (!destination.width || !destination.height || centerX < 0 || centerX > window.innerWidth ||
+      centerY < 0 || centerY > window.innerHeight ||
+      bounds.some((rect) => centerX < rect.left || centerX > rect.right || centerY < rect.top || centerY > rect.bottom)) return;
+
+  animateRecordArrival(origin, centerX, centerY, title, entry, 200);
+}
+
+function animateRecordArrival(origin: DOMRect, targetX: number, targetY: number, label: string, entry: HTMLElement, duration: number): void {
+  const highlight = () => {
+    if (!entry.isConnected) return;
+    entry.classList.add("record-arrival-highlight");
+    window.setTimeout(() => entry.classList.remove("record-arrival-highlight"), 850);
+  };
+  if (document.body.classList.contains("reduced-motion") || matchMedia("(prefers-reduced-motion: reduce)").matches ||
+      !origin.width || !origin.height) {
+    highlight();
+    return;
+  }
+
+  const copy = document.createElement("span");
+  copy.className = "record-flight";
+  copy.setAttribute("aria-hidden", "true");
+  copy.textContent = label.split("\n", 1)[0];
+  const startX = (origin.left + origin.width / 2) / appZoom;
+  const startY = (origin.top + origin.height / 2) / appZoom;
+  copy.style.left = startX + "px";
+  copy.style.top = startY + "px";
+  document.body.append(copy);
+
+  const x = targetX / appZoom - startX;
+  const y = targetY / appZoom - startY;
+  const animation = copy.animate([
+    { transform: "translate(-50%, -50%) scale(.86)", opacity: .85 },
+    { transform: "translate(calc(-50% + " + x + "px), calc(-50% + " + y + "px)) scale(1)", opacity: 1 }
+  ], { duration, easing: "cubic-bezier(.2,.7,.3,1)" });
+  void animation.finished.then(() => { copy.remove(); highlight(); }, () => copy.remove());
+}
+
 document.addEventListener("click", (event) => {
   const target = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("[data-focus-kind][data-focus-id]") : null;
   if (!target) return;
   event.preventDefault(); event.stopPropagation();
   const kind = target.dataset.focusKind as WorkspaceFocusKind;
   const id = target.dataset.focusId || "";
-  if (!["task", "note", "question", "item"].includes(kind) || !workspaceFocusRecord(kind, id)) return;
+  if (!["task", "note", "question", "item"].includes(kind)) return;
+  const record = workspaceFocusRecord(kind, id);
+  if (!record) return;
+  const origin = target.getBoundingClientRect();
   const date = workspaceFocusDate();
   const entries = normalizeWorkspaceFocus(state.dailyFocus);
   const pinned = entries.some((entry) => entry.date === date && entry.kind === kind && entry.id === id);
   state.dailyFocus = pinned ? entries.filter((entry) => !(entry.date === date && entry.kind === kind && entry.id === id)) : [...entries, { date, kind, id }];
-  save();
+  const saved = save();
   const scrollPositions = [...root.querySelectorAll<HTMLElement>(".personal-record-list, .personal-dashboard-body, .personal-focus-list")].map((element) => element.scrollTop);
   renderOverview();
   root.querySelectorAll<HTMLElement>(".personal-record-list, .personal-dashboard-body, .personal-focus-list").forEach((element, index) => { element.scrollTop = scrollPositions[index] || 0; });
   root.querySelector<HTMLButtonElement>('.personal-grid [data-focus-kind="' + kind + '"][data-focus-id="' + CSS.escape(id) + '"]')?.focus({ preventScroll: true });
+  if (saved && !pinned) animateWorkspaceFocusAddition(kind, id, origin, record.title);
   toast(pinned ? "Odaktan çıkarıldı. Asıl kayıt korunuyor." : "Bugünkü odağına eklendi.");
 }, true);
 
@@ -2241,7 +2307,7 @@ function renderOverview(): void {
 
   const empty = (text: string) => '<p class="personal-empty">' + text + '</p>';
   const heading = (title: string, count: number, glyph: string, action: string, label: string, kind: DashboardSearchKind) => '<header class="personal-panel-heading"><h2>' + icon(glyph) + title + '<span>' + count + '</span></h2><button type="button" class="personal-icon icon-action" ' + action + ' aria-label="' + label + '" data-tooltip="' + label + '">' + icon("add") + '</button>' + dashboardSearchControl(kind) + '</header>';
-  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><div class="personal-dashboard-body"><section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span>' + dashboardSearchControl("focus") + '</header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry" data-panel-search-text="' + esc([record.title, record.label, record.meta].join(" ")) + '"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section><div class="dashboard-layout-toolbar"><button type="button" class="personal-icon" data-dashboard-reset aria-label="Düzeni sıfırla" title="Düzeni sıfırla">' + icon("undo") + '</button></div><div class="personal-grid"><section class="personal-panel personal-tasks" data-dashboard-panel="tasks" aria-label="Görevlerim">' + heading("Görevlerim", tasks.length, "task", 'data-message-focus="tasks"', "Kişisel görev yaz", "tasks") + '<div class="personal-record-list">' + (tasks.map((task) => '<article class="personal-row' + (task.due === "Bugün" ? " personal-row-due" : "") + '" data-panel-search-text="' + esc([task.title, task.description, task.due, task.linked].filter(Boolean).join(" ")) + '"><button type="button" class="personal-task-check" data-toggle-task="' + esc(task.id) + '" aria-label="Görevi tamamla: ' + esc(task.title) + '">' + icon("check") + '</button><button type="button" class="personal-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong><small>' + esc([task.due, task.linked].filter(Boolean).join(" · ")) + '</small></button>' + workspaceFocusPin("task", task.id) + '</article>').join("") || empty("İlk görevini aşağıya mesaj olarak yaz.")) + '</div>' + workspaceMessageComposer("tasks") + '</section><section class="personal-panel personal-notes" data-dashboard-panel="notes" aria-label="Notlarım">' + heading("Notlarım", state.notes.length, "note", 'data-message-focus="notes"', "Not yaz", "notes") + '<div class="personal-record-list">' + (state.notes.map((note) => '<article class="personal-row" data-panel-search-text="' + esc([note.title, note.body, note.linked].filter(Boolean).join(" ")) + '"><button type="button" class="personal-record-open" data-note="' + esc(note.id) + '"><strong>' + esc(note.title) + '</strong><p>' + esc(note.body.slice(0, 180)) + '</p><small>' + esc([note.linked, note.updated].filter(Boolean).join(" · ")) + '</small></button>' + workspaceFocusPin("note", note.id) + '</article>').join("") || empty("Düşüncelerini aşağıya mesaj olarak yaz.")) + '</div>' + workspaceMessageComposer("notes") + '</section><section class="personal-panel personal-questions" data-dashboard-panel="questions" aria-label="Sorularım">' + heading("Sorularım", questions.length, "help", 'data-message-focus="questions"', "Soru yaz", "questions") + '<div class="personal-record-list">' + (questions.map((question) => '<article class="personal-row" data-panel-search-text="' + esc([question.text, question.owner, question.linkedItemId].filter(Boolean).join(" ")) + '"><button type="button" class="personal-record-open" data-action="edit-open-question" data-id="' + esc(question.id) + '"><strong>' + esc(question.text) + '</strong><small>' + esc([question.owner, question.expectedAt ? "Beklenen: " + question.expectedAt : "Yanıt bekleniyor", question.linkedItemId].filter(Boolean).join(" · ")) + '</small></button><button type="button" class="personal-icon" data-action="answer-open-question" data-id="' + esc(question.id) + '" aria-label="Soruyu yanıtla" data-tooltip="Yanıtı kaydet">' + icon("check") + '</button>' + workspaceFocusPin("question", question.id) + '</article>').join("") || empty("Takip edeceğin soruyu aşağıya yaz.")) + '</div>' + workspaceMessageComposer("questions") + '</section><section class="personal-panel personal-critical" data-dashboard-panel="items" aria-label="Backlog işleri"><header class="personal-panel-heading"><h2>' + icon("bug") + 'Backlog işleri<span>' + critical.length + '</span></h2>' + priorityFilter + dashboardSearchControl("items") + '</header><div class="personal-record-list">' + (critical.map((item) => '<article class="personal-row' + (item.status === "Bloke" || overdueDays(item) > 0 ? " personal-row-attention" : "") + '" data-panel-search-text="' + esc([item.id, item.title, item.description, item.project, item.priority, item.status].filter(Boolean).join(" ")) + '"><button type="button" class="personal-record-open" data-open-item="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(item.id + " · " + item.project) + '</small><span class="personal-critical-reason">' + esc([item.status === "Bloke" ? "Bloke" : "", overdueDays(item) ? overdueDays(item) + " gün gecikti" : "", item.priority + " öncelik"].filter(Boolean).join(" · ")) + '</span></button>' + workspaceFocusPin("item", item.id) + '</article>').join("") || empty("Bu öncelikte açık backlog işi yok.")) + '</div>' + workspaceMessageComposer("items") + '</section></div></div></div>';
+  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><div class="personal-dashboard-body"><section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span>' + dashboardSearchControl("focus") + '</header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry" data-focus-entry-kind="' + entry.kind + '" data-focus-entry-id="' + esc(entry.id) + '" data-panel-search-text="' + esc([record.title, record.label, record.meta].join(" ")) + '"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section><div class="dashboard-layout-toolbar"><button type="button" class="personal-icon" data-dashboard-reset aria-label="Düzeni sıfırla" title="Düzeni sıfırla">' + icon("undo") + '</button></div><div class="personal-grid"><section class="personal-panel personal-tasks" data-dashboard-panel="tasks" aria-label="Görevlerim">' + heading("Görevlerim", tasks.length, "task", 'data-message-focus="tasks"', "Kişisel görev yaz", "tasks") + '<div class="personal-record-list">' + (tasks.map((task) => '<article class="personal-row' + (task.due === "Bugün" ? " personal-row-due" : "") + '" data-panel-search-text="' + esc([task.title, task.description, task.due, task.linked].filter(Boolean).join(" ")) + '"><button type="button" class="personal-task-check" data-toggle-task="' + esc(task.id) + '" aria-label="Görevi tamamla: ' + esc(task.title) + '">' + icon("check") + '</button><button type="button" class="personal-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong><small>' + esc([task.due, task.linked].filter(Boolean).join(" · ")) + '</small></button>' + workspaceFocusPin("task", task.id) + '</article>').join("") || empty("İlk görevini aşağıya mesaj olarak yaz.")) + '</div>' + workspaceMessageComposer("tasks") + '</section><section class="personal-panel personal-notes" data-dashboard-panel="notes" aria-label="Notlarım">' + heading("Notlarım", state.notes.length, "note", 'data-message-focus="notes"', "Not yaz", "notes") + '<div class="personal-record-list">' + (state.notes.map((note) => '<article class="personal-row" data-panel-search-text="' + esc([note.title, note.body, note.linked].filter(Boolean).join(" ")) + '"><button type="button" class="personal-record-open" data-note="' + esc(note.id) + '"><strong>' + esc(note.title) + '</strong><p>' + esc(note.body.slice(0, 180)) + '</p><small>' + esc([note.linked, note.updated].filter(Boolean).join(" · ")) + '</small></button>' + workspaceFocusPin("note", note.id) + '</article>').join("") || empty("Düşüncelerini aşağıya mesaj olarak yaz.")) + '</div>' + workspaceMessageComposer("notes") + '</section><section class="personal-panel personal-questions" data-dashboard-panel="questions" aria-label="Sorularım">' + heading("Sorularım", questions.length, "help", 'data-message-focus="questions"', "Soru yaz", "questions") + '<div class="personal-record-list">' + (questions.map((question) => '<article class="personal-row" data-panel-search-text="' + esc([question.text, question.owner, question.linkedItemId].filter(Boolean).join(" ")) + '"><button type="button" class="personal-record-open" data-action="edit-open-question" data-id="' + esc(question.id) + '"><strong>' + esc(question.text) + '</strong><small>' + esc([question.owner, question.expectedAt ? "Beklenen: " + question.expectedAt : "Yanıt bekleniyor", question.linkedItemId].filter(Boolean).join(" · ")) + '</small></button><button type="button" class="personal-icon" data-action="answer-open-question" data-id="' + esc(question.id) + '" aria-label="Soruyu yanıtla" data-tooltip="Yanıtı kaydet">' + icon("check") + '</button>' + workspaceFocusPin("question", question.id) + '</article>').join("") || empty("Takip edeceğin soruyu aşağıya yaz.")) + '</div>' + workspaceMessageComposer("questions") + '</section><section class="personal-panel personal-critical" data-dashboard-panel="items" aria-label="Backlog işleri"><header class="personal-panel-heading"><h2>' + icon("bug") + 'Backlog işleri<span>' + critical.length + '</span></h2>' + priorityFilter + dashboardSearchControl("items") + '</header><div class="personal-record-list">' + (critical.map((item) => '<article class="personal-row' + (item.status === "Bloke" || overdueDays(item) > 0 ? " personal-row-attention" : "") + '" data-panel-search-text="' + esc([item.id, item.title, item.description, item.project, item.priority, item.status].filter(Boolean).join(" ")) + '"><button type="button" class="personal-record-open" data-open-item="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(item.id + " · " + item.project) + '</small><span class="personal-critical-reason">' + esc([item.status === "Bloke" ? "Bloke" : "", overdueDays(item) ? overdueDays(item) + " gün gecikti" : "", item.priority + " öncelik"].filter(Boolean).join(" · ")) + '</span></button>' + workspaceFocusPin("item", item.id) + '</article>').join("") || empty("Bu öncelikte açık backlog işi yok.")) + '</div>' + workspaceMessageComposer("items") + '</section></div></div></div>';
   applyDashboardLayout();
   applyDashboardMaximize();
   (Object.keys(dashboardSearches) as DashboardSearchKind[]).forEach(applyDashboardSearch);
@@ -3272,7 +3338,7 @@ function renderAssetDiagram(container: HTMLElement, assets: ProductAsset[]): voi
     container: canvas,
     width,
     height,
-    grid: { visible: true, size: 20, type: "dot", args: { color: "#dce1ed", thickness: 1 } },
+    grid: { visible: true, size: 20, type: "dot", args: { color: document.body.classList.contains("dark-theme") ? "#343c4a" : "#dce1ed", thickness: 1 } },
     panning: { enabled: true },
     mousewheel: { enabled: true, modifiers: ["ctrl"] },
     connecting: {
@@ -3303,15 +3369,15 @@ function renderAssetDiagram(container: HTMLElement, assets: ProductAsset[]): voi
       width: nodeWidth,
       height: nodeHeight,
       attrs: {
-        body: { fill: asset.active ? "#fff" : "#f2f3f5", stroke: "#dfe4ed", strokeWidth: 1, rx: 10, ry: 10 },
-        label: { text: asset.type + "\n" + asset.name + "\n" + asset.code, fill: "#343c4e", fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif", fontWeight: 600, textWrap: { width: nodeWidth - 28, height: nodeHeight - 24, ellipsis: true }, lineHeight: 21 },
+        body: { fill: asset.active ? "var(--diagram-node-fill, #fff)" : "var(--diagram-node-inactive-fill, #f2f3f5)", stroke: "var(--diagram-node-border, #dfe4ed)", strokeWidth: 1, rx: 10, ry: 10 },
+        label: { text: asset.type + "\n" + asset.name + "\n" + asset.code, fill: "var(--diagram-node-text, #343c4e)", fontSize: 12, fontFamily: "Segoe UI, Arial, sans-serif", fontWeight: 600, textWrap: { width: nodeWidth - 28, height: nodeHeight - 24, ellipsis: true }, lineHeight: 21 },
       },
       ports: {
         groups: {
-          left: { position: "left", attrs: { circle: { r: 6, magnet: true, stroke: "#fff", strokeWidth: 2, fill: "#6073df" } } },
-          right: { position: "right", attrs: { circle: { r: 6, magnet: true, stroke: "#fff", strokeWidth: 2, fill: "#6073df" } } },
-          top: { position: "top", attrs: { circle: { r: 6, magnet: true, stroke: "#fff", strokeWidth: 2, fill: "#6073df" } } },
-          bottom: { position: "bottom", attrs: { circle: { r: 6, magnet: true, stroke: "#fff", strokeWidth: 2, fill: "#6073df" } } },
+          left: { position: "left", attrs: { circle: { r: 6, magnet: true, stroke: "var(--diagram-node-fill, #fff)", strokeWidth: 2, fill: "var(--diagram-port-fill, #6073df)" } } },
+          right: { position: "right", attrs: { circle: { r: 6, magnet: true, stroke: "var(--diagram-node-fill, #fff)", strokeWidth: 2, fill: "var(--diagram-port-fill, #6073df)" } } },
+          top: { position: "top", attrs: { circle: { r: 6, magnet: true, stroke: "var(--diagram-node-fill, #fff)", strokeWidth: 2, fill: "var(--diagram-port-fill, #6073df)" } } },
+          bottom: { position: "bottom", attrs: { circle: { r: 6, magnet: true, stroke: "var(--diagram-node-fill, #fff)", strokeWidth: 2, fill: "var(--diagram-port-fill, #6073df)" } } },
         },
         items: [{ group: "left" }, { group: "right" }, { group: "top" }, { group: "bottom" }],
       },
@@ -3324,7 +3390,7 @@ function renderAssetDiagram(container: HTMLElement, assets: ProductAsset[]): voi
       target: { cell: targetId },
       router: "manhattan",
       connector: "rounded",
-      labels: [{ attrs: { text: { text: asset.relatedAssetLabels?.[targetId] || "İlişkili", fill: "#5d6784", fontSize: 11 } }, position: 0.5 }],
+      labels: [{ attrs: { text: { text: asset.relatedAssetLabels?.[targetId] || "İlişkili", fill: "var(--diagram-edge-text, #5d6784)", fontSize: 11 } }, position: 0.5 }],
       attrs: { line: { stroke: "#7382d4", strokeWidth: 2, targetMarker: { name: "block", width: 10, height: 8 } } },
     });
   }));
@@ -3346,7 +3412,7 @@ function renderAssetDiagram(container: HTMLElement, assets: ProductAsset[]): voi
     const label = (await appPrompt("Ok ilişki etiketini düzenle", currentLabel));
     if (label === null) return;
     persistAssetRelation(sourceId, targetId, label.trim().slice(0, 80) || "İlişkili");
-    edge.setLabels([{ attrs: { text: { text: label.trim().slice(0, 80) || "İlişkili", fill: "#5d6784", fontSize: 11 } }, position: 0.5 }]);
+    edge.setLabels([{ attrs: { text: { text: label.trim().slice(0, 80) || "İlişkili", fill: "var(--diagram-edge-text, #5d6784)", fontSize: 11 } }, position: 0.5 }]);
     renderAssetRelationList(document.getElementById("asset-relation-list")!, assetDiagramAssets);
     toast("İlişki etiketi güncellendi.");
   });
@@ -3355,7 +3421,7 @@ function renderAssetDiagram(container: HTMLElement, assets: ProductAsset[]): voi
     const sourceId = edge.getSourceCellId();
     const targetId = edge.getTargetCellId();
     if (!sourceId || !targetId) { edge.remove(); return; }
-    edge.setLabels([{ attrs: { text: { text: "İlişkili", fill: "#5d6784", fontSize: 11 } }, position: 0.5 }]);
+    edge.setLabels([{ attrs: { text: { text: "İlişkili", fill: "var(--diagram-edge-text, #5d6784)", fontSize: 11 } }, position: 0.5 }]);
     persistAssetRelation(sourceId, targetId, "İlişkili");
     toast("İlişki eklendi. Etiketi düzenlemek için oka çift tıkla.");
   });
@@ -4969,8 +5035,8 @@ async function addDiagramNode(diagram: WorkDiagram): Promise<void> {
   diagram.updated = "Az önce";
   workDiagramGraph?.addNode({
     id: node.id, shape: "rect", x: node.x, y: node.y, width: 220, height: 88,
-    attrs: { body: { fill: "#fff", stroke: "#dfe4ed", strokeWidth: 1, rx: 10, ry: 10 }, label: { text: node.label, fill: "#343c4e", fontSize: 13, fontFamily: "Segoe UI, Arial, sans-serif", fontWeight: 600, textWrap: { width: 190, height: 64, ellipsis: true } } },
-    ports: { groups: { left: { position: "left", attrs: { circle: { r: 6, magnet: true, stroke: "#fff", strokeWidth: 2, fill: "#6073df" } } }, right: { position: "right", attrs: { circle: { r: 6, magnet: true, stroke: "#fff", strokeWidth: 2, fill: "#6073df" } } }, top: { position: "top", attrs: { circle: { r: 6, magnet: true, stroke: "#fff", strokeWidth: 2, fill: "#6073df" } } }, bottom: { position: "bottom", attrs: { circle: { r: 6, magnet: true, stroke: "#fff", strokeWidth: 2, fill: "#6073df" } } } }, items: [{ group: "left" }, { group: "right" }, { group: "top" }, { group: "bottom" }] }
+    attrs: { body: { fill: "var(--diagram-node-fill, #fff)", stroke: "var(--diagram-node-border, #dfe4ed)", strokeWidth: 1, rx: 10, ry: 10 }, label: { text: node.label, fill: "var(--diagram-node-text, #343c4e)", fontSize: 13, fontFamily: "Segoe UI, Arial, sans-serif", fontWeight: 600, textWrap: { width: 190, height: 64, ellipsis: true } } },
+    ports: { groups: { left: { position: "left", attrs: { circle: { r: 6, magnet: true, stroke: "var(--diagram-node-fill, #fff)", strokeWidth: 2, fill: "var(--diagram-port-fill, #6073df)" } } }, right: { position: "right", attrs: { circle: { r: 6, magnet: true, stroke: "var(--diagram-node-fill, #fff)", strokeWidth: 2, fill: "var(--diagram-port-fill, #6073df)" } } }, top: { position: "top", attrs: { circle: { r: 6, magnet: true, stroke: "var(--diagram-node-fill, #fff)", strokeWidth: 2, fill: "var(--diagram-port-fill, #6073df)" } } }, bottom: { position: "bottom", attrs: { circle: { r: 6, magnet: true, stroke: "var(--diagram-node-fill, #fff)", strokeWidth: 2, fill: "var(--diagram-port-fill, #6073df)" } } } }, items: [{ group: "left" }, { group: "right" }, { group: "top" }, { group: "bottom" }] }
   });
   save(); renderDiagramEdgeList(diagram); renderDiagramToolbar(diagram);
 }
@@ -5016,17 +5082,17 @@ function renderWorkDiagramEditor(diagram: WorkDiagram, preserveHistory = false):
   const height = 470;
   const graph = new Graph({
     container, width, height,
-    grid: { visible: true, size: 20, type: "dot", args: { color: "#dce1ed", thickness: 1 } },
+    grid: { visible: true, size: 20, type: "dot", args: { color: document.body.classList.contains("dark-theme") ? "#343c4a" : "#dce1ed", thickness: 1 } },
     panning: { enabled: true }, mousewheel: { enabled: true, modifiers: ["ctrl"] },
     connecting: { allowBlank: false, allowLoop: false, allowMulti: true, allowNode: true, snap: true, connector: "rounded", createEdge() { return this.createEdge({ attrs: { line: { stroke: "#6073df", strokeWidth: 2, targetMarker: { name: "block", width: 10, height: 8 } } } }); }, validateConnection({ sourceCell, targetCell }) { return !!sourceCell && !!targetCell && sourceCell.isNode() && targetCell.isNode() && sourceCell.id !== targetCell.id; } }
   });
   workDiagramGraph = graph;
   diagram.nodes.forEach((node) => graph.addNode({
     id: node.id, shape: "rect", x: node.x, y: node.y, width: 220, height: 88,
-    attrs: { body: { fill: "#fff", stroke: "#dfe4ed", strokeWidth: 1, rx: 10, ry: 10 }, label: { text: node.label, fill: "#343c4e", fontSize: 13, fontFamily: "Segoe UI, Arial, sans-serif", fontWeight: 600, textWrap: { width: 190, height: 64, ellipsis: true } } },
-    ports: { groups: { left: { position: "left", attrs: { circle: { r: 6, magnet: true, stroke: "#fff", strokeWidth: 2, fill: "#6073df" } } }, right: { position: "right", attrs: { circle: { r: 6, magnet: true, stroke: "#fff", strokeWidth: 2, fill: "#6073df" } } }, top: { position: "top", attrs: { circle: { r: 6, magnet: true, stroke: "#fff", strokeWidth: 2, fill: "#6073df" } } }, bottom: { position: "bottom", attrs: { circle: { r: 6, magnet: true, stroke: "#fff", strokeWidth: 2, fill: "#6073df" } } } }, items: [{ group: "left" }, { group: "right" }, { group: "top" }, { group: "bottom" }] }
+    attrs: { body: { fill: "var(--diagram-node-fill, #fff)", stroke: "var(--diagram-node-border, #dfe4ed)", strokeWidth: 1, rx: 10, ry: 10 }, label: { text: node.label, fill: "var(--diagram-node-text, #343c4e)", fontSize: 13, fontFamily: "Segoe UI, Arial, sans-serif", fontWeight: 600, textWrap: { width: 190, height: 64, ellipsis: true } } },
+    ports: { groups: { left: { position: "left", attrs: { circle: { r: 6, magnet: true, stroke: "var(--diagram-node-fill, #fff)", strokeWidth: 2, fill: "var(--diagram-port-fill, #6073df)" } } }, right: { position: "right", attrs: { circle: { r: 6, magnet: true, stroke: "var(--diagram-node-fill, #fff)", strokeWidth: 2, fill: "var(--diagram-port-fill, #6073df)" } } }, top: { position: "top", attrs: { circle: { r: 6, magnet: true, stroke: "var(--diagram-node-fill, #fff)", strokeWidth: 2, fill: "var(--diagram-port-fill, #6073df)" } } }, bottom: { position: "bottom", attrs: { circle: { r: 6, magnet: true, stroke: "var(--diagram-node-fill, #fff)", strokeWidth: 2, fill: "var(--diagram-port-fill, #6073df)" } } } }, items: [{ group: "left" }, { group: "right" }, { group: "top" }, { group: "bottom" }] }
   }));
-  diagram.edges.forEach((edge) => graph.addEdge({ id: edge.id, source: { cell: edge.source }, target: { cell: edge.target }, router: "manhattan", connector: "rounded", labels: [{ attrs: { text: { text: edge.label, fill: "#5d6784", fontSize: 11 } }, position: 0.5 }], attrs: { line: { stroke: "#7382d4", strokeWidth: 2, targetMarker: { name: "block", width: 10, height: 8 } } } }));
+  diagram.edges.forEach((edge) => graph.addEdge({ id: edge.id, source: { cell: edge.source }, target: { cell: edge.target }, router: "manhattan", connector: "rounded", labels: [{ attrs: { text: { text: edge.label, fill: "var(--diagram-edge-text, #5d6784)", fontSize: 11 } }, position: 0.5 }], attrs: { line: { stroke: "#7382d4", strokeWidth: 2, targetMarker: { name: "block", width: 10, height: 8 } } } }));
   graph.on("node:change:position", ({ node }: { node: Node }) => {
     const entry = diagram.nodes.find((candidate) => candidate.id === node.id);
     if (!entry) return;
@@ -5040,14 +5106,14 @@ function renderWorkDiagramEditor(diagram: WorkDiagram, preserveHistory = false):
   graph.on("edge:dblclick", async ({ edge }: { edge: Edge }) => {
     const entry = diagram.edges.find((candidate) => candidate.id === edge.id); if (!entry) return;
     const label = (await appPrompt("Ok üzerindeki ilişki", entry.label)); if (label === null) return;
-    entry.label = label.trim().slice(0, 80) || "Akış"; edge.setLabels([{ attrs: { text: { text: entry.label, fill: "#5d6784", fontSize: 11 } }, position: 0.5 }]); diagram.updated = "Az önce"; save(); renderDiagramEdgeList(diagram);
+    entry.label = label.trim().slice(0, 80) || "Akış"; edge.setLabels([{ attrs: { text: { text: entry.label, fill: "var(--diagram-edge-text, #5d6784)", fontSize: 11 } }, position: 0.5 }]); diagram.updated = "Az önce"; save(); renderDiagramEdgeList(diagram);
   });
   graph.on("edge:connected", ({ edge, isNew }: { edge: Edge; isNew: boolean }) => {
     if (!isNew) return;
     const source = edge.getSourceCellId(); const target = edge.getTargetCellId();
     if (!source || !target) { edge.remove(); return; }
     const entry: DiagramEdge = { id: String(edge.id || nextId("DGE")), source, target, label: "Akış" };
-    diagram.edges.push(entry); edge.setLabels([{ attrs: { text: { text: entry.label, fill: "#5d6784", fontSize: 11 } }, position: 0.5 }]); diagram.updated = "Az önce"; save(); renderDiagramToolbar(diagram);
+    diagram.edges.push(entry); edge.setLabels([{ attrs: { text: { text: entry.label, fill: "var(--diagram-edge-text, #5d6784)", fontSize: 11 } }, position: 0.5 }]); diagram.updated = "Az önce"; save(); renderDiagramToolbar(diagram);
   });
   workDiagramResizeObserver = new ResizeObserver(() => graph.resize(Math.max(container.clientWidth, 680), height));
   workDiagramResizeObserver.observe(container);
@@ -7605,7 +7671,7 @@ document.addEventListener("submit", (event) => {
     const targetId = String(values.get("targetId") || "");
     const label = String(values.get("label") || "").trim() || "İlişkili";
     const edge = assetDiagramGraph?.getEdges().find((candidate) => candidate.getSourceCellId() === sourceId && candidate.getTargetCellId() === targetId);
-    edge?.setLabels([{ attrs: { text: { text: label, fill: "#5d6784", fontSize: 11 } }, position: 0.5 }]);
+    edge?.setLabels([{ attrs: { text: { text: label, fill: "var(--diagram-edge-text, #5d6784)", fontSize: 11 } }, position: 0.5 }]);
     persistAssetRelation(sourceId, targetId, label);
     closeModal();
     toast("İlişki etiketi güncellendi.");

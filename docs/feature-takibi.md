@@ -20,6 +20,10 @@
 
 ## Tamamlanan
 
+- **Toplantı sohbetinde gönderme animasyonu** · 6 Kasım 2026. Kaydedilen not, görev, açık soru ve karar görünür hedefe 180 ms’de kayar ve yeni satır vurgulanır. Azaltılmış hareket ayarında yalnızca vurgu gösterilir. Hedef ekran dışındaysa kaydırma konumu korunur ve kayıt bildirimi gösterilir.
+
+- **Bugünkü odağa ekleme animasyonu** · 6 Kasım 2026. İğnelenen kaydın küçük bir kopyası görünür hedefe 200 ms’de kayar. Azaltılmış hareket ayarında kayıt kısa süre vurgulanır. Hedef ekran dışındaysa kaydırma konumu korunur ve ekleme bildirimi gösterilir.
+
 - **Backlog taşıma animasyonu** · 6 Kasım 2026. Liste sıralamasında yer değiştiren satırlar kayar ve taşınan satır vurgulanır. Board’da yeni sütunda görünen kart, sürükle-bırak veya klavyeyle durum değişikliği sonrasında kısa bir hareket ve vurgu alır. Azaltılmış hareket ayarında yalnızca vurgu gösterilir.
 
 - **Backlog ve dashboard arayüzü** · 6 Kasım 2026. Liste dar pencerelerde ikincil sütunları gizler. Filtreler, sonuç sayısı ve toplu işlemler listenin üstünde görünür. Satır içi kayıtta başarı veya hata hücrede gösterilir. İş önizlemesi ayrı bir eylemdir ve detay kapanınca odak listeye döner. Board’da hedef sütun vurgulanır. Dashboard’da bugünkü görevler ile bloke ve geciken işler öne çıkar.

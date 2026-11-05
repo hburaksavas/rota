@@ -3419,3 +3419,106 @@ body.narrow-window { min-width: 0; }
   box-shadow: inset 0 0 0 999px color-mix(in srgb, var(--accent) 13%, transparent);
 }
 .board-card.backlog-move-highlight { outline: 2px solid var(--accent); outline-offset: -2px; }
+
+.record-arrival-highlight, .meeting-stage-records .record-arrival-highlight {
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.record-flight {
+  position: fixed;
+  z-index: 50;
+  max-width: 180px;
+  overflow: hidden;
+  padding: 5px 9px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  background: var(--surface-1);
+  color: var(--text-1);
+  font-size: var(--text-body);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+/* Dark surfaces for legacy controls and states outside the main view shells. */
+body.dark-theme :is(
+  .attachment-empty, .attached-file, .attachment-box, .email-attachment-choices,
+  .detail-aside, .dependency-section, .dependency-item, .activity-note-composer,
+  .inline-assignment-list > div, .asset-empty, .asset-linked-item, .asset-select-chip,
+  .team-members-section, .team-overview-stats article, .team-plan-filters, .team-dashboard-empty,
+  .record-collapsible, .focus-note
+),
+body.dark-theme #workspace-recovery > section {
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-color: var(--border-1);
+}
+body.dark-theme :is(
+  .attachment-empty > span:first-child, .file-icon, .email-source-icon, .diagram-link-icon,
+  .jira-empty-icon, .team-empty-icon, .team-member-avatar, .team-member-count,
+  .project-member-chip, .task-link, .note-pin, .activity-marker, .activity-visibility,
+  .progress-note-file, .tag, .drop-import-progress, .recent-activity, .project-archive-link span
+) {
+  color: var(--accent-strong);
+  background: var(--accent-soft);
+  border-color: var(--border-2);
+}
+body.dark-theme :is(.drop-import-progress small, .drop-import-progress ul, .attached-file small, .attachment-empty small) {
+  color: var(--text-2);
+}
+body.dark-theme :is(.criterion-check, .inline-save-success, .jira-connection-pill.is-connected, .task-check.checked) {
+  color: #a0ddbd;
+  background: #263b32;
+  border-color: #3c5b4c;
+}
+body.dark-theme :is(.dependency-warning, .blocker-summary, .duplicate-candidates, .edit-blocker-fields, .assignment-help) {
+  color: #edca96;
+  background: #382f24;
+  border-color: #5a4b32;
+}
+body.dark-theme :is(
+  .inline-save-error, .drop-import-progress.is-error,
+  .inline-icon-remove:is(:hover, :focus-visible), .inline-icon-dismiss:is(:hover, :focus-visible),
+  .quick-delete-button, .button-danger:hover:not(:disabled), .remove-file:hover,
+  .team-member-remove:hover, .team-member-remove-dashboard:hover, .assignment-remove:hover
+),
+body.dark-theme #workspace-save-error {
+  color: #f0b6b8;
+  background: #402c33;
+  border-color: #624049;
+}
+body.dark-theme :is(
+  .attachment-preview-modal > header button, .jira-connection-pill:not(.is-connected),
+  .sidebar.collapsed .sidebar-toggle, .sprint-scope-search,
+  .progress-track, .roadmap-progress, .sprint-progress-track, .task-check:not(.checked),
+  .completed-filter, .inline-icon-dismiss:not(:hover, :focus-visible)
+) {
+  color: var(--text-2);
+  background: var(--surface-2);
+  border-color: var(--border-2);
+}
+body.dark-theme :is(
+  .asset-linked-item:hover, .team-member-task:hover, .asset-select-chip button:hover,
+  .portfolio-release:hover, .metric-evidence:hover, .file-open:hover:not(:disabled), .project-archive-link:hover,
+  .inline-icon-action:is(:hover, :focus-visible):not(.inline-icon-remove, .inline-icon-dismiss)
+) {
+  color: var(--accent-strong);
+  background: var(--hover);
+  border-color: var(--border-2);
+}
+body.dark-theme .backlog-table tbody tr:hover:not(.backlog-insert-row) > :is(td:first-child, td:nth-child(2)) {
+  background: var(--hover);
+}
+body.dark-theme :is(.asset-diagram-canvas, .work-diagram-canvas) {
+  --diagram-node-fill: var(--surface-1);
+  --diagram-node-inactive-fill: var(--surface-2);
+  --diagram-node-border: var(--border-2);
+  --diagram-node-text: var(--text-1);
+  --diagram-edge-text: var(--text-2);
+  --diagram-port-fill: var(--accent);
+}
+body.dark-theme :is(.asset-diagram-canvas, .work-diagram-canvas) .x6-edge-label rect {
+  fill: var(--surface-2);
+  stroke: var(--border-1);
+}
