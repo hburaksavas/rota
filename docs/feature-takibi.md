@@ -20,6 +20,10 @@
 
 ## Tamamlanan
 
+- **Yan menü düğmesi** · 10 Kasım 2026. Açma ve kapatma düğmesi dikey ayırıcıya oturur. Ok, menünün durumuna göre yön değiştirir ve fareyle üzerine gelindiğinde hareket yönünü gösterir.
+
+- **Pencere boyutuna uyumlu çalışma alanı** · 10 Kasım 2026. Üst çubuk ve ana içerik aynı kenar boşluğunu kullanır. Kişisel çalışma alanında panel aralıkları sabit kalır ve sütun sayısı kullanılabilir alana göre değişir. Backlog ve diğer ana menüler çalışma alanının genişliğini kullanır. Genel bakışta varsayılan yükseklikteki paneller kalan dikey alana yayılır.
+
 - **Backlog’da sürükleyerek sil** · 6 Kasım 2026. Liste veya Board’da iş sürüklenirken Backlog’un sağ kenarında, dikey ortada çöp kutusu görünür. Kutunun üzerine bırakılan iş silinir ve altı saniye boyunca **Geri al** gösterilir.
 
 - **Toplantı sohbetinde gönderme animasyonu** · 6 Kasım 2026. Kaydedilen not, görev, açık soru ve karar görünür hedefe 180 ms’de kayar ve yeni satır vurgulanır. Azaltılmış hareket ayarında yalnızca vurgu gösterilir. Hedef ekran dışındaysa kaydırma konumu korunur ve kayıt bildirimi gösterilir.

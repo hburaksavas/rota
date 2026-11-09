@@ -2176,7 +2176,8 @@ function applyDashboardLayout(): void {
   layout.forEach((entry) => {
     const panel = grid.querySelector<HTMLElement>('[data-dashboard-panel="' + entry.id + '"]'); if (!panel) return;
     panel.style.setProperty("--panel-width", String(entry.width));
-    panel.style.setProperty("--panel-height", entry.height + "px");
+    if (entry.height === 300) panel.style.removeProperty("--panel-height");
+    else panel.style.setProperty("--panel-height", entry.height + "px");
     grid.append(panel);
     if (!panel.querySelector(".dashboard-panel-grip")) {
       panel.querySelector(".personal-panel-heading")?.insertAdjacentHTML("afterbegin", '<button type="button" class="personal-icon dashboard-panel-grip" aria-label="Paneli taşı" title="Sürükleyerek taşı · Ok tuşlarıyla sırala"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01" stroke-width="4"/></svg></button>');
@@ -2270,7 +2271,7 @@ document.addEventListener("keydown", (event) => {
   } else {
     const entry = layout[index];
     if (event.key === "ArrowLeft" || event.key === "ArrowRight") entry.width = Math.max(.32, Math.min(1, entry.width + direction * .05));
-    else entry.height = Math.max(220, Math.min(1000, entry.height + direction * 20));
+    else entry.height = Math.max(220, Math.min(1000, panel.offsetHeight + direction * 20));
     state.dashboardLayout = layout; save(); applyDashboardLayout();
   }
   (handle as HTMLElement)?.focus();
