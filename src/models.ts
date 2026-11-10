@@ -180,6 +180,7 @@ interface FollowUpNotification {
 }
 
 interface OpenQuestion {
+  updatedAt?: string;
   id: string;
   text: string;
   owner: string;
@@ -339,6 +340,7 @@ interface WorkDiagram {
 }
 
 interface PersonalTask {
+  updatedAt?: string;
   id: string;
   title: string;
   due: string;
@@ -354,6 +356,7 @@ interface PersonalTask {
 }
 
 interface PersonalNote {
+  updatedAt?: string;
   createdAt?: string;
   id: string;
   title: string;
@@ -407,8 +410,8 @@ type DashboardPanelId = "tasks" | "notes" | "questions" | "items";
 interface DashboardPanelLayout { id: DashboardPanelId; width: number; height: number; }
 
 type PoMeetingKind = "task" | "question" | "decision";
-interface PoMeetingEntry { id: string; text: string; kind: PoMeetingKind; linkedItemId: string; createdAt: string; recordId?: string; }
-interface PoMeeting { id: string; title: string; projectId: string; createdAt: string; updatedAt: string; entries: PoMeetingEntry[]; }
+interface PoMeetingEntry { id: string; text: string; kind: PoMeetingKind | "note"; linkedItemId: string; createdAt: string; recordId?: string; }
+interface PoMeeting { agendaIds?: string[]; endedAt?: string; durationSeconds?: number; id: string; title: string; projectId: string; createdAt: string; updatedAt: string; entries: PoMeetingEntry[]; }
 type PoRequestKind = "clarification" | "example" | "confirmation" | "decision";
 interface PoRequest { id: string; itemId: string; kind: PoRequestKind; text: string; requestedBy: string; createdAt: string; answer?: string; resolvedAt?: string; replies?: { text: string; author: string; createdAt: string }[]; }
 interface WorkConversation { id: string; itemId: string; text: string; author: string; createdAt: string; }

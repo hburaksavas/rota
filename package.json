@@ -8,14 +8,14 @@
     "node": ">=24"
   },
   "scripts": {
-    "build:renderer": "tsc -p tsconfig.renderer.json && esbuild src/app.ts --bundle --format=iife --platform=browser --target=es2022 --outfile=dist/renderer/app.js",
+    "build:renderer": "tsc -p tsconfig.renderer.json && node scripts/build-renderer.mjs",
     "build": "npm run build:renderer",
     "test:features": "node tests/feature/remaining.mjs",
     "test:po": "npm run build && node tests/feature/po-tools.mjs",
     "test:dashboard": "npm run build && node tests/feature/personal-dashboard.mjs",
     "test:shutdown": "node tests/desktop/shutdown.mjs",
     "test:acceptance": "npm run build && node tests/acceptance/uat.mjs",
-    "start": "npm run build:renderer && node scripts/start-node-webview.mjs"
+    "start": "node scripts/start.mjs"
   },
   "devDependencies": {
     "esbuild": "^0.28.2",

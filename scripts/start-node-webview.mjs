@@ -3,11 +3,8 @@ import { fileShortcuts } from "./file-shortcuts.mjs";
 import { Application, Notification } from "@webviewjs/webview";
 import { createPomodoroController } from "./pomodoro.mjs";
 import { installDesktopShutdown } from "./desktop-lifecycle.mjs";
-import MsgReader from "@kenjiuno/msgreader";
-import ExcelJS from "exceljs";
 import { Entry } from "@napi-rs/keyring";
 import koffi from "koffi";
-import { simpleParser } from "mailparser";
 import { randomUUID, createHash, timingSafeEqual } from "node:crypto";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
@@ -123,6 +120,7 @@ const parseEmail = async (name, bytes) => {
   let subject = "", from = "", to = "", date = "", body = "", attachments = [];
   try {
     if (/\.msg$/i.test(name)) {
+      const { default: { default: MsgReader } } = await import("@kenjiuno/msgreader");
       const msg = new MsgReader(bytes);
       const info = msg.getFileData();
       subject = info.subject || name.replace(/\.msg$/i, ""); from = info.senderName || "";
@@ -132,6 +130,7 @@ const parseEmail = async (name, bytes) => {
         const value = msg.getAttachment(entry); return { name: safeName(value.fileName || entry.fileName || "ek"), bytes: Buffer.from(value.content || []) };
       }).filter((entry) => entry.bytes.length > 0 && entry.bytes.length <= 25 * 1024 * 1024);
     } else {
+      const { simpleParser } = await import("mailparser");
       const parsed = await simpleParser(bytes);
       subject = parsed.subject || name.replace(/\.eml$/i, ""); from = parsed.from?.text || ""; to = parsed.to?.text || "";
       date = parsed.date?.toISOString() || ""; body = parsed.text || "";
@@ -168,6 +167,7 @@ const jiraProjects = async (base, id) => { const r = await jiraRequest(base, `/r
 const numeric = (value) => { if (!/^\d{1,20}$/.test(String(value))) throw new Error("Jira kayıt numarası geçersiz."); return value; };
 const sheetsExcel = async (sheets) => {
   if (!Array.isArray(sheets) || sheets.length < 1 || sheets.length > 12) throw new Error("Excel dışa aktarım sayfaları geçersiz.");
+  const { default: ExcelJS } = await import("exceljs");
   const workbook = new ExcelJS.Workbook(); workbook.creator = "Rota · PO çalışma alanı";
   const used = new Set();
   for (const [index, sheet] of sheets.entries()) {
@@ -189,6 +189,7 @@ const pickBacklogExcelImport = async () => {
   if (!paths.length) return null;
   const path = paths[0]; const info = await stat(path);
   if (!info.isFile() || info.size > 20 * 1024 * 1024) throw new Error("Excel dosyası 20 MB sınırını aşmamalı.");
+  const { default: ExcelJS } = await import("exceljs");
   const workbook = new ExcelJS.Workbook();
   try { await workbook.xlsx.readFile(path); } catch { throw new Error("Excel dosyası okunamadı. Geçerli bir .xlsx dosyası seç."); }
   const sheet = workbook.worksheets[0];
@@ -238,7 +239,7 @@ const automaticBackup = async (workspace) => {
   for (const name of previous) await rm(join(directory, name), { force: true });
   return { path, attachmentCount };
 };
-const allowedAssets = new Set(["/", "/index.html", "/src/styles.css", "/src/po-tools.css", "/dist/renderer/app.js"]);
+const allowedAssets = new Set(["/", "/index.html", "/src/styles.css", "/src/po-tools.css", "/dist/renderer/app.js", "/dist/renderer/diagram.js"]);
 const assetServer = createServer(async (request, response) => {
   let pathname;
   try { pathname = decodeURIComponent(new URL(request.url || "/", "http://127.0.0.1").pathname); }

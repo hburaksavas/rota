@@ -32,33 +32,40 @@ try {
   await page.goto(pathToFileURL(process.cwd() + '/index.html').href);
   await page.locator('#setup-form button[type="submit"]').click();
   await page.locator('[data-po="meetings"]').click();
-  await page.locator('.inventory-heading [data-po="new-meeting"]').click();
-  await page.locator('[data-po-meeting-title]').fill('Ödeme ekibi refinement');
+  await page.locator('.meeting-stage').waitFor();
+  const title = page.getByRole('textbox', { name: 'Toplantı adı' });
+  await title.fill('Ödeme ekibi refinement');
+  await title.press('Tab');
   const before = await stored();
   const meetingId = before.meetings[0].id;
-  await page.locator('[data-po-meeting-project]').selectOption(before.projects[0].id);
+  const stageComposer = page.locator('#meeting-stage-record-form');
+  await stageComposer.locator('textarea').fill('Bağımsız toplantı notu');
+  await stageComposer.locator('textarea').press('Enter');
+  assert.equal((await stored()).notes[0].linked, '');
+  const backlogPicker = page.locator('.meeting-stage-backlog');
+  await backlogPicker.getByRole('button', { name: 'Backlog panelini kapat' }).click();
+  assert.equal(await backlogPicker.getByRole('searchbox').count(), 0);
+  await backlogPicker.getByRole('button', { name: 'Backlog panelini aç' }).click();
+  await backlogPicker.getByRole('searchbox').fill('PAY-241');
+  await backlogPicker.locator('[data-id="PAY-241"]').dragTo(page.locator('.meeting-stage-card'));
+  await page.locator('.meeting-stage-agenda ol [data-id="PAY-241"]').waitFor();
   for (const [kind, text] of [['task','Limit örneklerini hazırla'],['question','İstisnai müşteri limiti ne olacak?'],['decision','İlk sürüm yalnızca bireysel müşterilere açılacak']]) {
-    await page.locator('[data-po-form="meeting-entry"] [name="kind"]').selectOption(kind);
-    await page.locator('[data-po-form="meeting-entry"] [name="linkedItemId"]').selectOption('PAY-241');
-    await page.locator('[data-po-form="meeting-entry"] textarea').fill(text);
-    await page.locator('[data-po-form="meeting-entry"] textarea').press('Enter');
+    await stageComposer.locator('input[value="' + kind + '"]').check();
+    await stageComposer.locator('textarea').fill(text);
+    await stageComposer.locator('textarea').press('Enter');
   }
-  assert.equal((await stored()).meetings[0].entries.length, 3);
-  assert.equal((await stored()).tasks.length, before.tasks.length);
-  await capture('meeting');
-  await page.locator('[data-po="distribute"]').click();
-  const distributed = await stored();
-  assert.equal(distributed.tasks.length, before.tasks.length + 1);
-  assert.equal(distributed.openQuestions.length, (before.openQuestions || []).length + 1);
-  assert.equal(distributed.decisions.length, (before.decisions || []).length + 1);
-  assert.equal(distributed.tasks[0].linked, 'PAY-241');
-  assert.equal(distributed.decisions[0].status, 'Taslak');
-  assert.deepEqual(distributed.decisions[0].workItemIds, ['PAY-241']);
-  assert.ok(distributed.meetings[0].entries.every(entry => entry.recordId));
-  assert.equal(await page.locator('[data-po="distribute"]').isDisabled(), true);
-  await page.reload(); await page.locator('[data-po="meetings"]').click();
-  assert.equal((await stored()).meetings[0].id, meetingId);
-  assert.equal(await page.locator('.po-record-created').count(), 3);
+  const recorded = (await stored()).meetings.find(meeting => meeting.id === meetingId);
+  assert.deepEqual(recorded.agendaIds, ['PAY-241']);
+  assert.equal(recorded.entries.length, 4);
+  assert.ok(recorded.entries.every(entry => entry.recordId));
+  await page.reload();
+  await page.locator('[data-po="meetings"]').click();
+  await page.getByText('Geçmiş toplantılar', { exact: true }).click();
+  await page.getByRole('searchbox', { name: 'Toplantılarda ara' }).fill('İstisnai müşteri limiti');
+  const previousMeeting = page.locator('[data-action="meeting-history-open"]:visible');
+  assert.equal(await previousMeeting.count(), 1);
+  await previousMeeting.click();
+  await page.getByText('İstisnai müşteri limiti ne olacak?', { exact: true }).waitFor();
   await page.locator('[data-view="backlog"]').click();
   const stageStart = page.locator('[data-action="start-meeting-stage"]');
   assert.equal(await stageStart.isVisible(), false);
@@ -66,7 +73,7 @@ try {
   await stageChoices.nth(0).check();
   await stageChoices.nth(1).check();
   await stageStart.click();
-  const agenda = page.locator('.meeting-stage-agenda button');
+  const agenda = page.locator('.meeting-stage-agenda ol button');
   assert.equal(await agenda.count(), 2);
   const firstTopic = await agenda.nth(0).getAttribute('data-id');
   const secondTopic = await agenda.nth(1).getAttribute('data-id');
@@ -90,7 +97,7 @@ try {
   assert.equal(await page.getByRole('button', { name: 'Soru aç', exact: true }).count(), 0);
   const composer = page.locator('#meeting-stage-record-form');
   const message = composer.locator('[name="text"]');
-  const send = composer.getByRole('button', { name: 'Gönder' });
+  const send = composer.locator('button[type=submit]');
   assert.equal(await send.innerText(), '');
   assert.equal(await send.isDisabled(), true);
   await message.fill('İlk işin kaydedilmemiş notu');
@@ -119,7 +126,15 @@ try {
   await agenda.nth(0).click();
   assert.equal(await message.inputValue(), 'İlk işin kaydedilmemiş notu');
   await capture('meeting-stage');
-  await composer.locator('input[name="kind"][value="task"]').check();
+  await message.press('Alt+4');
+  for (const type of ['Not', 'Karar', 'Soru', 'Görev']) {
+    await message.press('Control+Space');
+    assert.equal(await composer.getByRole('radio', { name: type }).isChecked(), true);
+    assert.equal(await send.getAttribute('aria-label'), type + ' gönder');
+  }
+  assert.equal(await composer.getByRole('radio', { name: 'Görev' }).isChecked(), true);
+  assert.equal(await send.getAttribute('aria-label'), 'Görev gönder');
+  assert.equal(await message.inputValue(), 'İlk işin kaydedilmemiş notu');
   await message.fill('İlk gündem maddesinin görevi\nİkinci satır');
   await message.press('Enter');
   await message.fill('Panoya girmemesi gereken taslak');
@@ -149,7 +164,6 @@ try {
   assert.equal(await copySummary.isDisabled(), true);
   await page.locator('[data-action="end-meeting-stage"]').click();
   await page.locator('[data-po="meetings"]').click();
-  assert.equal(await page.locator('.po-record-created').count(), 3);
   await openItem(); await conversation();
   assert.match(await page.locator('.po-thread-list').innerText(), /İstisnai müşteri limiti/);
   assert.match(await page.locator('.po-thread-list').innerText(), /İlk sürüm yalnızca/);
@@ -219,7 +233,7 @@ try {
   await page.reload(); await page.locator('[data-po="mine"]').click();
   assert.equal(await page.locator('.po-request-card').count(), 3);
   assert.equal((await stored()).notes.find(entry => entry.id === note.id).body, note.body);
-  assert.equal((await stored()).meetings[0].entries.length, 3);
+  assert.equal((await stored()).meetings.find(meeting => meeting.id === meetingId).entries.length, 4);
   // Legacy questions only appear when explicitly addressed to this PO; saved data is preserved.
   await page.evaluate(key => {
     const s = JSON.parse(localStorage.getItem(key));
@@ -236,14 +250,6 @@ try {
   await page.locator('[data-po-form="answer"][data-id="QA-MINE"] button').click();
   assert.equal((await stored()).openQuestions.find(entry => entry.id === 'QA-MINE').status, 'Yanıtlandı');
   await page.locator('[data-po="meetings"]').click();
-  await page.locator('[data-po-form="meeting-entry"] textarea').fill('Kayıt sayısını artırmaması gereken boş satır');
-  await page.locator('[data-po-form="meeting-entry"] textarea').press('Enter');
-  await page.locator('.po-meeting-line:last-child [data-po-entry-text]').fill('   ');
-  const taskCount = (await stored()).tasks.length;
-  await page.locator('[data-po="distribute"]').click();
-  assert.equal((await stored()).tasks.length, taskCount);
-  assert.match(await page.locator('#toast-root').innerText(), /Boş satırları/);
-
   const week = await page.evaluate(key => {
     const workspace = JSON.parse(localStorage.getItem(key));
     const date = new Date();
@@ -312,6 +318,20 @@ try {
   await detail.locator('.modal-close').click();
   assert.equal(await page.locator('#desk-edge button').count(), 1);
   await capture('desk-edge');
+  await page.locator('[data-po="meetings"]').click();
+  await page.locator('[data-action="meeting-session-new"]').click();
+  await message.fill('Bitirilen toplantının notu');
+  await message.press('Enter');
+  const finishedMeetingId = (await stored()).meetings[0].id;
+  await page.getByRole('button', { name: 'Toplantıyı bitir' }).click();
+  await page.locator('#meeting-closing-title').waitFor();
+  assert.ok((await stored()).meetings.find(meeting => meeting.id === finishedMeetingId).endedAt);
+  await page.getByRole('button', { name: 'Gündeme dön' }).click();
+  assert.equal(await composer.count(), 0);
+  await page.getByRole('button', { name: 'Toplantıyı sil' }).click();
+  await page.getByRole('button', { name: 'Onayla', exact: true }).click();
+  assert.ok(!(await stored()).meetings.some(meeting => meeting.id === finishedMeetingId));
+  assert.ok((await stored()).notes.some(note => note.body === 'Bitirilen toplantının notu'));
   assert.deepEqual(errors, []);
   console.log('PASS: toplantı kayıt dağıtımı/tekrarsızlık/kalıcılık, dört PO beklentisi/yanıt, kronolojik konuşmalar, aynı iş detayında not ve ürün kuralı düzenleme, sol alanı düzenleme, arama, tema ve 990/1100/1440 px. Görseller: '+output);
 } finally { await context.close(); await browser.close(); }

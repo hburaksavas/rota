@@ -20,6 +20,14 @@
 
 ## Tamamlanan
 
+- **Toplantıyı bitirme ve silme** · 11 Kasım 2026. Toplantıyı bitirince süre kaydedilir ve kapanış kartı açılır. Toplantı silindiğinde oluşturduğu kayıtlar kendi listelerinde kalır.
+
+- **Tek toplantı sahnesi** · 11 Kasım 2026. Üst çubuktaki Toplantı düğmesi sahneyi açar. Genel kayıtlar bağımsız tutulabilir ve birden fazla Backlog işi sağ panelden gündeme sürüklenebilir. Geçmiş toplantılar başlık, gündem ve mesaj içeriğiyle aranabilir.
+
+- **Çalışma alanında büyük listeler** · 11 Kasım 2026. Not, soru, görev ve Backlog panelleri görünen satırları ve yakınındaki kayıtları çizer. Arama ve sayaçlar tüm listeyi kapsar.
+
+- **Daha hızlı uygulama açılışı** · 11 Kasım 2026. Hazır derleme güncelse uygulama doğrudan açılır. Excel, e-posta ve diyagram kitaplıkları ilgili özellik kullanıldığında yüklenir.
+
 - **Tema geçişi ve koyu form alanları** · 10 Kasım 2026. Tema 150 ms’de yumuşakça değişir. Azaltılmış hareket tercihinde doğrudan uygulanır. Koyu temada form alanları ana yüzey rengini kullanır ve etiketler bulundukları yüzeyle bütünleşir.
 
 - **Yan menü düğmesi** · 10 Kasım 2026. Açma ve kapatma düğmesi dikey ayırıcıya oturur. Ok, menünün durumuna göre yön değiştirir ve fareyle üzerine gelindiğinde hareket yönünü gösterir.

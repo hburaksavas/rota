@@ -29,7 +29,7 @@ npm install
 npm start
 ```
 
-`npm install` arayüz ve yerel pencere bağımlılıklarını indirir. `npm start` arayüzü derler ve Node.js ile WebView2 penceresini açar; Electron veya .NET SDK indirmez. Kurum ağı npm erişimini kısıtlıyorsa `registry.npmjs.org` veya kurum içi npm aynasına erişim gerekir.
+`npm install` arayüz ve yerel pencere bağımlılıklarını indirir. `npm start` hazır arayüz derlemesini kullanarak Node.js ile WebView2 penceresini açar. Derleme eksikse veya kaynak kod değişmişse arayüzü önce derler. Electron veya .NET SDK gerekmez. Kurum ağı npm erişimini kısıtlıyorsa `registry.npmjs.org` veya kurum içi npm aynasına erişim gerekir.
 
 ## Backlog'u Excel'den içe aktarma
 

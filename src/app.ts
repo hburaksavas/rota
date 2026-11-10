@@ -1,6 +1,6 @@
 import { renderFavspace, installFavspaceDrop } from "./favspace";
 import { appConfirm, appPrompt } from "./dialogs";
-import { Graph, type Edge, type Node } from "@antv/x6";
+import type { Graph, Edge, Node } from "@antv/x6";
 import { initPomodoro } from "./pomodoro";
 import { createPoTools } from "./po-tools";
 
@@ -357,15 +357,22 @@ let backlogSprintId = "";
 const selectedBacklogItemIds = new Set<string>();
 type MeetingStageRecordKind = PoMeetingKind | "note";
 const meetingStageRecordLabels: Record<MeetingStageRecordKind, string> = { note: "Not", decision: "Karar", question: "Soru", task: "Görev" };
+const meetingStagePlaceholders: Record<MeetingStageRecordKind, string> = {
+  note: "Not ekle...", question: "Soru ekle...", decision: "Karar ekle...", task: "Görev oluştur..."
+};
+const stopMeetingPlaceholderAnimation = new WeakMap<HTMLTextAreaElement, () => void>();
+const meetingStageRecordIcons: Record<MeetingStageRecordKind, string> = { note: "note", decision: "check", question: "help", task: "task" };
+const meetingStageRecordKinds = Object.keys(meetingStageRecordLabels) as MeetingStageRecordKind[];
+
 const meetingClosingLabels = { decision: "Kararlar", question: "Açık sorular", task: "Görevler" } satisfies Record<PoMeetingKind, string>;
-type MeetingClosingTopic = { title: string; entries: Record<PoMeetingKind, string[]> };
 let meetingStage: {
+  meeting: PoMeeting;
+  openedAt: number;
   ids: string[];
   currentId: string;
   projectId: string | null;
   viewId: string;
   drafts: Map<string, { kind: MeetingStageRecordKind; text: string }>;
-  closingTopics: Map<string, MeetingClosingTopic>;
   showClosing: boolean;
 } | null = null;
 let readyWorkPool = false;
@@ -1089,6 +1096,7 @@ function openStatusUpdateModal(itemId: string, nextStatus: WorkItem["status"], r
 const icon = (name: string): string => {
   const paths: Record<string, string> = {
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
+    clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
     calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18"/>',
     map: '<path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6ZM9 3v15M15 6v15"/>',
     maximize: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
@@ -1243,22 +1251,82 @@ function undoLastDeletion(): void {
   save(); closeModal(); render(); toast("Silme veya arşivleme geri alındı.");
 }
 
-function startMeetingStage(): void {
-  const ids = sortBacklogItems(getSelectedBacklogItems()).map((item) => item.id);
-  if (!ids.length) return;
+let meetingBacklogOpen = true;
+let meetingHistoryOpen = false;
+let meetingBacklogQuery = "";
+let meetingHistoryQuery = "";
+
+function openMeetingSession(meeting: PoMeeting, ids = meeting.agendaIds || [...new Set(meeting.entries.map((entry) => entry.linkedItemId).filter(Boolean))]): void {
   meetingStage = {
-    ids, currentId: ids[0], projectId: activeProjectId, viewId: activeBacklogViewId,
-    drafts: new Map(), closingTopics: new Map(), showClosing: false
+    meeting, openedAt: performance.now(), ids, currentId: ids[0] || "", projectId: activeProjectId, viewId: activeBacklogViewId,
+    drafts: new Map(), showClosing: false
   };
-  setView("meetings");
-  root.querySelector<HTMLElement>("#meeting-stage-topic")?.focus();
 }
 
-function meetingStageItems(): WorkItem[] {
-  return (meetingStage?.ids || []).flatMap((id) => {
-    const item = itemById(id);
-    return item && !item.archived ? [item] : [];
-  });
+function createMeetingSession(ids: string[] = []): boolean {
+  const now = new Date().toISOString();
+  const meeting: PoMeeting = { id: nextId("MEET"), title: "Yeni toplantı", projectId: "", createdAt: now, updatedAt: now, entries: [], agendaIds: ids };
+  const meetings = state.meetings ||= [];
+  meetings.unshift(meeting);
+  if (!save()) { meetings.shift(); return false; }
+  openMeetingSession(meeting, ids);
+  return true;
+}
+
+function startMeetingStage(): void {
+  const ids = sortBacklogItems(getSelectedBacklogItems()).map((item) => item.id);
+  if (createMeetingSession(ids)) setView("meetings");
+}
+
+function addMeetingAgendaItem(id: string): void {
+  const stage = meetingStage;
+  const item = itemById(id);
+  if (!stage || stage.meeting.endedAt || !item || item.archived || stage.ids.includes(id)) return;
+  const agendaIds = stage.meeting.agendaIds;
+  const updatedAt = stage.meeting.updatedAt;
+  stage.meeting.agendaIds = [...stage.ids, id];
+  stage.meeting.updatedAt = new Date().toISOString();
+  if (!save()) {
+    stage.meeting.agendaIds = agendaIds;
+    stage.meeting.updatedAt = updatedAt;
+    return;
+  }
+  stage.ids = stage.meeting.agendaIds;
+  stage.currentId = id;
+  renderMeetingStage(true);
+}
+
+function finishMeetingSession(): void {
+  const stage = meetingStage;
+  if (!stage || stage.meeting.endedAt) return;
+  const { meeting } = stage;
+  const updatedAt = meeting.updatedAt;
+  meeting.endedAt = meeting.updatedAt = new Date().toISOString();
+  meeting.durationSeconds = Math.floor((performance.now() - stage.openedAt) / 1000);
+  if (!save()) {
+    delete meeting.endedAt;
+    delete meeting.durationSeconds;
+    meeting.updatedAt = updatedAt;
+    return;
+  }
+  stage.showClosing = true;
+  renderMeetingStage();
+  root.querySelector<HTMLElement>("#meeting-closing-title")?.focus();
+}
+
+async function deleteMeetingSession(): Promise<void> {
+  const stage = meetingStage;
+  if (!stage || !(await appConfirm('"' + stage.meeting.title + '" toplantısı silinsin mi? Bu toplantıdan oluşturulan kayıtlar kendi listelerinde kalır.'))) return;
+  const meetings = state.meetings;
+  if (!meetings?.some((meeting) => meeting.id === stage.meeting.id)) return;
+  state.meetings = meetings.filter((meeting) => meeting.id !== stage.meeting.id);
+  if (!save()) { state.meetings = meetings; return; }
+  if (meetingStage === stage) {
+    const next = state.meetings[0];
+    if (next) { openMeetingSession(next); renderMeetingStage(true); }
+    else endMeetingStage();
+  }
+  toast("Toplantı silindi.");
 }
 
 function endMeetingStage(): void {
@@ -1278,23 +1346,22 @@ function endMeetingStage(): void {
 
 function stepMeetingStage(offset: number): void {
   if (!meetingStage) return;
-  const items = meetingStageItems();
-  const index = items.findIndex((item) => item.id === meetingStage?.currentId);
-  const next = items[index + offset];
+  const index = meetingStage.ids.indexOf(meetingStage.currentId);
+  const next = meetingStage.ids[index + offset];
   if (!next) return;
-  meetingStage.currentId = next.id;
+  meetingStage.currentId = next;
   renderMeetingStage(true);
 }
 
 function meetingClosingGroups(stage: NonNullable<typeof meetingStage>) {
-  return stage.ids.flatMap((id) => {
-    const topic = stage.closingTopics.get(id);
-    if (!topic) return [];
+  return ["", ...stage.ids].flatMap((id) => {
+    const records = stage.meeting.entries.filter((entry) => entry.linkedItemId === id);
     const sections = Object.entries(meetingClosingLabels).flatMap(([kind, label]) => {
-      const entries = topic.entries[kind as PoMeetingKind];
+      const entries = records.filter((entry) => entry.kind === kind).map((entry) => entry.text);
       return entries.length ? [{ label, entries }] : [];
     });
-    return [{ title: id + " · " + topic.title, sections }];
+    const item = id && itemById(id);
+    return sections.length ? [{ title: item ? item.id + " · " + item.title : id || "Genel", sections }] : [];
   });
 }
 
@@ -1304,7 +1371,7 @@ function renderMeetingClosing(stage: NonNullable<typeof meetingStage>): void {
     <header class="meeting-stage-heading"><div><p class="panel-kicker">TOPLANTI MODU</p><h1 id="meeting-closing-title" tabindex="-1">Toplantı kapanış kartı</h1></div>
       <div class="meeting-stage-actions">
         <button type="button" class="button button-secondary" data-action="meeting-stage-resume">Gündeme dön</button>
-        <button type="button" class="button button-secondary" data-action="end-meeting-stage">Backlog’a dön</button>
+        <button type="button" class="button button-secondary" data-action="end-meeting-stage">${icon("chevronLeft")}<span>Backlog’a dön</span></button>
       </div>
     </header>
     <article class="meeting-stage-card meeting-closing-card" aria-labelledby="meeting-closing-title">
@@ -1335,24 +1402,52 @@ async function copyMeetingClosing(): Promise<void> {
   }
 }
 
+const meetingRecordTime = new Intl.DateTimeFormat("tr-TR", { hour: "2-digit", minute: "2-digit" });
+
+function meetingElapsed(openedAt: number, durationSeconds?: number): string {
+  const seconds = durationSeconds ?? Math.floor((performance.now() - openedAt) / 1000);
+  return [Math.floor(seconds / 3600), Math.floor(seconds / 60) % 60, seconds % 60]
+    .map((part) => String(part).padStart(2, "0")).join(":");
+}
+
 function renderMeetingStage(focusTopic = false): void {
   if (!meetingStage) return;
   if (meetingStage.showClosing) { renderMeetingClosing(meetingStage); return; }
-  const items = meetingStageItems();
-  const index = Math.max(0, items.findIndex((item) => item.id === meetingStage?.currentId));
-  const item = items[index];
-  const draft = meetingStage.drafts.get(item?.id || "");
-  const agenda = items.map((entry, position) => `<li><button type="button" data-action="meeting-stage-item" data-id="${esc(entry.id)}" ${entry.id === item?.id ? 'aria-current="step"' : ''}><span class="meeting-stage-number">${position + 1}</span><span><small>${esc(entry.id)}</small><strong>${esc(entry.title)}</strong></span></button></li>`).join("");
+  const { ids, currentId } = meetingStage;
+  const index = ids.indexOf(currentId);
+  const item = itemById(currentId);
+  const draft = meetingStage.drafts.get(currentId);
+  const agenda = ids.map((id, position) => {
+    const title = itemById(id)?.title || "Backlog işi artık mevcut değil";
+    return `<li><button type="button" data-action="meeting-stage-item" data-id="${esc(id)}" ${id === currentId ? 'aria-current="step"' : ''}><span class="meeting-stage-number">${position + 1}</span><span><small>${esc(id)}</small><strong>${esc(title)}</strong></span></button></li>`;
+  }).join("");
   const decisions = item ? (state.decisions || []).filter((decision) => decision.workItemIds?.includes(item.id)) : [];
   const questions = item ? (state.openQuestions || []).filter((question) => question.linkedItemId === item.id) : [];
   const tasks = item ? state.tasks.filter((task) => task.linked === item.id) : [];
   const notes = item ? state.notes.filter((note) => note.linked === item.id) : [];
-  const records = [
+  const records = item ? [
     ...decisions.map((decision) => ({ kind: "Karar", text: decision.rationale?.startsWith(decision.title) ? decision.rationale : [decision.title, decision.rationale].filter(Boolean).join("\n"), id: decision.id })),
     ...questions.map((question) => ({ kind: "Soru", text: question.text, id: question.id })),
     ...tasks.map((task) => ({ kind: "Görev", text: task.description || task.title, id: task.id })),
     ...notes.map((note) => ({ kind: "Not", text: note.body || note.title, id: note.id }))
-  ];
+  ] : [];
+  const knownIds = new Set(records.map((record) => record.id));
+  for (const entry of meetingStage.meeting.entries) {
+    const id = entry.recordId || entry.id;
+    if (entry.linkedItemId === currentId && !knownIds.has(id)) {
+      records.push({ id, text: entry.text, kind: meetingStageRecordLabels[entry.kind] });
+    }
+  }
+  const recordDates = new Map(meetingStage.meeting.entries.map((entry) => [entry.recordId || entry.id, entry.createdAt]));
+  const recordList = records.length ? '<section class="meeting-stage-records"><h3>Toplantı kayıtları</h3><ul>' +
+    records.map(({ kind, text, id }) => {
+      const timestamp = recordDates.get(id);
+      const time = timestamp && Number.isFinite(Date.parse(timestamp))
+        ? '<time datetime="' + esc(timestamp) + '" title="' + esc(personalRecordDate.format(new Date(timestamp))) + '">' +
+          icon("clock") + esc(meetingRecordTime.format(new Date(timestamp))) + '</time>'
+        : "";
+      return '<li data-stage-record="' + esc(id) + '"><strong>' + kind + '</strong><span>' + esc(text) + '</span>' + time + '</li>';
+    }).join("") + '</ul></section>' : "";
   const topic = item ? `
     <div class="meeting-stage-topic-header"><p class="panel-kicker">${esc(item.id)} · ${esc(item.project)} · ${esc(item.type)}</p>
       <h2 id="meeting-stage-topic" tabindex="-1">${esc(item.title)}</h2>
@@ -1360,49 +1455,166 @@ function renderMeetingStage(focusTopic = false): void {
     <div class="meeting-stage-body" tabindex="0" aria-label="İş içeriği">
       <section><h3>Açıklama</h3>${item.description ? structuredTextMarkup(item.description) : '<p>Açıklama eklenmemiş.</p>'}</section>
       <section><h3>Kabul kriterleri</h3>${item.acceptance.length ? '<ul>' + item.acceptance.map((criterion) => '<li>' + esc(criterion) + '</li>').join("") + '</ul>' : '<p>Kabul kriteri eklenmemiş.</p>'}</section>
-      ${records.length ? '<section class="meeting-stage-records"><h3>Bağlı kayıtlar</h3><ul>' + records.map(({ kind, text, id }) => '<li data-stage-record="' + esc(id) + '"><strong>' + kind + '</strong><span>' + esc(text) + '</span></li>').join("") + '</ul></section>' : ''}
-    </div>` : '<div class="meeting-stage-body"><p>Gündemde görüntülenebilecek iş kalmadı.</p></div>';
-  if (item) meetingStage.currentId = item.id;
+      ${recordList}
+    </div>` : `<div class="meeting-stage-topic-header"><h2 id="meeting-stage-topic" tabindex="-1">${esc(currentId || "Genel")}</h2></div>
+      <div class="meeting-stage-body">${recordList || '<p>Toplantı kaydı yazabilir veya sağdaki Backlog listesinden gündeme iş ekleyebilirsin.</p>'}</div>`;
+  const meeting = meetingStage.meeting;
+  const backlogScroll = root.querySelector(".meeting-stage-backlog-list")?.scrollTop || 0;
+  const history = [...(state.meetings || [])].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+  const historyRows = history.map((entry) => {
+    const topicIds = entry.agendaIds || entry.entries.map((record) => record.linkedItemId);
+    const search = [entry.title, ...topicIds.flatMap((id) => [id, itemById(id)?.title || ""]), ...entry.entries.map((record) => record.text)].join(" ");
+    return `<button type="button" data-action="meeting-history-open" data-id="${esc(entry.id)}" data-meeting-search-text="${esc(search.toLocaleLowerCase("tr-TR"))}" aria-pressed="${entry.id === meeting.id}"><strong>${esc(entry.title)}</strong><small>${esc(personalRecordDate.format(new Date(entry.createdAt)))}${entry.endedAt ? " · Tamamlandı" : ""}</small></button>`;
+  }).join("");
+  const backlogRows = state.items.filter((entry) => !meeting.endedAt && !entry.archived && !meetingStage?.ids.includes(entry.id)).map((entry) =>
+    `<button type="button" draggable="true" data-action="meeting-agenda-add" data-id="${esc(entry.id)}" data-meeting-search-text="${esc([entry.id, entry.title, entry.project].join(" ").toLocaleLowerCase("tr-TR"))}" title="Gündeme ekle"><strong>${esc(entry.title)}</strong><small>${esc(entry.id + " · " + entry.project)}</small></button>`).join("");
   const agendaScroll = root.querySelector(".meeting-stage-agenda ol")?.scrollTop || 0;
   root.innerHTML = `<div class="page-content po-page meeting-stage" data-scroll-layout="ready">
-    <header class="meeting-stage-heading"><div><p class="panel-kicker">TOPLANTI MODU</p><h1>Toplantı sahnesi</h1></div>
+    <header class="meeting-stage-heading meeting-session-header">
+      <div class="meeting-stage-identity">
+        <span class="meeting-session-mark">${icon("calendar")}</span>
+        <div class="meeting-session-name"><h1>Toplantı sahnesi</h1>
+          <input class="meeting-session-title" data-meeting-title maxlength="140" aria-label="Toplantı adı" value="${esc(meeting.title)}" ${meeting.endedAt ? "readonly" : ""}>
+        </div>
+      </div>
+      <span class="meeting-stage-timer" title="Oturum süresi">${icon("clock")}<span role="timer" aria-label="Oturum süresi">${meetingElapsed(meetingStage.openedAt, meeting.endedAt ? meeting.durationSeconds ?? 0 : undefined)}</span></span>
       <div class="meeting-stage-actions">
-        <button type="button" class="button button-primary" data-action="meeting-stage-close">Kapanış kartı</button>
-        <button type="button" class="button button-secondary" data-action="end-meeting-stage">Backlog’a dön</button>
+        <button type="button" class="button button-secondary" data-action="meeting-session-new">${icon("add")}<span>Yeni toplantı</span></button>
+        <button type="button" class="button button-secondary" data-action="meeting-stage-close">${icon("check")}<span>Kapanış kartı</span></button>
+        ${meeting.endedAt ? '<span class="meeting-session-ended">Tamamlandı</span>' : '<button type="button" class="button button-primary" data-action="meeting-session-finish">' + icon("check") + '<span>Toplantıyı bitir</span></button>'}
+        <button type="button" class="button button-secondary meeting-session-icon" data-action="meeting-session-delete" data-tooltip="Toplantıyı sil" aria-label="Toplantıyı sil">${icon("delete")}</button>
+        <button type="button" class="button button-secondary meeting-session-icon" data-action="end-meeting-stage" data-tooltip="Backlog’a dön" aria-label="Backlog’a dön">${icon("chevronLeft")}</button>
       </div></header>
-    <div class="meeting-stage-layout">
-      <nav class="meeting-stage-agenda" aria-label="Toplantı gündemi"><h2>Gündem <span>${items.length}</span></h2><ol>${agenda}</ol></nav>
-      <article class="meeting-stage-card">${topic}
-        ${item ? `<form id="meeting-stage-record-form" class="meeting-stage-composer" data-item-id="${esc(item.id)}">
-          <div class="meeting-stage-composer-bar">
-            <div class="meeting-stage-kinds" role="group" aria-label="Kayıt türü">
-              <span class="meeting-stage-kind-indicator" aria-hidden="true"></span>
-              ${Object.entries(meetingStageRecordLabels).map(([kind, label]) =>
-                '<label><input type="radio" name="kind" value="' + kind + '" ' + (kind === (draft?.kind || "note") ? 'checked' : '') + '><span>' + label + '</span></label>').join("")}
-            </div>
+    <div class="meeting-stage-layout${meetingBacklogOpen ? " has-backlog" : ""}">
+      <nav class="meeting-stage-agenda" data-meeting-drop aria-label="Toplantı gündemi"><h2>Gündem <span>${ids.length}</span></h2><button type="button" data-action="meeting-stage-item" data-id="" ${!currentId ? 'aria-current="step"' : ''}>Genel</button><ol>${agenda}</ol>
+        <details class="meeting-stage-history" ${meetingHistoryOpen ? "open" : ""}><summary>Geçmiş toplantılar</summary>
+          <input type="search" class="field-input" data-meeting-filter="history" aria-label="Toplantılarda ara" placeholder="Toplantılarda ara…" value="${esc(meetingHistoryQuery)}">
+          <div class="meeting-stage-picker-list">${historyRows}</div><p class="meeting-picker-empty" hidden>Toplantı bulunamadı.</p>
+        </details></nav>
+      <article class="meeting-stage-card${focusTopic ? " is-topic-entering" : ""}" data-meeting-drop>${topic}
+        ${!meeting.endedAt && (!currentId || (item && !item.archived)) ? `<form id="meeting-stage-record-form" class="meeting-stage-composer" data-item-id="${esc(item?.id || "")}">
+          ${item ? `<div class="meeting-stage-composer-bar">
             <div class="meeting-stage-nav" role="group" aria-label="Gündemde gezin">
               <button type="button" data-action="meeting-stage-prev" title="Önceki iş (←)" aria-label="Önceki iş" ${index === 0 ? 'disabled' : ''}>${icon("chevronLeft")}</button>
-              <span title="Gündemde ${index + 1} / ${items.length}">${esc(item.id)}</span>
-              <button type="button" data-action="meeting-stage-next" title="Sonraki iş (→)" aria-label="Sonraki iş" ${index + 1 === items.length ? 'disabled' : ''}>${icon("chevronRight")}</button>
+              <span title="Gündemde ${index + 1} / ${ids.length}">${esc(item.id)}</span>
+              <button type="button" data-action="meeting-stage-next" title="Sonraki iş (→)" aria-label="Sonraki iş" ${index + 1 === ids.length ? 'disabled' : ''}>${icon("chevronRight")}</button>
             </div>
-          </div>
+          </div>` : ""}
           <div class="workspace-message-input">
-            <textarea name="text" rows="1" aria-label="Hızlı toplantı kaydı" placeholder="${esc(item.id)} için bir mesaj yaz…" maxlength="1500">${esc(draft?.text || "")}</textarea>
-            <button type="submit" aria-label="Gönder" title="Gönder (Enter)" ${draft?.text.trim() ? '' : 'disabled'}>${icon("arrowUp")}</button>
+            <div class="meeting-stage-kinds" role="group" aria-label="Kayıt türü">
+              <span class="meeting-stage-kind-indicator" aria-hidden="true"></span>
+              ${meetingStageRecordKinds.map((kind, index) => {
+                const label = meetingStageRecordLabels[kind];
+                return `<label data-tooltip="${label} (Alt+${index + 1})"><input type="radio" name="kind" value="${kind}" aria-label="${label}" aria-keyshortcuts="Alt+${index + 1}" ${kind === (draft?.kind || "note") ? "checked" : ""}><span>${icon(meetingStageRecordIcons[kind])}</span></label>`;
+              }).join("")}
+            </div>
+            <textarea name="text" rows="1" aria-label="Hızlı toplantı kaydı" aria-keyshortcuts="Control+Space" title="Kayıt türünü değiştir (Ctrl+Space)" placeholder="${meetingStagePlaceholders[draft?.kind || "note"]}" maxlength="1500">${esc(draft?.text || "")}</textarea>
+            <button type="submit" aria-label="${meetingStageRecordLabels[draft?.kind || "note"]} gönder" data-tooltip="${meetingStageRecordLabels[draft?.kind || "note"]} gönder (Enter)" ${draft?.text.trim() ? '' : 'disabled'}>${icon(meetingStageRecordIcons[draft?.kind || "note"])}</button>
           </div>
-        </form>` : ''}
+        </form>` : ""}
       </article>
+      <aside class="meeting-stage-backlog">
+        <button type="button" class="button button-secondary" data-action="meeting-backlog-toggle" aria-expanded="${meetingBacklogOpen}" aria-controls="meeting-backlog-content" aria-label="Backlog ${meetingBacklogOpen ? "panelini kapat" : "panelini aç"}">${icon("chevronLeft")}<span>Backlog</span></button>
+        <div id="meeting-backlog-content" class="meeting-stage-backlog-content" ${meetingBacklogOpen ? "" : 'inert aria-hidden="true"'}>
+          <input type="search" class="field-input" data-meeting-filter="backlog" aria-label="Backlog’da ara" placeholder="Backlog’da ara…" value="${esc(meetingBacklogQuery)}">
+          <div class="meeting-stage-picker-list meeting-stage-backlog-list">${backlogRows}</div><p class="meeting-picker-empty" hidden>İş bulunamadı.</p>
+        </div>
+      </aside>
     </div></div>`;
+  const timer = root.querySelector<HTMLElement>('[role="timer"]');
+  const openedAt = meetingStage.openedAt;
+  function tickMeetingTimer(): void {
+    if (!timer?.isConnected) return;
+    timer.textContent = meetingElapsed(openedAt);
+    window.setTimeout(tickMeetingTimer, 1000);
+  }
+  if (!meeting.endedAt) window.setTimeout(tickMeetingTimer, 1000);
   root.querySelector(".meeting-stage-agenda ol")!.scrollTop = agendaScroll;
+  root.querySelectorAll<HTMLInputElement>("[data-meeting-filter]").forEach(filterMeetingPicker);
+  const backlogList = root.querySelector(".meeting-stage-backlog-list");
+  if (backlogList) backlogList.scrollTop = backlogScroll;
+  root.querySelector(".meeting-stage-history")?.addEventListener("toggle", (event) => {
+    meetingHistoryOpen = (event.currentTarget as HTMLDetailsElement).open;
+  });
   root.querySelector('[aria-current="step"]')?.scrollIntoView({ block: "nearest", inline: "nearest" });
   const message = root.querySelector<HTMLTextAreaElement>("#meeting-stage-record-form textarea");
   if (message) resizeWorkspaceMessage(message);
   if (focusTopic) root.querySelector<HTMLElement>("#meeting-stage-topic")?.focus({ preventScroll: true });
 }
 
+function filterMeetingPicker(input: HTMLInputElement): void {
+  const parent = input.parentElement!;
+  const query = input.value.trim().toLocaleLowerCase("tr-TR");
+  let matches = 0;
+  parent.querySelectorAll<HTMLElement>("[data-meeting-search-text]").forEach((row) => {
+    row.hidden = !row.dataset.meetingSearchText!.includes(query);
+    if (!row.hidden) matches++;
+  });
+  parent.querySelector<HTMLElement>(".meeting-picker-empty")!.hidden = matches > 0;
+}
+
+const meetingDragType = "application/x-rota-meeting-item";
+root.addEventListener("dragstart", (event) => {
+  const row = (event.target as Element).closest<HTMLElement>('[data-action="meeting-agenda-add"]');
+  if (!row?.dataset.id || !event.dataTransfer) return;
+  event.dataTransfer.setData(meetingDragType, row.dataset.id);
+  event.dataTransfer.effectAllowed = "copy";
+});
+root.addEventListener("dragover", (event) => {
+  if (!(event.target as Element).closest("[data-meeting-drop]") || !event.dataTransfer?.types.includes(meetingDragType)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+});
+root.addEventListener("drop", (event) => {
+  if (!(event.target as Element).closest("[data-meeting-drop]")) return;
+  const id = event.dataTransfer?.getData(meetingDragType);
+  if (!id) return;
+  event.preventDefault();
+  event.stopPropagation();
+  addMeetingAgendaItem(id);
+});
+root.addEventListener("change", (event) => {
+  const input = event.target;
+  if (!(input instanceof HTMLInputElement) || !input.matches("[data-meeting-title]") || !meetingStage) return;
+  const meeting = meetingStage.meeting;
+  const previous = meeting.title;
+  const updatedAt = meeting.updatedAt;
+  meeting.title = input.value.trim() || "Yeni toplantı";
+  meeting.updatedAt = new Date().toISOString();
+  if (!save()) { meeting.title = previous; meeting.updatedAt = updatedAt; }
+  input.value = meeting.title;
+  const historyTitle = root.querySelector('[data-action="meeting-history-open"][aria-pressed="true"] strong');
+  if (historyTitle) {
+    historyTitle.textContent = meeting.title;
+    const row = historyTitle.parentElement!;
+    row.dataset.meetingSearchText = [meeting.title, ...meetingStage.ids.flatMap((id) => [id, itemById(id)?.title || ""]),
+      ...meeting.entries.map((entry) => entry.text)].join(" ").toLocaleLowerCase("tr-TR");
+    const filter = root.querySelector<HTMLInputElement>('[data-meeting-filter="history"]');
+    if (filter) filterMeetingPicker(filter);
+  }
+});
+
 root.addEventListener("keydown", (event) => {
-  if (!meetingStage || meetingStage.showClosing || activeView !== "meetings" || modalRoot.children.length || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (!meetingStage || meetingStage.showClosing || activeView !== "meetings" || modalRoot.children.length || event.metaKey || event.shiftKey || event.isComposing) return;
   if (!(event.target instanceof Element) || !event.target.closest(".meeting-stage")) return;
+  if (event.ctrlKey || event.altKey) {
+    const form = event.target.closest("#meeting-stage-record-form");
+    if (!form) return;
+    if (event.ctrlKey && !event.altKey && event.code === "Space") {
+      event.preventDefault();
+      if (event.repeat) return;
+      const radios = [...form.querySelectorAll<HTMLInputElement>('input[name="kind"]')];
+      const current = radios.findIndex((radio) => radio.checked);
+      radios[(current + 1) % radios.length]?.click();
+    } else if (event.altKey && !event.ctrlKey) {
+      const shortcut = /^Digit([1-4])$/.exec(event.code);
+      if (!shortcut) return;
+      const kind = meetingStageRecordKinds[Number(shortcut[1]) - 1];
+      const radio = form.querySelector<HTMLInputElement>('input[value="' + kind + '"]');
+      if (radio) { event.preventDefault(); radio.click(); }
+    }
+    return;
+  }
   if (event.target instanceof HTMLTextAreaElement && event.target.form?.id === "meeting-stage-record-form" && event.key === "Enter" && !event.isComposing) {
     event.preventDefault();
     event.target.form.requestSubmit();
@@ -1414,6 +1626,51 @@ root.addEventListener("keydown", (event) => {
   stepMeetingStage(event.key === "ArrowRight" ? 1 : -1);
 });
 
+root.addEventListener("focusin", (event) => {
+  const target = event.target;
+  if (!(target instanceof HTMLTextAreaElement) || target.form?.id !== "meeting-stage-record-form" || target.value) return;
+  const field = target;
+  if (document.body.classList.contains("reduced-motion") || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+
+  const original = field.placeholder;
+  const letters = Array.from(original);
+  const typingDelays = [62, 94, 73, 115, 82, 68];
+  let position = 0;
+  let deleting = false;
+  let timer = 0;
+
+  function stop(): void {
+    window.clearTimeout(timer);
+    field.placeholder = original;
+    field.classList.remove("is-placeholder-typing");
+    stopMeetingPlaceholderAnimation.delete(field);
+    field.removeEventListener("input", stop);
+    field.removeEventListener("blur", stop);
+  }
+
+  function step(): void {
+    if (!field.isConnected || document.activeElement !== field || field.value) { stop(); return; }
+    position += deleting ? -1 : 1;
+    field.placeholder = letters.slice(0, position).join("") || " ";
+    let delay = deleting ? 42 : typingDelays[position % typingDelays.length];
+    if (position === letters.length) {
+      deleting = true;
+      delay = 520;
+    } else if (position === 0) {
+      timer = window.setTimeout(stop, 260);
+      return;
+    }
+    timer = window.setTimeout(step, delay);
+  }
+
+  stopMeetingPlaceholderAnimation.set(field, stop);
+  field.addEventListener("input", stop);
+  field.addEventListener("blur", stop);
+  field.classList.add("is-placeholder-typing");
+  field.placeholder = " ";
+  timer = window.setTimeout(step, 140);
+});
+
 function meetingStageDraft(form: HTMLFormElement) {
   const data = new FormData(form);
   const kind = String(data.get("kind")) as MeetingStageRecordKind;
@@ -1423,35 +1680,43 @@ function meetingStageDraft(form: HTMLFormElement) {
 
 root.addEventListener("input", (event) => {
   if (!(event.target instanceof Element)) return;
+  if (event.target instanceof HTMLInputElement && event.target.dataset.meetingFilter) {
+    if (event.target.dataset.meetingFilter === "history") meetingHistoryQuery = event.target.value;
+    else meetingBacklogQuery = event.target.value;
+    filterMeetingPicker(event.target);
+    return;
+  }
   const form = event.target.closest<HTMLFormElement>("#meeting-stage-record-form");
-  if (!form || !meetingStage || !form.dataset.itemId) return;
+  if (!form || !meetingStage) return;
   const draft = meetingStageDraft(form);
   if (!draft) return;
-  meetingStage.drafts.set(form.dataset.itemId, draft);
+  meetingStage.drafts.set(form.dataset.itemId || "", draft);
   if (event.target instanceof HTMLTextAreaElement) {
     resizeWorkspaceMessage(event.target);
     form.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled = !draft.text.trim();
+  } else {
+    const send = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    const field = form.querySelector<HTMLTextAreaElement>("textarea")!;
+    stopMeetingPlaceholderAnimation.get(field)?.();
+    field.placeholder = meetingStagePlaceholders[draft.kind];
+    const label = meetingStageRecordLabels[draft.kind] + " gönder";
+    send.innerHTML = icon(meetingStageRecordIcons[draft.kind]);
+    send.setAttribute("aria-label", label);
+    send.dataset.tooltip = label + " (Enter)";
   }
 });
 
 function submitMeetingStageRecord(form: HTMLFormElement): void {
-  if (!meetingStage || activeView !== "meetings" || meetingStage.currentId !== form.dataset.itemId) return;
+  if (!meetingStage || meetingStage.meeting.endedAt || activeView !== "meetings" || meetingStage.currentId !== form.dataset.itemId) return;
   const item = itemById(meetingStage.currentId);
   const draft = meetingStageDraft(form);
   const text = draft?.text.trim();
-  if (!item || item.archived || !draft || !text) return;
+  if (item?.archived || !draft || !text) return;
   const origin = form.querySelector("textarea")!.getBoundingClientRect();
   const bodyScroll = root.querySelector(".meeting-stage-body")?.scrollTop || 0;
-  const id = poTools.saveStageRecord(draft.kind, text, item);
+  const id = poTools.saveStageRecord(draft.kind, text, meetingStage.meeting, item);
   if (!id) return;
-  if (draft.kind !== "note") {
-    const topic = meetingStage.closingTopics.get(item.id) || {
-      title: item.title, entries: { decision: [], question: [], task: [] }
-    };
-    topic.entries[draft.kind].push(text);
-    meetingStage.closingTopics.set(item.id, topic);
-  }
-  meetingStage.drafts.set(item.id, { kind: draft.kind, text: "" });
+  meetingStage.drafts.set(item?.id || "", { kind: draft.kind, text: "" });
   render();
   const body = root.querySelector<HTMLElement>(".meeting-stage-body");
   if (body) body.scrollTop = bodyScroll;
@@ -1476,6 +1741,12 @@ function setView(view: string): void {
   closeWorkspaceShelf(false);
   if (view === "jira" && !state.profile.jiraBaseUrl?.trim()) { toast("Jira devre dışı. Ayarlar › Entegrasyonlar bölümünden Base URL ekle."); return; }
   if (activeView === "assets" && view !== "assets") disposeAssetDiagram();
+  if (view === "meetings" && !meetingStage) {
+    const recent = state.meetings?.reduce<PoMeeting | undefined>((latest, meeting) =>
+      !latest || meeting.updatedAt > latest.updatedAt ? meeting : latest, undefined);
+    if (recent) openMeetingSession(recent);
+    else if (!createMeetingSession()) return;
+  }
   activeView = view;
   const navItem = document.querySelector<HTMLElement>('.nav-item[data-view="' + view + '"]');
   const navGroup = navItem?.closest<HTMLDetailsElement>(".nav-group");
@@ -1665,6 +1936,7 @@ actionControlObserver.observe(document.body, { childList: true, subtree: true })
 enhanceActionControls();
 
 function render(): void {
+  if (activeView !== "overview") disposeDashboardLists();
   renderDeskPins();
   renderProjectNav();
   renderWorkspaceProfile();
@@ -1679,7 +1951,7 @@ function render(): void {
   if (jiraNav) { jiraNav.disabled = !jiraEnabled; jiraNav.title = jiraEnabled ? "Jira Server paneli" : "Jira kapalı · Ayarlar › Entegrasyonlar bölümünden Base URL ekleyin"; jiraNav.classList.toggle("nav-disabled", !jiraEnabled); }
   if (jiraState) jiraState.textContent = jiraEnabled ? "Hazır" : "Kapalı";
   if (activeView === "overview") renderOverview();
-  else if (activeView === "meetings") { if (meetingStage) renderMeetingStage(); else poTools.renderMeetings(); }
+  else if (activeView === "meetings") renderMeetingStage();
   else if (activeView === "my-actions") poTools.renderMine();
   else if (activeView === "backlog") renderBacklog();
   else if (activeView === "favspace") renderFavspace(root, state, save, (kind, id) => { if (kind === "notes") showNote(id); else if (kind === "tasks") openTask(id); else if (kind === "items") openItem(id); else if (kind === "assets") openAsset(id); else if (kind === "decisions") openDecisionDetail(id); else if (kind === "releases") openReleaseEditor(id); else if (["roadmap", "meetings"].includes(kind)) setView(kind); else if (state.items.some((item) => item.id === id)) openItem(id); else toast("Kaynak kayıt: " + kind); });
@@ -1891,7 +2163,7 @@ function sendWorkspaceMessage(form: HTMLFormElement): void {
   const message = String(new FormData(form).get("message") || "").trim();
   if (!message) return;
   const title = message.split("\n")[0].slice(0, 120);
-  if (kind === "tasks") state.tasks.unshift({ id: nextId("TASK"), title, description: message, due: "", done: false, linked: "", attachments: [] });
+  if (kind === "tasks") state.tasks.unshift({ updatedAt: new Date().toISOString(), id: nextId("TASK"), title, description: message, due: "", done: false, linked: "", attachments: [] });
   else if (kind === "notes") state.notes.unshift({ id: nextId("NOTE"), createdAt: new Date().toISOString(), title, body: message, linked: "", updated: "Az önce", attachments: [] });
   else if (kind === "items") {
     const project = state.projects.find((entry) => entry.id === activeProjectId && !entry.archived) || state.projects.find((entry) => !entry.archived);
@@ -1918,7 +2190,7 @@ function sendWorkspaceMessage(form: HTMLFormElement): void {
   const list = scope?.id === "workspace-shelf" ? scope.querySelector(".workspace-shelf-list") : composer?.closest(".personal-panel")?.querySelector(".personal-record-list");
   if (list) {
     list.scrollTop = 0;
-    const row = list.firstElementChild; row?.classList.add("message-record-enter");
+    const row = list.querySelector(".personal-row") || list.firstElementChild; row?.classList.add("message-record-enter");
     window.setTimeout(() => row?.classList.remove("message-record-enter"), 600);
   }
 }
@@ -2287,10 +2559,154 @@ const dashboardSearches: Record<DashboardSearchKind, string> = { tasks: "", note
 function dashboardSearchControl(kind: DashboardSearchKind): string {
   return '<button type="button" class="personal-icon dashboard-search-trigger' + (dashboardSearches[kind] ? ' is-filtered' : '') + '" popovertarget="dashboard-search-' + kind + '" data-panel-search-trigger="' + kind + '" aria-label="Panelde ara" title="Panelde ara">' + icon("search") + '</button><div id="dashboard-search-' + kind + '" class="dashboard-search-popover" popover><div class="dashboard-search-field">' + icon("search") + '<input type="search" data-panel-search="' + kind + '" value="' + esc(dashboardSearches[kind]) + '" aria-label="Panelde ara" autocomplete="off" autofocus></div></div>';
 }
+const dashboardListSearch = new WeakMap<HTMLElement, (term: string) => number>();
+const dashboardListCleanups: (() => void)[] = [];
+
+function disposeDashboardLists(): void {
+  dashboardListCleanups.splice(0).forEach((cleanup) => cleanup());
+}
+
+function mountDashboardList<T>(kind: DashboardPanelId, records: T[], emptyText: string,
+  searchFields: (record: T) => (string | undefined)[], renderRow: (record: T, searchText: string) => string): void {
+  const target = root.querySelector<HTMLElement>('[data-dashboard-panel="' + kind + '"] .personal-record-list');
+  if (!target) return;
+  const list = target;
+
+  const rows = records.map((record) => {
+    const searchText = searchFields(record).filter(Boolean).join(" ");
+    return { record, searchText, normalized: searchText.toLocaleLowerCase("tr-TR"), height: 0 };
+  });
+  const estimate = kind === "notes" ? 88 : 68;
+  const buffer = 360;
+  const before = document.createElement("div");
+  const after = document.createElement("div");
+  const empty = document.createElement("p");
+  before.setAttribute("aria-hidden", "true");
+  after.setAttribute("aria-hidden", "true");
+  empty.className = "personal-empty";
+  list.classList.add("virtual-dashboard-list");
+  list.append(before, after, empty);
+
+  let filtered = rows;
+  let offsets: number[] = [];
+  let width = list.clientWidth;
+  let frame = 0;
+  let term: string | undefined;
+  const mounted = new Map<number, HTMLElement>();
+  const indices = new WeakMap<Element, number>();
+
+  function rebuildOffsets(): void {
+    offsets = [0];
+    for (const row of filtered) offsets.push(offsets[offsets.length - 1] + (row.height || estimate));
+  }
+
+  function indexAt(position: number): number {
+    let low = 0;
+    let high = filtered.length;
+    while (low < high) {
+      const mid = (low + high) >>> 1;
+      if (offsets[mid + 1] <= position) low = mid + 1;
+      else high = mid;
+    }
+    return low;
+  }
+
+  function paint(): void {
+    if (!list.isConnected) return;
+    const start = indexAt(Math.max(0, list.scrollTop - buffer));
+    const end = Math.min(filtered.length, indexAt(list.scrollTop + list.clientHeight + buffer) + 1);
+    for (const [index, node] of mounted) {
+      if (index >= start && index < end) continue;
+      observer.unobserve(node);
+      node.remove();
+      mounted.delete(index);
+    }
+    let next: HTMLElement = after;
+    for (let index = end - 1; index >= start; index--) {
+      let node = mounted.get(index);
+      if (!node) {
+        const row = filtered[index];
+        after.insertAdjacentHTML("beforebegin", renderRow(row.record, row.searchText));
+        node = after.previousElementSibling as HTMLElement;
+        if (node.nextElementSibling !== next) list.insertBefore(node, next);
+        mounted.set(index, node);
+        indices.set(node, index);
+        observer.observe(node);
+      }
+      next = node;
+    }
+    before.style.height = offsets[start] + "px";
+    after.style.height = (offsets[filtered.length] - offsets[end]) + "px";
+  }
+
+  function schedulePaint(): void {
+    if (frame) return;
+    frame = requestAnimationFrame(() => { frame = 0; paint(); });
+  }
+
+  const observer = new ResizeObserver((entries) => {
+    const anchor = indexAt(list.scrollTop);
+    const anchorOffset = list.scrollTop - offsets[anchor];
+    let changed = false;
+    if (list.clientWidth && list.clientWidth !== width) {
+      width = list.clientWidth;
+      for (const row of rows) row.height = 0;
+      changed = true;
+    }
+    for (const { target } of entries) {
+      const index = indices.get(target);
+      if (index === undefined || mounted.get(index) !== target) continue;
+      const height = target.getBoundingClientRect().height;
+      if (height > 0 && filtered[index].height !== height) {
+        filtered[index].height = height;
+        changed = true;
+      }
+    }
+    if (changed) {
+      rebuildOffsets();
+      paint();
+      list.scrollTop = offsets[anchor] + anchorOffset;
+    }
+    schedulePaint();
+  });
+
+  dashboardListSearch.set(list, (query) => {
+    if (term === query) return filtered.length;
+    term = query;
+    for (const node of mounted.values()) { observer.unobserve(node); node.remove(); }
+    mounted.clear();
+    filtered = query ? rows.filter((row) => row.normalized.includes(query)) : rows;
+    empty.hidden = filtered.length > 0;
+    empty.classList.toggle("dashboard-search-empty", !!query);
+    empty.textContent = query ? "Eşleşen kayıt yok." : emptyText;
+    list.scrollTop = 0;
+    rebuildOffsets();
+    paint();
+    return filtered.length;
+  });
+  list.addEventListener("scroll", schedulePaint, { passive: true });
+  observer.observe(list);
+  dashboardListCleanups.push(() => {
+    observer.disconnect();
+    list.removeEventListener("scroll", schedulePaint);
+    cancelAnimationFrame(frame);
+    dashboardListSearch.delete(list);
+  });
+}
+
 function applyDashboardSearch(kind: DashboardSearchKind): void {
   const trigger = root.querySelector<HTMLElement>('[data-panel-search-trigger="' + kind + '"]');
   const panel = trigger?.closest<HTMLElement>(".personal-panel, .personal-focus"); if (!panel) return;
   const term = dashboardSearches[kind].trim().toLocaleLowerCase("tr-TR");
+  const virtualList = panel.querySelector<HTMLElement>(".personal-record-list");
+  const virtualSearch = virtualList && dashboardListSearch.get(virtualList);
+  if (virtualSearch) {
+    const count = virtualSearch(term);
+    const badge = panel.querySelector("h2 > span");
+    if (badge) badge.textContent = String(count);
+    trigger?.classList.toggle("is-filtered", !!term);
+    return;
+  }
   const rows = [...panel.querySelectorAll<HTMLElement>("[data-panel-search-text]")];
   rows.forEach((row) => { row.hidden = !row.dataset.panelSearchText!.toLocaleLowerCase("tr-TR").includes(term); });
   const count = rows.filter((row) => !row.hidden).length;
@@ -2302,7 +2718,20 @@ function applyDashboardSearch(kind: DashboardSearchKind): void {
   if (term && !count) list?.insertAdjacentHTML("beforeend", '<p class="personal-empty dashboard-search-empty">Eşleşen kayıt yok.</p>');
 }
 
+const personalRecordDate = new Intl.DateTimeFormat("tr-TR", { dateStyle: "short", timeStyle: "short" });
+
+function personalRecordMeta(label: string, timestamp?: string, dueToday = false): string {
+  const date = timestamp ? new Date(timestamp) : undefined;
+  const updated = date && Number.isFinite(date.getTime())
+    ? '<time datetime="' + esc(timestamp!) + '">' + esc(personalRecordDate.format(date)) + '</time>'
+    : "";
+  return '<small class="personal-record-meta"><span class="personal-record-updated" data-tooltip="Son güncelleme">' +
+    icon("calendar") + updated + '</span>' + (dueToday ? '<span class="personal-due-badge">Bugün</span>' : "") +
+    (label ? '<span class="personal-record-context">' + esc(label) + '</span>' : "") + '</small>';
+}
+
 function renderOverview(): void {
+  disposeDashboardLists();
   const date = workspaceFocusDate();
   const focus = (state.dailyFocus || []).filter((entry) => entry.date === date).flatMap((entry) => {
     const record = workspaceFocusRecord(entry.kind, entry.id);
@@ -2316,7 +2745,15 @@ function renderOverview(): void {
 
   const empty = (text: string) => '<p class="personal-empty">' + text + '</p>';
   const heading = (title: string, count: number, glyph: string, action: string, label: string, kind: DashboardSearchKind) => '<header class="personal-panel-heading"><h2>' + icon(glyph) + title + '<span>' + count + '</span></h2><button type="button" class="personal-icon icon-action" ' + action + ' aria-label="' + label + '" data-tooltip="' + label + '">' + icon("add") + '</button>' + dashboardSearchControl(kind) + '</header>';
-  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><div class="personal-dashboard-body"><section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span>' + dashboardSearchControl("focus") + '</header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry" data-focus-entry-kind="' + entry.kind + '" data-focus-entry-id="' + esc(entry.id) + '" data-panel-search-text="' + esc([record.title, record.label, record.meta].join(" ")) + '"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section><div class="dashboard-layout-toolbar"><button type="button" class="personal-icon" data-dashboard-reset aria-label="Düzeni sıfırla" title="Düzeni sıfırla">' + icon("undo") + '</button></div><div class="personal-grid"><section class="personal-panel personal-tasks" data-dashboard-panel="tasks" aria-label="Görevlerim">' + heading("Görevlerim", tasks.length, "task", 'data-message-focus="tasks"', "Kişisel görev yaz", "tasks") + '<div class="personal-record-list">' + (tasks.map((task) => '<article class="personal-row' + (task.due === "Bugün" ? " personal-row-due" : "") + '" data-panel-search-text="' + esc([task.title, task.description, task.due, task.linked].filter(Boolean).join(" ")) + '"><button type="button" class="personal-task-check" data-toggle-task="' + esc(task.id) + '" aria-label="Görevi tamamla: ' + esc(task.title) + '">' + icon("check") + '</button><button type="button" class="personal-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong><small>' + esc([task.due, task.linked].filter(Boolean).join(" · ")) + '</small></button>' + workspaceFocusPin("task", task.id) + '</article>').join("") || empty("İlk görevini aşağıya mesaj olarak yaz.")) + '</div>' + workspaceMessageComposer("tasks") + '</section><section class="personal-panel personal-notes" data-dashboard-panel="notes" aria-label="Notlarım">' + heading("Notlarım", state.notes.length, "note", 'data-message-focus="notes"', "Not yaz", "notes") + '<div class="personal-record-list">' + (state.notes.map((note) => '<article class="personal-row" data-panel-search-text="' + esc([note.title, note.body, note.linked].filter(Boolean).join(" ")) + '"><button type="button" class="personal-record-open" data-note="' + esc(note.id) + '"><strong>' + esc(note.title) + '</strong><p>' + esc(note.body.slice(0, 180)) + '</p><small>' + esc([note.linked, note.updated].filter(Boolean).join(" · ")) + '</small></button>' + workspaceFocusPin("note", note.id) + '</article>').join("") || empty("Düşüncelerini aşağıya mesaj olarak yaz.")) + '</div>' + workspaceMessageComposer("notes") + '</section><section class="personal-panel personal-questions" data-dashboard-panel="questions" aria-label="Sorularım">' + heading("Sorularım", questions.length, "help", 'data-message-focus="questions"', "Soru yaz", "questions") + '<div class="personal-record-list">' + (questions.map((question) => '<article class="personal-row" data-panel-search-text="' + esc([question.text, question.owner, question.linkedItemId].filter(Boolean).join(" ")) + '"><button type="button" class="personal-record-open" data-action="edit-open-question" data-id="' + esc(question.id) + '"><strong>' + esc(question.text) + '</strong><small>' + esc([question.owner, question.expectedAt ? "Beklenen: " + question.expectedAt : "Yanıt bekleniyor", question.linkedItemId].filter(Boolean).join(" · ")) + '</small></button><button type="button" class="personal-icon" data-action="answer-open-question" data-id="' + esc(question.id) + '" aria-label="Soruyu yanıtla" data-tooltip="Yanıtı kaydet">' + icon("check") + '</button>' + workspaceFocusPin("question", question.id) + '</article>').join("") || empty("Takip edeceğin soruyu aşağıya yaz.")) + '</div>' + workspaceMessageComposer("questions") + '</section><section class="personal-panel personal-critical" data-dashboard-panel="items" aria-label="Backlog işleri"><header class="personal-panel-heading"><h2>' + icon("bug") + 'Backlog işleri<span>' + critical.length + '</span></h2>' + priorityFilter + dashboardSearchControl("items") + '</header><div class="personal-record-list">' + (critical.map((item) => '<article class="personal-row' + (item.status === "Bloke" || overdueDays(item) > 0 ? " personal-row-attention" : "") + '" data-panel-search-text="' + esc([item.id, item.title, item.description, item.project, item.priority, item.status].filter(Boolean).join(" ")) + '"><button type="button" class="personal-record-open" data-open-item="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(item.id + " · " + item.project) + '</small><span class="personal-critical-reason">' + esc([item.status === "Bloke" ? "Bloke" : "", overdueDays(item) ? overdueDays(item) + " gün gecikti" : "", item.priority + " öncelik"].filter(Boolean).join(" · ")) + '</span></button>' + workspaceFocusPin("item", item.id) + '</article>').join("") || empty("Bu öncelikte açık backlog işi yok.")) + '</div>' + workspaceMessageComposer("items") + '</section></div></div></div>';
+  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><div class="personal-dashboard-body"><section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span>' + dashboardSearchControl("focus") + '</header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry" data-focus-entry-kind="' + entry.kind + '" data-focus-entry-id="' + esc(entry.id) + '" data-panel-search-text="' + esc([record.title, record.label, record.meta].join(" ")) + '"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section>' + '<div class="dashboard-layout-toolbar"><button type="button" class="personal-icon" data-dashboard-reset aria-label="Düzeni sıfırla" title="Düzeni sıfırla">' + icon("undo") + '</button></div><div class="personal-grid"><section class="personal-panel personal-tasks" data-dashboard-panel="tasks" aria-label="Görevlerim">' + heading("Görevlerim", tasks.length, "task", 'data-message-focus="tasks"', "Kişisel görev yaz", "tasks") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("tasks") + '</section><section class="personal-panel personal-notes" data-dashboard-panel="notes" aria-label="Notlarım">' + heading("Notlarım", state.notes.length, "note", 'data-message-focus="notes"', "Not yaz", "notes") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("notes") + '</section><section class="personal-panel personal-questions" data-dashboard-panel="questions" aria-label="Sorularım">' + heading("Sorularım", questions.length, "help", 'data-message-focus="questions"', "Soru yaz", "questions") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("questions") + '</section><section class="personal-panel personal-critical" data-dashboard-panel="items" aria-label="Backlog işleri"><header class="personal-panel-heading"><h2>' + icon("bug") + 'Backlog işleri<span>' + critical.length + '</span></h2>' + priorityFilter + dashboardSearchControl("items") + '</header><div class="personal-record-list"></div>' + workspaceMessageComposer("items") + '</section></div></div></div>';
+  mountDashboardList("tasks", tasks, "İlk görevini aşağıya mesaj olarak yaz.", (task) => [task.title, task.description, task.due, task.linked],
+    (task, searchText) => '<article class="personal-row' + (task.due === "Bugün" ? " personal-row-due" : "") + '" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-task-check" data-toggle-task="' + esc(task.id) + '" aria-label="Görevi tamamla: ' + esc(task.title) + '">' + icon("check") + '</button><button type="button" class="personal-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong>' + personalRecordMeta([task.due === "Bugün" ? "" : task.due, task.linked].filter(Boolean).join(" · "), task.updatedAt, task.due === "Bugün") + '</button>' + workspaceFocusPin("task", task.id) + '</article>');
+  mountDashboardList("notes", state.notes, "Düşüncelerini aşağıya mesaj olarak yaz.", (note) => [note.title, note.body, note.linked],
+    (note, searchText) => '<article class="personal-row" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-record-open" data-note="' + esc(note.id) + '"><strong>' + esc(note.title) + '</strong><p>' + esc(note.body.slice(0, 180)) + '</p>' + personalRecordMeta(note.linked, note.updatedAt || note.createdAt) + '</button>' + workspaceFocusPin("note", note.id) + '</article>');
+  mountDashboardList("questions", questions, "Takip edeceğin soruyu aşağıya yaz.", (question) => [question.text, question.owner, question.linkedItemId],
+    (question, searchText) => '<article class="personal-row" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-record-open" data-action="edit-open-question" data-id="' + esc(question.id) + '"><strong>' + esc(question.text) + '</strong>' + personalRecordMeta([question.owner, question.expectedAt ? "Beklenen: " + question.expectedAt : "Yanıt bekleniyor", question.linkedItemId].filter(Boolean).join(" · "), question.updatedAt || question.answeredAt || question.createdAt) + '</button><button type="button" class="personal-icon" data-action="answer-open-question" data-id="' + esc(question.id) + '" aria-label="Soruyu yanıtla" data-tooltip="Yanıtı kaydet">' + icon("check") + '</button>' + workspaceFocusPin("question", question.id) + '</article>');
+  mountDashboardList("items", critical, "Bu öncelikte açık backlog işi yok.", (item) => [item.id, item.title, item.description, item.project, item.priority, item.status],
+    (item, searchText) => '<article class="personal-row' + (item.status === "Bloke" || overdueDays(item) > 0 ? " personal-row-attention" : "") + '" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-record-open" data-open-item="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(item.id + " · " + item.project) + '</small><span class="personal-critical-reason">' + esc([item.status === "Bloke" ? "Bloke" : "", overdueDays(item) ? overdueDays(item) + " gün gecikti" : "", item.priority + " öncelik"].filter(Boolean).join(" · ")) + '</span></button>' + workspaceFocusPin("item", item.id) + '</article>');
   applyDashboardLayout();
   applyDashboardMaximize();
   (Object.keys(dashboardSearches) as DashboardSearchKind[]).forEach(applyDashboardSearch);
@@ -3329,7 +3766,26 @@ function openAssetRelationLabelEditor(sourceId: string, targetId: string): void 
   modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="asset-relation-title"><header class="modal-header"><div><div class="panel-kicker">BİLEŞEN İLİŞKİSİ</div><h2 id="asset-relation-title">İlişki etiketini düzenle</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="asset-relation-label-form" class="settings-form"><p class="settings-intro">' + esc(source.code + " → " + target.code) + '</p><label class="field-label">Ok üzerinde gösterilecek ilişki<input class="field-input" name="label" maxlength="80" required value="' + esc(source.relatedAssetLabels?.[targetId] || "İlişkili") + '"></label><input type="hidden" name="sourceId" value="' + esc(sourceId) + '"><input type="hidden" name="targetId" value="' + esc(targetId) + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
 }
 
-function renderAssetDiagram(container: HTMLElement, assets: ProductAsset[]): void {
+declare const RotaDiagram: { Graph: typeof Graph };
+let diagramLibrary: Promise<typeof Graph> | undefined;
+
+function loadDiagramLibrary(): Promise<typeof Graph> {
+  return diagramLibrary ??= new Promise<typeof Graph>((resolve, reject) => {
+    const script = document.createElement("script");
+    script.src = new URL("./dist/renderer/diagram.js", document.baseURI).href;
+    script.onload = () => {
+      if (typeof RotaDiagram !== "undefined") resolve(RotaDiagram.Graph);
+      else reject(new Error("Diyagram kitaplığı bulunamadı."));
+    };
+    script.onerror = () => reject(new Error("Diyagram kitaplığı yüklenemedi."));
+    document.head.append(script);
+  }).catch((error) => {
+    diagramLibrary = undefined;
+    throw error;
+  });
+}
+
+async function renderAssetDiagram(container: HTMLElement, assets: ProductAsset[]): Promise<void> {
   disposeAssetDiagram();
   assetDiagramAssets = assets;
   if (!assets.length) {
@@ -3338,6 +3794,11 @@ function renderAssetDiagram(container: HTMLElement, assets: ProductAsset[]): voi
   }
   container.innerHTML = '<div class="asset-diagram-help">Bileşenleri sürükleyerek yerleştir; mavi bağlantı noktalarından ok çiz. Yakınlaştırmak için Ctrl + fare tekerleği kullan.</div><div class="diagram-editor-toolbar"><button class="button button-secondary button-small" data-action="diagram-fit">Tümünü sığdır</button><button class="button button-secondary button-small" data-action="diagram-layout">Otomatik hizala</button><span class="diagram-save-state">Değişiklikler otomatik kaydedilir</span></div><div class="asset-diagram-canvas" id="asset-diagram-canvas"></div><section class="asset-relation-list" id="asset-relation-list"></section>';
   const canvas = document.getElementById("asset-diagram-canvas") as HTMLElement;
+  canvas.textContent = "Diyagram yükleniyor…";
+  const Graph = await loadDiagramLibrary().catch(() => undefined);
+  if (!canvas.isConnected) return;
+  canvas.textContent = Graph ? "" : "Diyagram yüklenemedi.";
+  if (!Graph) return;
   canvas.style.width = "100%";
   const width = Math.max(container.clientWidth, 640);
   const height = 600;
@@ -3536,7 +3997,7 @@ function saveQuickCreate(event: SubmitEvent): void {
     activeProjectId = state.projects.find((entry) => entry.name === item.project)?.id || null;
     activeView = "backlog";
   } else if (kind === "Kişisel görev") {
-    state.tasks.unshift({ id: nextId("TASK"), title, due: dueDate || "Tarih belirlenmedi", done: false, linked, description, attachments: [], remindAt: remindAt || undefined });
+    state.tasks.unshift({ updatedAt: new Date().toISOString(), id: nextId("TASK"), title, due: dueDate || "Tarih belirlenmedi", done: false, linked, description, attachments: [], remindAt: remindAt || undefined });
 
   } else {
     state.notes.unshift({ id: nextId("NOTE"), createdAt: new Date().toISOString(), title, body: description, linked, updated: "Az önce", attachments: [] });
@@ -4907,10 +5368,10 @@ async function importDroppedAttachments(files: File[], destination: DropImportDe
       save(); render(); refreshItemDetail(item);
     } else if (destination.kind === "task" && destination.id) {
       const task = state.tasks.find((entry) => entry.id === destination.id); if (!task) return;
-      task.attachments = [...(task.attachments ?? []), ...imported]; save(); openTask(task.id);
+      task.attachments = [...(task.attachments ?? []), ...imported]; task.updatedAt = new Date().toISOString(); save(); openTask(task.id);
     } else if (destination.kind === "note" && destination.id) {
       const note = state.notes.find((entry) => entry.id === destination.id); if (!note) return;
-      note.attachments = [...(note.attachments ?? []), ...imported]; save(); showNote(note.id);
+      note.attachments = [...(note.attachments ?? []), ...imported]; note.updatedAt = new Date().toISOString(); save(); showNote(note.id);
     }
     dropImportRetry = null;
     const completedHost = dropImportHost(destination, activity) || host;
@@ -5076,7 +5537,7 @@ function updateWorkDiagramHistoryButtons(): void {
   if (redo) redo.disabled = workDiagramRedoHistory.length === 0;
 }
 
-function renderWorkDiagramEditor(diagram: WorkDiagram, preserveHistory = false): void {
+async function renderWorkDiagramEditor(diagram: WorkDiagram, preserveHistory = false): Promise<void> {
   if (!preserveHistory || activeWorkDiagramId !== diagram.id) {
     workDiagramUndoHistory = [JSON.stringify(diagram)];
     workDiagramRedoHistory = [];
@@ -5088,6 +5549,11 @@ function renderWorkDiagramEditor(diagram: WorkDiagram, preserveHistory = false):
   const title = document.getElementById("work-diagram-title") as HTMLInputElement | null;
   title?.addEventListener("change", () => { diagram.title = title.value.trim().slice(0, 100) || "Adsız diyagram"; diagram.updated = "Az önce"; save(); });
   const container = document.getElementById("work-diagram-canvas") as HTMLElement;
+  container.textContent = "Diyagram yükleniyor…";
+  const Graph = await loadDiagramLibrary().catch(() => undefined);
+  if (!container.isConnected) return;
+  container.textContent = Graph ? "" : "Diyagram yüklenemedi.";
+  if (!Graph) return;
   const width = Math.max(container.clientWidth, 680);
   const height = 470;
   const graph = new Graph({
@@ -5676,7 +6142,7 @@ async function addFilesToTask(id: string): Promise<void> {
   if (!task) return;
   if (desktop) {
     const files = await desktop.pickAttachments();
-    task.attachments = [...(task.attachments || []), ...files];
+    task.attachments = [...(task.attachments || []), ...files]; task.updatedAt = new Date().toISOString();
     save();
     openTask(id);
   } else {
@@ -5692,7 +6158,7 @@ async function addFilesToNote(id: string): Promise<void> {
   if (!note) return;
   if (desktop) {
     const files = await desktop.pickAttachments();
-    note.attachments = [...(note.attachments || []), ...files];
+    note.attachments = [...(note.attachments || []), ...files]; note.updatedAt = new Date().toISOString();
     save();
     showNote(id);
   } else {
@@ -5790,7 +6256,7 @@ async function saveNewRecord(event: SubmitEvent): Promise<void> {
     toast("Yeni backlog işi oluşturuldu.");
     activeView = "backlog";
   } else if (kind === "Kişisel görev") {
-    state.tasks.unshift({ id: nextId("TASK"), title, due: field("new-due").value, done: false, linked: field("new-linked-task").value, description, attachments: [...draftAttachments], sourceEmail: pendingDroppedEmailSource || undefined, remindAt: field("new-remind-at").value || undefined });
+    state.tasks.unshift({ updatedAt: new Date().toISOString(), id: nextId("TASK"), title, due: field("new-due").value, done: false, linked: field("new-linked-task").value, description, attachments: [...draftAttachments], sourceEmail: pendingDroppedEmailSource || undefined, remindAt: field("new-remind-at").value || undefined });
     toast("Görev çalışma alanına eklendi.");
 
   } else {
@@ -5815,6 +6281,7 @@ function toggleTask(id: string): void {
   const task = state.tasks.find((entry) => entry.id === id);
   if (!task) return;
   task.done = !task.done;
+  task.updatedAt = new Date().toISOString();
   save();
   if (workspaceShelf) { refreshItemBackground(); syncWorkspaceToolbar(); } else render();
 }
@@ -6034,6 +6501,7 @@ function saveEditedRecord(event: SubmitEvent, kind: "item" | "task" | "note"): v
   if (kind === "item") { openItem(id); return; }
   if (kind === "task") {
     const task = state.tasks.find((entry) => entry.id === id); if (!task) return;
+    task.updatedAt = new Date().toISOString();
     task.title = String(values.get("title") || "").trim();
     task.due = String(values.get("due") || "").trim() || "Tarih belirlenmedi";
     task.description = String(values.get("description") || "").trim();
@@ -6047,6 +6515,7 @@ function saveEditedRecord(event: SubmitEvent, kind: "item" | "task" | "note"): v
     note.body = String(values.get("body") || "").trim();
     note.linked = String(values.get("linked") || "");
     note.updated = "Az önce";
+    note.updatedAt = new Date().toISOString();
     save(); showNote(id); render(); toast("Not güncellendi.");
   }
 }
@@ -6517,7 +6986,7 @@ document.addEventListener("click", async (event) => {
     else if (command === "edit-note") openRecordEditor("note", id);
     else if (command === "note-to-task") {
       const note = state.notes.find((entry) => entry.id === id);
-      if (note) { state.tasks.unshift({ id: nextId("TASK"), title: note.title, due: "Tarih belirlenmedi", done: false, linked: note.linked, description: note.body, sourceNoteId: note.id }); save(); refreshItemBackground(); syncWorkspaceToolbar(); toast("Not içeriği ve bağlantısı korunarak görev oluşturuldu."); }
+      if (note) { state.tasks.unshift({ updatedAt: new Date().toISOString(), id: nextId("TASK"), title: note.title, due: "Tarih belirlenmedi", done: false, linked: note.linked, description: note.body, sourceNoteId: note.id }); save(); refreshItemBackground(); syncWorkspaceToolbar(); toast("Not içeriği ve bağlantısı korunarak görev oluşturuldu."); }
     }
     else if (command === "delete-note") await deleteRecord("note", id);
     else if (command === "open-asset") openAsset(id);
@@ -6877,7 +7346,7 @@ document.addEventListener("click", async (event) => {
     else if (action.dataset.action === "new-open-question") openQuestionForm();
     else if (action.dataset.action === "edit-open-question" && action.dataset.id) openQuestionForm(action.dataset.id);
     else if (action.dataset.action === "answer-open-question" && action.dataset.id) openQuestionAnswerForm(action.dataset.id);
-    else if (action.dataset.action === "reopen-question" && action.dataset.id) { const question = state.openQuestions?.find((entry) => entry.id === action.dataset.id); if (question) { question.status = "Açık"; question.answeredAt = undefined; questionFilter = "open"; save(); renderOpenQuestions(); toast("Soru yeniden açıldı."); } }
+    else if (action.dataset.action === "reopen-question" && action.dataset.id) { const question = state.openQuestions?.find((entry) => entry.id === action.dataset.id); if (question) { question.status = "Açık"; question.answeredAt = undefined; question.updatedAt = new Date().toISOString(); questionFilter = "open"; save(); renderOpenQuestions(); toast("Soru yeniden açıldı."); } }
     else if (action.dataset.action === "delete-open-question" && action.dataset.id) { if ((await appConfirm("Bu soruyu silmek istiyor musun?"))) { state.openQuestions = (state.openQuestions || []).filter((entry) => entry.id !== action.dataset.id); save(); renderOpenQuestions(); } }
     else if (action.dataset.action === "toggle-ready-pool") { readyWorkPool = !readyWorkPool; renderBacklog(); }
     else if (action.dataset.action === "apply-acceptance-template" && action.dataset.target) {
@@ -6956,7 +7425,7 @@ document.addEventListener("click", async (event) => {
     else if (action.dataset.action === "note-to-task" && action.dataset.id) {
       const note = state.notes.find((entry) => entry.id === action.dataset.id);
       if (!note) return;
-      state.tasks.unshift({ id: nextId("TASK"), title: note.title, due: "Tarih belirlenmedi", done: false, linked: note.linked, description: note.body, sourceNoteId: note.id });
+      state.tasks.unshift({ updatedAt: new Date().toISOString(), id: nextId("TASK"), title: note.title, due: "Tarih belirlenmedi", done: false, linked: note.linked, description: note.body, sourceNoteId: note.id });
       save(); refreshItemBackground(); syncWorkspaceToolbar(); toast("Not içeriği ve bağlantısı korunarak görev oluşturuldu.");
     }
     else if (action.dataset.action === "manual-backlog-order") {
@@ -7100,7 +7569,26 @@ document.addEventListener("click", async (event) => {
     else if (action.dataset.action === "copy-meeting-closing") await copyMeetingClosing();
     else if (action.dataset.action === "meeting-stage-prev") stepMeetingStage(-1);
     else if (action.dataset.action === "meeting-stage-next") stepMeetingStage(1);
-    else if (action.dataset.action === "meeting-stage-item" && meetingStage && action.dataset.id) {
+    else if (action.dataset.action === "meeting-session-finish") finishMeetingSession();
+    else if (action.dataset.action === "meeting-session-delete") await deleteMeetingSession();
+    else if (action.dataset.action === "meeting-session-new") {
+      if (createMeetingSession()) renderMeetingStage(true);
+    }
+    else if (action.dataset.action === "meeting-history-open") {
+      const meeting = state.meetings?.find((entry) => entry.id === action.dataset.id);
+      if (meeting) { openMeetingSession(meeting); renderMeetingStage(true); }
+    }
+    else if (action.dataset.action === "meeting-backlog-toggle") {
+      meetingBacklogOpen = !meetingBacklogOpen;
+      root.querySelector(".meeting-stage-layout")?.classList.toggle("has-backlog", meetingBacklogOpen);
+      action.setAttribute("aria-expanded", String(meetingBacklogOpen));
+      action.setAttribute("aria-label", "Backlog " + (meetingBacklogOpen ? "panelini kapat" : "panelini aç"));
+      const content = root.querySelector("#meeting-backlog-content");
+      content?.toggleAttribute("inert", !meetingBacklogOpen);
+      content?.setAttribute("aria-hidden", String(!meetingBacklogOpen));
+    }
+    else if (action.dataset.action === "meeting-agenda-add" && action.dataset.id) addMeetingAgendaItem(action.dataset.id);
+    else if (action.dataset.action === "meeting-stage-item" && meetingStage && action.dataset.id !== undefined) {
       meetingStage.currentId = action.dataset.id;
       renderMeetingStage(true);
     }
@@ -7529,13 +8017,13 @@ document.addEventListener("change", (event) => {
     } else if (target.id === "task-file-fallback" && target.dataset.taskId) {
       const task = state.tasks.find((entry) => entry.id === target.dataset.taskId);
       if (!task) return;
-      task.attachments = [...(task.attachments || []), ...files];
+      task.attachments = [...(task.attachments || []), ...files]; task.updatedAt = new Date().toISOString();
       save();
       openTask(task.id);
     } else if (target.id === "note-file-fallback" && target.dataset.noteId) {
       const note = state.notes.find((entry) => entry.id === target.dataset.noteId);
       if (!note) return;
-      note.attachments = [...(note.attachments || []), ...files];
+      note.attachments = [...(note.attachments || []), ...files]; note.updatedAt = new Date().toISOString();
       save();
       showNote(note.id);
     }
@@ -7666,7 +8154,7 @@ document.addEventListener("submit", (event) => {
     state.openQuestions ||= [];
     const id = String(values.get("id") || "");
     const existing = state.openQuestions.find((question) => question.id === id);
-    if (existing) { existing.text = text; existing.owner = owner; existing.expectedAt = String(values.get("expectedAt") || ""); existing.linkedItemId = String(values.get("linkedItemId") || "") || undefined; }
+    if (existing) { existing.updatedAt = new Date().toISOString(); existing.text = text; existing.owner = owner; existing.expectedAt = String(values.get("expectedAt") || ""); existing.linkedItemId = String(values.get("linkedItemId") || "") || undefined; }
     else state.openQuestions.unshift({ id: nextId("Q"), text, owner, expectedAt: String(values.get("expectedAt") || ""), status: "Açık", linkedItemId: String(values.get("linkedItemId") || "") || undefined, createdAt: new Date().toISOString() });
     save(); closeModal(); renderOpenQuestions(); toast("Açık soru kaydedildi."); return;
   }
@@ -7681,6 +8169,7 @@ document.addEventListener("submit", (event) => {
     question.answer = answer;
     question.status = "Yanıtlandı";
     question.answeredAt = new Date().toISOString();
+    question.updatedAt = question.answeredAt;
     questionFilter = "answered";
     save(); closeModal(); renderOpenQuestions(); toast("Yanıt kaydedildi; soru Yanıtlandı olarak işaretlendi."); return;
   }
@@ -8207,7 +8696,7 @@ function toggleTheme(): void {
 
 syncThemeToggle();
 
-const poTools = createPoTools({ state: () => state, save, id: nextId, icon, esc, navigate: setView, view: () => activeView, activeProject: () => activeProjectId, openItem, toast, commitItemEdit: () => !detailEdit || commitDetailEdit() });
+const poTools = createPoTools({ state: () => state, save, id: nextId, icon, esc, navigate: setView, activeProject: () => activeProjectId, openItem, toast, commitItemEdit: () => !detailEdit || commitDetailEdit() });
 initSidebarCustomization();
 initWorkspaceToolbar();
 initPomodoro({ desktop, modalRoot, record: workspaceFocusRecord, toast });

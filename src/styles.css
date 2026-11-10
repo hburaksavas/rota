@@ -69,7 +69,7 @@ button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-
 .project-pin { width: 22px; height: 25px; opacity: .2; color: #6977bf; border: 0; background: transparent; cursor: pointer; }
 .project-nav-row:hover .project-pin, .project-pin.pinned, .project-pin:focus-visible { opacity: 1; }
 .project-item { height: 33px; display: flex; align-items: center; gap: 9px; padding: 0 10px; color: #777d89; text-align: left; font-size: 10.5px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; }
-.project-item.selected { color: #343b49; font-weight: 600; background: #f7f8fa; }
+.project-item.selected { font-weight: 600; }
 .project-archive-link { display: flex; align-items: center; justify-content: space-between; height: 30px; padding: 0 10px; color: #858b98; text-align: left; font-size: 10px; border: 0; border-radius: 6px; background: transparent; cursor: pointer; }
 .project-archive-link:hover { color: #4f5b79; background: #f6f7fa; }
 .project-archive-link span { min-width: 19px; padding: 2px 5px; text-align: center; border-radius: 10px; background: #eef0f5; }
@@ -1459,7 +1459,7 @@ body.dark-theme .sidebar, body.dark-theme .topbar, body.dark-theme .panel, body.
 /* Many screens were authored before theme support and use literal light colors.
    Normalize their common surface components here so every feature view shares
    the same dark palette. */
-body.dark-theme :is([class*="card"], [class*="panel"], [class*="modal"], [class*="toolbar"], [class*="summary"], [class*="table-wrap"], [class*="preview"], [class*="editor"], [class*="settings"], [class*="search"], [class*="menu"], [class*="popover"], [class*="dropdown"], [class*="canvas"], [class*="history"], [class*="tracking"], [class*="scope-list"], [class*="relation-list"], [class*="detail-meta"], [class*="select-options"]) {
+body.dark-theme :is([class*="card"], [class*="panel"], [class*="modal"], [class*="toolbar"], [class*="summary"], [class*="table-wrap"], [class*="preview"], [class*="editor"], [class*="settings"], [class*="search"], [class*="menu"], [class*="popover"], [class*="dropdown"], [class*="canvas"], [class*="history"], [class*="tracking"], [class*="scope-list"], [class*="relation-list"], [class*="detail-meta"], [class*="select-options"]):not(:where(span, small, label, strong, em, time, [class$="-label"])) {
   color: #dce2ec;
   background-color: #222834;
   border-color: #343c4a;
@@ -1968,6 +1968,12 @@ body.dark-theme .nav-item:hover:not(.active) { background: var(--hover); }
 .nav-group > summary { border-radius: var(--radius-sm); transition: background var(--dur-fast), color var(--dur-fast); }
 .project-item, .project-archive-link { border-radius: var(--radius-sm); transition: background var(--dur-fast), color var(--dur-fast); }
 .project-item:hover { background: var(--hover); }
+body.dark-theme .project-item { color: var(--text-2); }
+body.dark-theme .project-item:hover,
+body.dark-theme .project-item:focus-visible { color: var(--text-1); background: var(--hover); }
+.project-item.selected { color: var(--text-1); background: var(--accent-soft); box-shadow: inset 2px 0 var(--accent); }
+.project-item.selected:hover,
+.project-item.selected:focus-visible { background: color-mix(in srgb, var(--accent) 14%, var(--accent-soft)); }
 .project-nav-search, .global-search, .filter-search { border-radius: var(--radius-sm); transition: border-color var(--dur-fast), box-shadow var(--dur), background var(--dur-fast); }
 .project-nav-search:focus-within, .global-search:focus-within, .filter-search:focus-within { background: var(--surface-1); border-color: color-mix(in srgb, var(--accent) 55%, transparent); box-shadow: 0 0 0 3px var(--accent-ring); }
 .project-nav-search :focus-visible, .global-search :focus-visible, .filter-search :focus-visible { outline: none; }
@@ -3397,7 +3403,6 @@ body .board-column.drop-target > header { background: var(--accent-soft); color:
 body .board-column.drop-target { outline: 2px solid var(--accent); outline-offset: -2px; }
 .personal-focus-heading h2 { font-size: 16px; }
 .personal-row-due { box-shadow: inset 3px 0 var(--accent); }
-.personal-row-due .personal-record-open small { color: var(--accent-strong); font-weight: 650; }
 .personal-row-attention { box-shadow: inset 3px 0 #c56e48; }
 .personal-row-attention .personal-critical-reason {
   background: color-mix(in srgb, #c56e48 18%, var(--surface-1));
@@ -3583,3 +3588,12 @@ body.dark-theme .backlog-drag-trash.is-drop-target { color: #fff; background: #9
 
 body.dark-theme :is(label, .field-label) { background-color: transparent; }
 body.dark-theme .workspace-question-filter .field-input { background-color: var(--surface-1); }
+
+.personal-record-open .personal-record-meta { display: flex; align-items: center; flex-wrap: wrap; gap: 4px 8px; color: var(--text-3); font-weight: 400; }
+.personal-record-updated { display: inline-flex; align-items: center; gap: 4px; flex: none; white-space: nowrap; }
+.personal-record-updated svg { width: 12px; height: 12px; flex: none; }
+.personal-record-context { min-width: 0; }
+.personal-record-updated { font-variant-numeric: tabular-nums; }
+.personal-due-badge { padding: 0 6px; border-radius: 999px; color: var(--accent-strong); background: var(--accent-soft); font-weight: 600; }
+
+.virtual-dashboard-list { overflow-anchor: none; }
