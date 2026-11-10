@@ -20,6 +20,8 @@
 
 ## Tamamlanan
 
+- **Tema geçişi ve koyu form alanları** · 10 Kasım 2026. Tema 150 ms’de yumuşakça değişir. Azaltılmış hareket tercihinde doğrudan uygulanır. Koyu temada form alanları ana yüzey rengini kullanır ve etiketler bulundukları yüzeyle bütünleşir.
+
 - **Yan menü düğmesi** · 10 Kasım 2026. Açma ve kapatma düğmesi dikey ayırıcıya oturur. Ok, menünün durumuna göre yön değiştirir ve fareyle üzerine gelindiğinde hareket yönünü gösterir.
 
 - **Pencere boyutuna uyumlu çalışma alanı** · 10 Kasım 2026. Üst çubuk ve ana içerik aynı kenar boşluğunu kullanır. Kişisel çalışma alanında panel aralıkları sabit kalır ve sütun sayısı kullanılabilir alana göre değişir. Backlog ve diğer ana menüler çalışma alanının genişliğini kullanır. Genel bakışta varsayılan yükseklikteki paneller kalan dikey alana yayılır.

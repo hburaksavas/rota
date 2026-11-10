@@ -7422,7 +7422,7 @@ document.addEventListener("change", (event) => {
     if (event.target.id === "jira-issue-type-select") { jiraSelectedIssueTypeId = event.target.value; return; }
     if (event.target.id === "jira-rota-item-select") { jiraSelectedRotaItemId = event.target.value; renderJira(); return; }
   }
-  if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-theme") { localStorage.setItem(THEME_KEY, event.target.value); document.body.classList.toggle("dark-theme", event.target.value === "dark" || (event.target.value === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches)); syncThemeToggle(); }
+  if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-theme") { setTheme(event.target.value); }
   if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-app-zoom") { setAppZoom(Number(event.target.value)); }
   if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-high-contrast") { localStorage.setItem(HIGH_CONTRAST_KEY, event.target.value); document.body.classList.toggle("high-contrast", event.target.value === "true"); }
   if (event.target instanceof HTMLSelectElement && event.target.id === "workspace-reduced-motion") { localStorage.setItem(REDUCED_MOTION_KEY, event.target.value); document.body.classList.toggle("reduced-motion", event.target.value === "true"); }
@@ -8173,7 +8173,6 @@ document.addEventListener("click", (event) => {
 applyAccentColor(storedAccentColor());
 
 // Üst bardaki tema düğmesi: açık ↔ koyu geçişi yapar ve tercihi ayarlarla aynı anahtarda saklar.
-let themeSwitchTimer = 0;
 function syncThemeToggle(): void {
   const dark = document.body.classList.contains("dark-theme");
   const label = dark ? "Açık temaya geç" : "Koyu temaya geç";
@@ -8185,16 +8184,25 @@ function syncThemeToggle(): void {
   if (activeActionTooltipAnchor?.classList.contains("theme-toggle")) { const anchor = activeActionTooltipAnchor; closeActionTooltip(); openActionTooltip(anchor); }
 }
 
+function setTheme(preference: string): void {
+  const dark = preference === "dark" || (preference === "system" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  try { localStorage.setItem(THEME_KEY, preference); } catch { /* tercih kaydedilemezse tema bu oturumda kalır */ }
+  const select = document.querySelector<HTMLSelectElement>("#workspace-theme");
+  if (select) select.value = preference;
+
+  const update = () => {
+    document.body.classList.toggle("dark-theme", dark);
+    syncThemeToggle();
+  };
+  if (dark !== document.body.classList.contains("dark-theme") && document.startViewTransition && !window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+    document.startViewTransition(update);
+  } else {
+    update();
+  }
+}
+
 function toggleTheme(): void {
-  const next = document.body.classList.contains("dark-theme") ? "light" : "dark";
-  window.clearTimeout(themeSwitchTimer);
-  document.body.classList.add("theme-switching");
-  document.body.classList.toggle("dark-theme", next === "dark");
-  try { localStorage.setItem(THEME_KEY, next); } catch { /* tercih kaydedilemezse tema bu oturumda kalır */ }
-  const select = document.getElementById("workspace-theme") as HTMLSelectElement | null;
-  if (select) select.value = next;
-  syncThemeToggle();
-  themeSwitchTimer = window.setTimeout(() => document.body.classList.remove("theme-switching"), 420);
+  setTheme(document.body.classList.contains("dark-theme") ? "light" : "dark");
 }
 
 syncThemeToggle();

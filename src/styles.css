@@ -435,7 +435,7 @@ body.dark-theme .backlog-insert-button::before { background: linear-gradient(90d
 body.dark-theme .backlog-insert-button span:first-child { border-color: #222834; }
 body.dark-theme .backlog-insert-button span:last-child { color: #c7d0ff; background: #222834; }
 body.dark-theme .backlog-insert-form { color: #c7d0ff; background: linear-gradient(135deg, #293145, #252c38); border-color: #424d68; box-shadow: 0 7px 22px #0003; }
-body.dark-theme .backlog-insert-form .field-input { color: #e7eaf1; background: #202631; border-color: #424a58; }
+body.dark-theme .backlog-insert-form .field-input { color: #e7eaf1; background: var(--surface-1); border-color: #424a58; }
 .backlog-table tbody tr:hover { background: #fbfcff; }
 .table-title { display: flex; align-items: center; gap: 9px; padding-left: 13px; }
 .backlog-title-open { display: block; max-width: 340px; overflow: hidden; padding: 0; color: #444b58; background: transparent; border: 0; text-align: left; text-overflow: ellipsis; white-space: nowrap; font-size: 8.5px; font-weight: 600; cursor: pointer; }
@@ -1479,8 +1479,8 @@ body.dark-theme .status-blocked, body.dark-theme .bug-type, body.dark-theme .but
 body.dark-theme .status-new, body.dark-theme .status-done, body.dark-theme .asset-inactive { color: #b8c1cf; }
 body.dark-theme input, body.dark-theme select, body.dark-theme textarea, body.dark-theme .field-input, body.dark-theme .field-select {
   color: #e5e8ef;
-  background-color: #292f3b;
-  border-color: #424a58;
+  background-color: var(--surface-1);
+  border-color: var(--border-1);
 }
 body.dark-theme input::placeholder, body.dark-theme textarea::placeholder { color: #8994a6; }
 body.dark-theme input[type="checkbox"], body.dark-theme input[type="radio"] { accent-color: #8193ff; }
@@ -1720,7 +1720,7 @@ body.dark-theme .dependency-timeline-row.waiting .dependency-timeline-marker { b
 body.dark-theme .work-record-modal > .modal-header, body.dark-theme .work-record-modal > .detail-header { background: #202631; border-bottom-color: #394251; }
 body.dark-theme .work-record-modal .modal-header h2, body.dark-theme .detail-modal.work-record-modal .detail-title-wrap h2 { color: #e5eaf3; }
 body.dark-theme .work-record-form .field-label, body.dark-theme .record-collapsible > summary strong, body.dark-theme .detail-modal.work-record-modal .detail-section h3, body.dark-theme .task-detail-modal .detail-section h3 { color: #d5dceb; }
-body.dark-theme .work-record-form .field-input { color: #e0e6f0; background: #202631; border-color: #3c4655; }
+body.dark-theme .work-record-form .field-input { color: #e0e6f0; background: var(--surface-1); border-color: #3c4655; }
 body.dark-theme .work-record-form .modal-footer { background: #202631; border-top-color: #394251; }
 body.dark-theme .record-collapsible { background: #222a36; border-color: #3b4656; }
 body.dark-theme .record-collapsible[open] > summary { border-bottom-color: #3b4656; }
@@ -2467,7 +2467,7 @@ body.dark-theme .backlog-filter-field select { background-color: var(--surface-2
 .theme-toggle { position: relative; display: grid; width: 34px; height: 34px; flex: 0 0 34px; place-items: center; padding: 0; overflow: hidden; color: var(--text-2); background: var(--surface-1); border: 1px solid var(--border-1); border-radius: var(--radius-sm); cursor: pointer; transition: color var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast), box-shadow var(--dur), transform var(--dur) var(--ease-out); }
 .theme-toggle:hover { color: var(--accent); border-color: var(--border-2); box-shadow: var(--shadow-sm); }
 .theme-toggle:active { transform: scale(.94); }
-.theme-icon { position: absolute; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform .45s var(--ease-spring), opacity .25s ease; }
+.theme-icon { position: absolute; width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; transition: transform .15s ease-out, opacity .15s ease-out; }
 .theme-icon-moon { opacity: 1; transform: rotate(0) scale(1); }
 .theme-icon-sun { opacity: 0; transform: rotate(-90deg) scale(.4); }
 body.dark-theme .theme-icon-moon { opacity: 0; transform: rotate(90deg) scale(.4); }
@@ -2476,9 +2476,9 @@ body.dark-theme .theme-icon-sun { opacity: 1; transform: rotate(0) scale(1); col
 body.dark-theme .theme-toggle:hover .theme-icon-sun { transform: rotate(45deg) scale(1.05); }
 body.dark-theme .theme-toggle { background: var(--surface-2); border-color: var(--border-2); }
 /* Tema değişirken renkler yumuşakça geçer */
-body.theme-switching, body.theme-switching *, body.theme-switching *::before, body.theme-switching *::after { transition: background-color .4s ease, border-color .4s ease, color .4s ease, fill .4s ease, stroke .4s ease, box-shadow .4s ease !important; }
-body.theme-switching .theme-icon { transition: transform .45s var(--ease-spring), opacity .25s ease, color .4s ease !important; }
-@media (prefers-reduced-motion: reduce) { .theme-icon { transition: none; } body.theme-switching * { transition: none !important; } }
+::view-transition-group(root) { animation-duration: 150ms; animation-timing-function: ease-out; }
+:root:active-view-transition body *, :root:active-view-transition body *::before, :root:active-view-transition body *::after { transition: none; }
+@media (prefers-reduced-motion: reduce) { .theme-icon { transition: none; } }
 
 /* ==========================================================================
    Çalışma alanı ayarları · Etiket ve alan sözlüğü
@@ -3580,3 +3580,6 @@ body.dark-theme .backlog-drag-trash.is-drop-target { color: #fff; background: #9
 }
 .toast-root:not(.show) .toast-undo-button { visibility: hidden; }
 .toast-root.show .toast-undo-button { pointer-events: auto; }
+
+body.dark-theme :is(label, .field-label) { background-color: transparent; }
+body.dark-theme .workspace-question-filter .field-input { background-color: var(--surface-1); }
