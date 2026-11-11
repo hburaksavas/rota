@@ -20,6 +20,10 @@
 
 ## Tamamlanan
 
+- **Aranabilir seçim alanları** · 11 Kasım 2026. Mevcut ve yeni tekli veya çoklu seçim alanları açıldığında seçenekler yazıyla filtrelenebilir. Arama Türkçe karakterleri destekler ve klavyeyle kullanılabilir.
+
+- **Toplantı gündemi ve kapanış takibi** · 11 Kasım 2026. Gündem maddeleri sıralanabilir, görüşüldü veya ertelendi olarak işaretlenebilir. Madde başına karar, soru ve görev sayıları gösterilir. Kapanış kartından kayıtlar açılabilir, görev sorumlusu ve hedef tarihi ile soru sahibi düzenlenebilir.
+
 - **Toplantıyı bitirme ve silme** · 11 Kasım 2026. Toplantıyı bitirince süre kaydedilir ve kapanış kartı açılır. Toplantı silindiğinde oluşturduğu kayıtlar kendi listelerinde kalır.
 
 - **Tek toplantı sahnesi** · 11 Kasım 2026. Üst çubuktaki Toplantı düğmesi sahneyi açar. Genel kayıtlar bağımsız tutulabilir ve birden fazla Backlog işi sağ panelden gündeme sürüklenebilir. Geçmiş toplantılar başlık, gündem ve mesaj içeriğiyle aranabilir.

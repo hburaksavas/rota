@@ -66,6 +66,9 @@ try {
   assert.equal(await previousMeeting.count(), 1);
   await previousMeeting.click();
   await page.getByText('İstisnai müşteri limiti ne olacak?', { exact: true }).waitFor();
+  await page.locator('[data-action="meeting-session-new"]').click();
+  assert.equal((await stored()).meetings.length, 1);
+  await page.getByRole('button', { name: 'Toplantıyı bitir' }).click();
   await page.locator('[data-view="backlog"]').click();
   const stageStart = page.locator('[data-action="start-meeting-stage"]');
   assert.equal(await stageStart.isVisible(), false);
@@ -142,7 +145,7 @@ try {
   assert.equal(await closingTopics.count(), 2);
   assert.ok((await closingTopics.nth(0).locator('h2').innerText()).startsWith(firstTopic + ' · '));
   assert.ok((await closingTopics.nth(1).locator('h2').innerText()).startsWith(secondTopic + ' · '));
-  assert.deepEqual(await closingTopics.nth(1).locator('h3').allTextContents(), ['Kararlar', 'Açık sorular', 'Görevler']);
+  assert.deepEqual(await closingTopics.nth(1).locator('h3').allTextContents(), ['Kararlar', 'Açık sorular', 'Görevler', 'Notlar']);
   await page.evaluate(() => {
     Object.defineProperty(navigator.clipboard, 'writeText', { value: async text => { window.meetingSummary = text; } });
   });
@@ -153,15 +156,33 @@ try {
   assert.match(summary, /Kararlar\n• Hızlı toplantı kaydı decision/);
   assert.match(summary, /Açık sorular\n• Hızlı toplantı kaydı question/);
   assert.doesNotMatch(summary, /kaydı note|İstisnai müşteri limiti|panoya girmemesi/i);
+  const taskFields = closingTopics.nth(1).locator('form').filter({ has: page.getByLabel('Hedef tarih') });
+  await taskFields.getByLabel('Sorumlu', { exact: true }).fill('Operasyon');
+  await taskFields.getByLabel('Hedef tarih').fill('2026-11-20');
+  await taskFields.getByRole('button', { name: 'Kaydet' }).click();
+  const questionFields = closingTopics.nth(1).locator('form').filter({ has: page.getByLabel('Yanıtlayacak kişi') });
+  await questionFields.getByLabel('Yanıtlayacak kişi').fill('Analiz ekibi');
+  await questionFields.getByRole('button', { name: 'Kaydet' }).click();
+  assert.equal((await stored()).tasks.find(task => task.description === 'Hızlı toplantı kaydı task').due, '2026-11-20');
+  assert.equal((await stored()).openQuestions.find(question => question.text === 'Hızlı toplantı kaydı question').owner, 'Analiz ekibi');
   await capture('meeting-closing');
   await page.getByRole('button', { name: 'Gündeme dön' }).click();
   assert.equal(await message.inputValue(), 'Panoya girmemesi gereken taslak');
+  const secondAgendaRow = page.locator('.meeting-agenda-row').nth(1);
+  assert.equal(await secondAgendaRow.locator('.meeting-agenda-counts > span').count(), 3);
+  await secondAgendaRow.locator('select').selectOption('deferred');
+  await secondAgendaRow.dragTo(page.locator('.meeting-agenda-row').first());
+  assert.equal(await agenda.first().getAttribute('data-id'), secondTopic);
+
   await closingButton.click();
+  assert.match(await closingTopics.first().locator("h2").innerText(), /Ertelendi/);
   await page.locator('[data-action="end-meeting-stage"]').click();
   assert.equal(await page.locator('[data-select-backlog-item]:checked').count(), 2);
+  const meetingCount = (await stored()).meetings.length;
   await stageStart.click();
-  await closingButton.click();
-  assert.equal(await copySummary.isDisabled(), true);
+  assert.equal((await stored()).meetings.length, meetingCount);
+  await page.getByRole('button', { name: 'Toplantıyı bitir' }).click();
+  assert.equal(await copySummary.isDisabled(), false);
   await page.locator('[data-action="end-meeting-stage"]').click();
   await page.locator('[data-po="meetings"]').click();
   await openItem(); await conversation();

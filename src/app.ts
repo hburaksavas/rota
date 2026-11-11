@@ -1,8 +1,11 @@
+import { installSearchableSelects } from "./searchable-select";
 import { renderFavspace, installFavspaceDrop } from "./favspace";
 import { appConfirm, appPrompt } from "./dialogs";
 import type { Graph, Edge, Node } from "@antv/x6";
 import { initPomodoro } from "./pomodoro";
 import { createPoTools } from "./po-tools";
+
+installSearchableSelects();
 
 const seed: WorkspaceState = {
   schemaVersion: 6,
@@ -1263,7 +1266,18 @@ function openMeetingSession(meeting: PoMeeting, ids = meeting.agendaIds || [...n
   };
 }
 
+function activeMeeting(): PoMeeting | undefined {
+  return state.meetings?.reduce<PoMeeting | undefined>((latest, meeting) =>
+    !meeting.endedAt && (!latest || meeting.updatedAt > latest.updatedAt) ? meeting : latest, undefined);
+}
+
 function createMeetingSession(ids: string[] = []): boolean {
+  const active = activeMeeting();
+  if (active) {
+    if (meetingStage?.meeting === active) meetingStage.showClosing = false;
+    else openMeetingSession(active);
+    return true;
+  }
   const now = new Date().toISOString();
   const meeting: PoMeeting = { id: nextId("MEET"), title: "Yeni toplantı", projectId: "", createdAt: now, updatedAt: now, entries: [], agendaIds: ids };
   const meetings = state.meetings ||= [];
@@ -1353,20 +1367,87 @@ function stepMeetingStage(offset: number): void {
   renderMeetingStage(true);
 }
 
-function meetingClosingGroups(stage: NonNullable<typeof meetingStage>) {
+function meetingClosingGroups(stage: NonNullable<typeof meetingStage>, includeNotes = false) {
   return ["", ...stage.ids].flatMap((id) => {
     const records = stage.meeting.entries.filter((entry) => entry.linkedItemId === id);
-    const sections = Object.entries(meetingClosingLabels).flatMap(([kind, label]) => {
-      const entries = records.filter((entry) => entry.kind === kind).map((entry) => entry.text);
+    const labels = includeNotes ? { ...meetingClosingLabels, note: "Notlar" } : meetingClosingLabels;
+    const sections = Object.entries(labels).flatMap(([kind, label]) => {
+      const entries = records.filter((entry) => entry.kind === kind);
       return entries.length ? [{ label, entries }] : [];
     });
     const item = id && itemById(id);
-    return sections.length ? [{ title: item ? item.id + " · " + item.title : id || "Genel", sections }] : [];
+    const deferred = id !== "" && stage.meeting.agendaStatus?.[id] === "deferred";
+    return sections.length || deferred ? [{ title: item ? item.id + " · " + item.title : id || "Genel", sections, deferred }] : [];
   });
 }
 
+function meetingClosingRecord(entry: PoMeetingEntry): string {
+  const id = entry.recordId;
+  const task = entry.kind === "task" && id ? state.tasks.find((record) => record.id === id) : undefined;
+  const question = entry.kind === "question" && id ? state.openQuestions?.find((record) => record.id === id) : undefined;
+  const decision = entry.kind === "decision" && id ? state.decisions?.find((record) => record.id === id) : undefined;
+  const note = entry.kind === "note" && id ? state.notes.find((record) => record.id === id) : undefined;
+  const open = note ? 'data-note="' + esc(note.id) + '"' : task ? 'data-open-task="' + esc(task.id) + '"' :
+    question ? 'data-action="edit-open-question" data-id="' + esc(question.id) + '"' :
+    decision ? 'data-action="open-decision" data-id="' + esc(decision.id) + '"' : "";
+  const date = task && /^\d{4}-\d{2}-\d{2}$/.test(task.due) ? task.due : "";
+  return '<li><div class="meeting-closing-record"><span>' + esc(entry.text) + '</span>' +
+    (open ? '<button type="button" class="text-button" ' + open + '>Kaydı aç</button>' : "") + '</div>' +
+    (task || question ? '<form class="meeting-closing-fields" data-meeting-entry-edit="' + esc(entry.id) + '">' +
+      '<label>' + (task ? 'Sorumlu' : 'Yanıtlayacak kişi') + '<input name="owner" maxlength="100" value="' + esc(task?.owner || question?.owner || "") + '"></label>' +
+      (task ? '<label>Hedef tarih<input type="date" name="due" value="' + esc(date) + '"></label>' : "") +
+      '<button class="button button-secondary button-small" type="submit">Kaydet</button></form>' : "") + '</li>';
+}
+
+root.addEventListener("submit", (event) => {
+  const form = event.target;
+  if (!(form instanceof HTMLFormElement) || !form.dataset.meetingEntryEdit || !meetingStage?.showClosing) return;
+  event.preventDefault();
+  const entry = meetingStage.meeting.entries.find((record) => record.id === form.dataset.meetingEntryEdit);
+  if (!entry?.recordId) return;
+  const values = new FormData(form);
+  const owner = String(values.get("owner") || "").trim();
+  const updatedAt = new Date().toISOString();
+  const task = entry.kind === "task" ? state.tasks.find((record) => record.id === entry.recordId) : undefined;
+  const question = entry.kind === "question" ? state.openQuestions?.find((record) => record.id === entry.recordId) : undefined;
+  if (task) {
+    const previous = { owner: task.owner, due: task.due, updatedAt: task.updatedAt };
+    const due = String(values.get("due") || "");
+    Object.assign(task, { owner, due: due || (/^\d{4}-\d{2}-\d{2}$/.test(task.due) ? "" : task.due), updatedAt });
+    if (!save()) { Object.assign(task, previous); return; }
+  } else if (question) {
+    const previous = { owner: question.owner, updatedAt: question.updatedAt };
+    Object.assign(question, { owner, updatedAt });
+    if (!save()) { Object.assign(question, previous); return; }
+    poTools.syncBadge();
+  } else return;
+  toast("Kayıt güncellendi.");
+});
+
+function saveMeetingAgenda(ids: string[], agendaStatus = meetingStage?.meeting.agendaStatus): boolean {
+  const stage = meetingStage;
+  if (!stage || stage.meeting.endedAt) return false;
+  const meeting = stage.meeting;
+  const previous = { agendaIds: meeting.agendaIds, agendaStatus: meeting.agendaStatus, updatedAt: meeting.updatedAt };
+  Object.assign(meeting, { agendaIds: ids, agendaStatus, updatedAt: new Date().toISOString() });
+  if (!save()) { Object.assign(meeting, previous); return false; }
+  stage.ids = ids;
+  return true;
+}
+
+function moveMeetingAgendaItem(id: string, targetId: string): void {
+  const stage = meetingStage;
+  if (!stage || id === targetId || !stage.ids.includes(id)) return;
+  const position = stage.ids.indexOf(targetId);
+  if (position < 0) return;
+  const ids = stage.ids.filter((entry) => entry !== id);
+  ids.splice(position, 0, id);
+  if (saveMeetingAgenda(ids)) renderMeetingStage();
+}
+
 function renderMeetingClosing(stage: NonNullable<typeof meetingStage>): void {
-  const groups = meetingClosingGroups(stage);
+  const groups = meetingClosingGroups(stage, true);
+  const hasSummary = meetingClosingGroups(stage).length > 0;
   root.innerHTML = `<div class="page-content po-page meeting-stage" data-scroll-layout="ready">
     <header class="meeting-stage-heading"><div><p class="panel-kicker">TOPLANTI MODU</p><h1 id="meeting-closing-title" tabindex="-1">Toplantı kapanış kartı</h1></div>
       <div class="meeting-stage-actions">
@@ -1376,12 +1457,12 @@ function renderMeetingClosing(stage: NonNullable<typeof meetingStage>): void {
     </header>
     <article class="meeting-stage-card meeting-closing-card" aria-labelledby="meeting-closing-title">
       <div class="meeting-stage-body" tabindex="0" aria-label="Toplantı çıktıları">
-        ${groups.map(({ title, sections }) => `<section class="meeting-closing-topic">
-          <h2>${esc(title)}</h2>
-          ${sections.map(({ label, entries }) => `<div><h3>${label}</h3><ul>${entries.map((entry) => `<li>${esc(entry)}</li>`).join("")}</ul></div>`).join("")}
+        ${groups.map(({ title, sections, deferred }) => `<section class="meeting-closing-topic">
+          <h2>${esc(title)}${deferred ? ' <small>Ertelendi</small>' : ""}</h2>
+          ${sections.map(({ label, entries }) => `<div><h3>${label}</h3><ul>${entries.map(meetingClosingRecord).join("")}</ul></div>`).join("")}
         </section>`).join("") || "<p>Bu oturumda henüz karar, açık soru veya görev eklenmedi.</p>"}
       </div>
-      <footer class="po-meeting-footer"><button type="button" class="button button-primary button-small" data-action="copy-meeting-closing" ${groups.length ? "" : "disabled"}>Özeti kopyala</button></footer>
+      <footer class="po-meeting-footer"><button type="button" class="button button-primary button-small" data-action="copy-meeting-closing" ${hasSummary ? "" : "disabled"}>Özeti kopyala</button></footer>
     </article></div>`;
 }
 
@@ -1389,9 +1470,9 @@ async function copyMeetingClosing(): Promise<void> {
   if (!meetingStage?.showClosing) return;
   const groups = meetingClosingGroups(meetingStage);
   if (!groups.length) return;
-  const text = ["Toplantı özeti", ...groups.map(({ title, sections }) =>
-    [title, ...sections.map(({ label, entries }) =>
-      [label, ...entries.map((entry) => "• " + entry.replaceAll("\n", "\n  "))].join("\n")
+  const text = ["Toplantı özeti", ...groups.map(({ title, sections, deferred }) =>
+    [title + (deferred ? " · Ertelendi" : ""), ...sections.map(({ label, entries }) =>
+      [label, ...entries.map((entry) => "• " + entry.text.replaceAll("\n", "\n  "))].join("\n")
     )].join("\n\n")
   )].join("\n\n");
   try {
@@ -1417,25 +1498,39 @@ function renderMeetingStage(focusTopic = false): void {
   const index = ids.indexOf(currentId);
   const item = itemById(currentId);
   const draft = meetingStage.drafts.get(currentId);
+  const agendaEntries = new Map<string, Record<PoMeetingKind, number>>();
+  for (const entry of meetingStage.meeting.entries) {
+    if (entry.kind === "note") continue;
+    const counts = agendaEntries.get(entry.linkedItemId) || { decision: 0, question: 0, task: 0 };
+    counts[entry.kind]++;
+    agendaEntries.set(entry.linkedItemId, counts);
+  }
   const agenda = ids.map((id, position) => {
     const title = itemById(id)?.title || "Backlog işi artık mevcut değil";
-    return `<li><button type="button" data-action="meeting-stage-item" data-id="${esc(id)}" ${id === currentId ? 'aria-current="step"' : ''}><span class="meeting-stage-number">${position + 1}</span><span><small>${esc(id)}</small><strong>${esc(title)}</strong></span></button></li>`;
+    const status = meetingStage?.meeting.agendaStatus?.[id] || "";
+    const counts = agendaEntries.get(id);
+    const badges = counts ? (Object.keys(counts) as PoMeetingKind[]).filter((kind) => counts[kind]).map((kind) => {
+      const label = counts[kind] + " " + meetingStageRecordLabels[kind].toLocaleLowerCase("tr-TR");
+      return `<span aria-label="${label}" data-tooltip="${label}">${icon(meetingStageRecordIcons[kind])}${counts[kind]}</span>`;
+    }).join("") : "";
+    return `<li class="meeting-agenda-row" data-agenda-id="${esc(id)}" ${meetingStage?.meeting.endedAt ? "" : 'draggable="true"'}><button type="button" data-action="meeting-stage-item" data-id="${esc(id)}" ${id === currentId ? 'aria-current="step"' : ''}><span class="meeting-stage-number">${position + 1}</span><span><small>${esc(id)}</small><strong>${esc(title)}</strong>${badges ? '<span class="meeting-agenda-counts">' + badges + '</span>' : ""}</span></button>
+      ${meetingStage?.meeting.endedAt ? (status ? '<small class="meeting-agenda-status">' + (status === "deferred" ? "Ertelendi" : "Görüşüldü") + '</small>' : "") : `<select class="meeting-agenda-status" data-agenda-status="${esc(id)}" aria-label="${esc(id)} gündem durumu"><option value="">Bekliyor</option><option value="discussed" ${status === "discussed" ? "selected" : ""}>Görüşüldü</option><option value="deferred" ${status === "deferred" ? "selected" : ""}>Ertelendi</option></select>`}</li>`;
   }).join("");
   const decisions = item ? (state.decisions || []).filter((decision) => decision.workItemIds?.includes(item.id)) : [];
   const questions = item ? (state.openQuestions || []).filter((question) => question.linkedItemId === item.id) : [];
   const tasks = item ? state.tasks.filter((task) => task.linked === item.id) : [];
   const notes = item ? state.notes.filter((note) => note.linked === item.id) : [];
-  const records = item ? [
-    ...decisions.map((decision) => ({ kind: "Karar", text: decision.rationale?.startsWith(decision.title) ? decision.rationale : [decision.title, decision.rationale].filter(Boolean).join("\n"), id: decision.id })),
-    ...questions.map((question) => ({ kind: "Soru", text: question.text, id: question.id })),
-    ...tasks.map((task) => ({ kind: "Görev", text: task.description || task.title, id: task.id })),
-    ...notes.map((note) => ({ kind: "Not", text: note.body || note.title, id: note.id }))
+  const records: { kind: MeetingStageRecordKind; text: string; id: string }[] = item ? [
+    ...decisions.map((decision) => ({ kind: "decision" as const, text: decision.rationale?.startsWith(decision.title) ? decision.rationale : [decision.title, decision.rationale].filter(Boolean).join("\n"), id: decision.id })),
+    ...questions.map((question) => ({ kind: "question" as const, text: question.text, id: question.id })),
+    ...tasks.map((task) => ({ kind: "task" as const, text: task.description || task.title, id: task.id })),
+    ...notes.map((note) => ({ kind: "note" as const, text: note.body || note.title, id: note.id }))
   ] : [];
   const knownIds = new Set(records.map((record) => record.id));
   for (const entry of meetingStage.meeting.entries) {
     const id = entry.recordId || entry.id;
     if (entry.linkedItemId === currentId && !knownIds.has(id)) {
-      records.push({ id, text: entry.text, kind: meetingStageRecordLabels[entry.kind] });
+      records.push({ id, text: entry.text, kind: entry.kind });
     }
   }
   const recordDates = new Map(meetingStage.meeting.entries.map((entry) => [entry.recordId || entry.id, entry.createdAt]));
@@ -1446,7 +1541,8 @@ function renderMeetingStage(focusTopic = false): void {
         ? '<time datetime="' + esc(timestamp) + '" title="' + esc(personalRecordDate.format(new Date(timestamp))) + '">' +
           icon("clock") + esc(meetingRecordTime.format(new Date(timestamp))) + '</time>'
         : "";
-      return '<li data-stage-record="' + esc(id) + '"><strong>' + kind + '</strong><span>' + esc(text) + '</span>' + time + '</li>';
+      return '<li data-stage-record="' + esc(id) + '"><span class="meeting-stage-record-kind" role="img" aria-label="' + meetingStageRecordLabels[kind] +
+        '" data-tooltip="' + meetingStageRecordLabels[kind] + '">' + icon(meetingStageRecordIcons[kind]) + '</span><span>' + esc(text) + '</span>' + time + '</li>';
     }).join("") + '</ul></section>' : "";
   const topic = item ? `
     <div class="meeting-stage-topic-header"><p class="panel-kicker">${esc(item.id)} · ${esc(item.project)} · ${esc(item.type)}</p>
@@ -1554,6 +1650,36 @@ function filterMeetingPicker(input: HTMLInputElement): void {
 }
 
 const meetingDragType = "application/x-rota-meeting-item";
+const meetingAgendaDragType = "application/x-rota-meeting-agenda";
+root.addEventListener("dragstart", (event) => {
+  const row = (event.target as Element).closest<HTMLElement>(".meeting-agenda-row[draggable]");
+  if (!row?.dataset.agendaId || !event.dataTransfer) return;
+  event.dataTransfer.setData(meetingAgendaDragType, row.dataset.agendaId);
+  event.dataTransfer.effectAllowed = "move";
+});
+root.addEventListener("dragover", (event) => {
+  if (!(event.target as Element).closest(".meeting-agenda-row") || !event.dataTransfer?.types.includes(meetingAgendaDragType)) return;
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "move";
+});
+root.addEventListener("drop", (event) => {
+  const row = (event.target as Element).closest<HTMLElement>(".meeting-agenda-row");
+  const id = event.dataTransfer?.getData(meetingAgendaDragType);
+  if (!row?.dataset.agendaId || !id) return;
+  event.preventDefault();
+  event.stopPropagation();
+  moveMeetingAgendaItem(id, row.dataset.agendaId);
+});
+root.addEventListener("change", (event) => {
+  const select = event.target;
+  if (!(select instanceof HTMLSelectElement) || !select.dataset.agendaStatus || !meetingStage) return;
+  const id = select.dataset.agendaStatus;
+  const statuses = { ...meetingStage.meeting.agendaStatus };
+  if (select.value === "discussed" || select.value === "deferred") statuses[id] = select.value;
+  else delete statuses[id];
+  if (!saveMeetingAgenda(meetingStage.ids, statuses)) select.value = meetingStage.meeting.agendaStatus?.[id] || "";
+});
+
 root.addEventListener("dragstart", (event) => {
   const row = (event.target as Element).closest<HTMLElement>('[data-action="meeting-agenda-add"]');
   if (!row?.dataset.id || !event.dataTransfer) return;
@@ -1598,6 +1724,17 @@ root.addEventListener("keydown", (event) => {
   if (!meetingStage || meetingStage.showClosing || activeView !== "meetings" || modalRoot.children.length || event.metaKey || event.shiftKey || event.isComposing) return;
   if (!(event.target instanceof Element) || !event.target.closest(".meeting-stage")) return;
   if (event.ctrlKey || event.altKey) {
+    const agendaRow = event.target.closest<HTMLElement>(".meeting-agenda-row[draggable]");
+    if (agendaRow?.dataset.agendaId && event.altKey && !event.ctrlKey && ["ArrowUp", "ArrowDown"].includes(event.key)) {
+      const id = agendaRow.dataset.agendaId;
+      const target = meetingStage.ids[meetingStage.ids.indexOf(id) + (event.key === "ArrowUp" ? -1 : 1)];
+      event.preventDefault();
+      if (target) {
+        moveMeetingAgendaItem(id, target);
+        root.querySelector<HTMLElement>('[data-action="meeting-stage-item"][data-id="' + CSS.escape(id) + '"]')?.focus();
+      }
+      return;
+    }
     const form = event.target.closest("#meeting-stage-record-form");
     if (!form) return;
     if (event.ctrlKey && !event.altKey && event.code === "Space") {
@@ -1742,7 +1879,7 @@ function setView(view: string): void {
   if (view === "jira" && !state.profile.jiraBaseUrl?.trim()) { toast("Jira devre dışı. Ayarlar › Entegrasyonlar bölümünden Base URL ekle."); return; }
   if (activeView === "assets" && view !== "assets") disposeAssetDiagram();
   if (view === "meetings" && !meetingStage) {
-    const recent = state.meetings?.reduce<PoMeeting | undefined>((latest, meeting) =>
+    const recent = activeMeeting() || state.meetings?.reduce<PoMeeting | undefined>((latest, meeting) =>
       !latest || meeting.updatedAt > latest.updatedAt ? meeting : latest, undefined);
     if (recent) openMeetingSession(recent);
     else if (!createMeetingSession()) return;
@@ -2741,7 +2878,7 @@ function renderOverview(): void {
   const questions = (state.openQuestions || []).filter((question) => question.status === "Açık").sort((a, b) => (a.expectedAt || "9999").localeCompare(b.expectedAt || "9999"));
   const critical = state.items.filter((item) => !item.archived && item.status !== "Tamamlandı" && isItemInActiveProject(item) && (!dashboardPriority || item.priority === dashboardPriority))
     .sort((a, b) => Number(b.status === "Bloke") - Number(a.status === "Bloke") || overdueDays(b) - overdueDays(a));
-  const priorityFilter = '<button type="button" class="personal-priority-trigger" popovertarget="dashboard-priority-popover" aria-label="Öncelik filtresi" title="Öncelik filtresi">' + icon("filter") + '<span>' + esc(dashboardPriority || "Öncelik") + '</span>' + icon("chevronDown") + '</button><div id="dashboard-priority-popover" class="personal-priority-popover" popover><strong>Öncelik</strong>' + ["", "Kritik", "Yüksek", "Orta", "Düşük"].map((priority) => '<label><input type="radio" name="dashboard-priority" value="' + priority + '" ' + (dashboardPriority === priority ? 'checked' : '') + '><span>' + esc(priority || "Tüm öncelikler") + '</span></label>').join("") + '</div>';
+  const priorityFilter = '<button type="button" class="personal-priority-trigger" popovertarget="dashboard-priority-popover" aria-label="Öncelik filtresi" title="Öncelik filtresi">' + icon("filter") + '<span>' + esc(dashboardPriority || "Öncelik") + '</span>' + icon("chevronDown") + '</button><div id="dashboard-priority-popover" class="personal-priority-popover" popover><strong>Öncelik</strong><input type="search" class="select-search-input" data-option-filter aria-label="Önceliklerde ara" placeholder="Önceliklerde ara…">' + ["", "Kritik", "Yüksek", "Orta", "Düşük"].map((priority) => '<label data-filter-option><input type="radio" name="dashboard-priority" value="' + priority + '" ' + (dashboardPriority === priority ? 'checked' : '') + '><span>' + esc(priority || "Tüm öncelikler") + '</span></label>').join("") + '</div>';
 
   const empty = (text: string) => '<p class="personal-empty">' + text + '</p>';
   const heading = (title: string, count: number, glyph: string, action: string, label: string, kind: DashboardSearchKind) => '<header class="personal-panel-heading"><h2>' + icon(glyph) + title + '<span>' + count + '</span></h2><button type="button" class="personal-icon icon-action" ' + action + ' aria-label="' + label + '" data-tooltip="' + label + '">' + icon("add") + '</button>' + dashboardSearchControl(kind) + '</header>';
@@ -6293,6 +6430,8 @@ function openTask(id: string): void {
   const related = task.linked && itemById(task.linked);
   const files = task.attachments || [];
   modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal work-record-modal task-detail-modal note-modal" data-context-task-id="' + esc(task.id) + '" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">GÖREV · ' + esc(task.due) + '</div><h2>' + esc(task.title) + '</h2></div><button class="modal-close" data-close-modal>×</button></header><p class="note-detail-body">' + esc(task.description || "Bu görev için ek bir açıklama yok.") + '</p>' + (related ? '<button class="linked-badge" data-open-item="' + esc(related.id) + '">' + esc(related.id) + ' · ilişkili iş</button>' : '<span class="independent-label">Bağımsız görev</span>') + '<div class="detail-section"><div class="section-title-row"><h3>Dosya ekleri <span class="count-chip">' + files.length + '</span></h3><button class="text-button" data-add-to-task="' + esc(task.id) + '">+ Dosya ekle</button></div>' + (files.length ? attachmentListMarkup(files, "task:" + task.id) : '<div class="attachment-empty"><span>▤</span><span>Bu görevde dosya eki yok.</span></div>') + '<input id="task-file-fallback" type="file" multiple hidden></div></section></div>';
+  if (task.owner) modalRoot.querySelector(".note-detail-body")?.insertAdjacentHTML("afterend",
+    '<div class="detail-property"><span>Sorumlu</span><strong>' + esc(task.owner) + '</strong></div>');
   if (task.remindAt) modalRoot.querySelector(".note-detail-body")?.insertAdjacentHTML("afterend", '<div class="detail-property reminder-property"><span>Hatırlatma</span><strong>' + esc(new Date(task.remindAt).toLocaleString("tr-TR")) + '</strong></div>');
   if (task.sourceEmail) { const source = task.sourceEmail; const sourceFile = files.find((file) => file.name === source.name); modalRoot.querySelector(".note-detail-body")?.insertAdjacentHTML("afterend", '<div class="email-source-card"><span class="email-source-icon">✉</span><span><strong>E-postadan oluşturuldu</strong><small>' + esc(source.name + (source.from ? " · " + source.from : "") + (source.date ? " · " + source.date : "")) + '</small></span>' + (sourceFile?.storedName ? '<button type="button" class="text-button" data-open-source-email="' + esc(sourceFile.storedName) + '">Özgün e-postayı aç</button>' : '') + '</div>'); }
   modalRoot.querySelector(".modal-header")?.insertAdjacentHTML("beforeend", '<span class="detail-actions"><button class="button button-secondary" data-action="edit-task" data-id="' + esc(task.id) + '">Düzenle</button><button class="button button-danger" data-action="delete-task" data-id="' + esc(task.id) + '">Sil</button></span>');

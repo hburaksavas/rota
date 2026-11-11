@@ -340,6 +340,7 @@ interface WorkDiagram {
 }
 
 interface PersonalTask {
+  owner?: string;
   updatedAt?: string;
   id: string;
   title: string;
@@ -411,7 +412,8 @@ interface DashboardPanelLayout { id: DashboardPanelId; width: number; height: nu
 
 type PoMeetingKind = "task" | "question" | "decision";
 interface PoMeetingEntry { id: string; text: string; kind: PoMeetingKind | "note"; linkedItemId: string; createdAt: string; recordId?: string; }
-interface PoMeeting { agendaIds?: string[]; endedAt?: string; durationSeconds?: number; id: string; title: string; projectId: string; createdAt: string; updatedAt: string; entries: PoMeetingEntry[]; }
+type MeetingAgendaStatus = "discussed" | "deferred";
+interface PoMeeting { agendaStatus?: Record<string, MeetingAgendaStatus>; agendaIds?: string[]; endedAt?: string; durationSeconds?: number; id: string; title: string; projectId: string; createdAt: string; updatedAt: string; entries: PoMeetingEntry[]; }
 type PoRequestKind = "clarification" | "example" | "confirmation" | "decision";
 interface PoRequest { id: string; itemId: string; kind: PoRequestKind; text: string; requestedBy: string; createdAt: string; answer?: string; resolvedAt?: string; replies?: { text: string; author: string; createdAt: string }[]; }
 interface WorkConversation { id: string; itemId: string; text: string; author: string; createdAt: string; }
