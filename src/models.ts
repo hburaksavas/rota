@@ -429,6 +429,7 @@ interface WorkspaceState {
   workConversations?: WorkConversation[];
   productRules?: ProductRule[];
   dashboardLayout?: DashboardPanelLayout[];
+  hiddenDashboardPanels?: string[];
   schemaVersion?: number;
   items: WorkItem[];
   tasks: PersonalTask[];

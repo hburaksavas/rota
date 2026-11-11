@@ -34,7 +34,7 @@ const seed: WorkspaceState = {
     { id: "digital", name: "Dijital Kanallar", color: "violet" },
     { id: "credit", name: "Kredi Yaşam Döngüsü", color: "amber" }
   ],
-  profile: { organization: "Kuzey Finans", workspace: "PO çalışma alanı", userName: "Deniz Arslan", userRole: "Product Owner" },
+  profile: { organization: "Kuzey Finans", workspace: "Çalışma alanı", userName: "Deniz Arslan", userRole: "Takım üyesi" },
   teams: [],
   roadmap: [],
   releases: [],
@@ -236,7 +236,7 @@ try {
   if (rawWorkspace !== null && (!saved || typeof saved !== "object" || !Array.isArray(saved.items) || !Array.isArray(saved.projects) || !saved.profile || typeof saved.profile !== "object")) throw new Error("Geçersiz çalışma alanı biçimi");
   const savedItems = workspaceRecords<WorkItem>(saved?.items, seed.items);
   const savedProjects = workspaceRecords<Project>(saved?.projects, seed.projects);
-  const legacySampleWorkspace = Boolean(saved && !saved.assets && saved.profile?.organization === seed.profile.organization && saved.profile?.workspace === seed.profile.workspace && savedItems.some((item) => item.id === "PAY-241") && savedProjects.some((project) => project.name === "Ödeme Platformu"));
+  const legacySampleWorkspace = Boolean(saved && !saved.assets && saved.profile?.organization === seed.profile.organization && [seed.profile.workspace, "PO çalışma alanı"].includes(saved.profile?.workspace || "") && savedItems.some((item) => item.id === "PAY-241") && savedProjects.some((project) => project.name === "Ödeme Platformu"));
   state = saved ? {
     ...structuredClone(seed), ...saved,
     items: savedItems,
@@ -244,7 +244,7 @@ try {
     tasks: workspaceRecords<PersonalTask>(saved.tasks, seed.tasks),
     notes: workspaceRecords<PersonalNote>(saved.notes, seed.notes),
     projects: savedProjects,
-    profile: { ...seed.profile, ...saved.profile },
+    profile: { ...seed.profile, ...saved.profile, workspace: saved.profile?.workspace === "PO çalışma alanı" ? "Çalışma alanı" : saved.profile?.workspace || seed.profile.workspace, userRole: ["PO", "Product Owner"].includes(saved.profile?.userRole || "") ? "Takım üyesi" : saved.profile?.userRole || seed.profile.userRole },
     teams: workspaceRecords<Team>(saved.teams, []),
     roadmap: workspaceRecords<RoadmapNode>(saved.roadmap, []),
     releases: workspaceRecords<ProductRelease>(saved.releases, []),
@@ -493,7 +493,7 @@ function getShareRecord(kind: ShareRecordKind, id: string): ShareRecord | undefi
       if (!task) return;
       return {
         title: task.title,
-        metadata: [["Tür", "Görev"], ["Durum", task.done ? "Tamamlandı" : "Açık"], ["Termin", task.due], ["İlgili iş", task.linked]],
+        metadata: [["Tür", "Görev"], ["Durum", task.done ? "Tamamlandı" : "Açık"], ["Sorumlu", task.owner], ["Termin", task.due], ["İlgili iş", task.linked]],
         sections: [["Açıklama", task.description]]
       };
     }
@@ -918,7 +918,7 @@ function addWorkActivity(item: WorkItem, kind: WorkActivity["kind"], message: st
   item.activity ||= [];
   const occurredAt = new Date().toISOString();
   if (kind === "created" && !item.statusEnteredAt) item.statusEnteredAt = occurredAt;
-  item.activity.unshift({ id: nextId("ACT"), kind, message, actor: state.profile.userName || "PO", occurredAt });
+  item.activity.unshift({ id: nextId("ACT"), kind, message, actor: state.profile.userName || "Kullanıcı", occurredAt });
 }
 
 function statusAgeDays(item: WorkItem): number | null {
@@ -945,7 +945,7 @@ function workItemLastDecision(item: WorkItem): string {
 
 function activityMarkup(item: WorkItem): string {
   const activity = item.activity || [];
-  return '<section class="detail-section work-activity"><div class="section-title-row"><h3>İş geçmişi <span class="count-chip">' + activity.length + '</span></h3><select id="activity-kind-filter" class="field-input activity-filter" aria-label="Geçmiş türüne göre filtrele"><option value="all">Tüm hareketler</option><option value="comment">İlerleme notları</option><option value="change">Alan değişiklikleri</option><option value="attachment">Dosya ekleri</option><option value="release">Release hareketleri</option></select></div>' + (activity.length ? '<ol class="activity-list">' + activity.map((entry, index) => '<li class="activity-entry activity-' + esc(entry.kind) + (index === 0 ? ' recent-activity' : '') + '"><span class="activity-marker">' + (entry.kind === "created" ? "＋" : entry.kind === "release" ? "◷" : entry.kind === "attachment" ? "▤" : "•") + '</span><div><p>' + esc(entry.message) + '</p>' + (entry.visibility ? '<span class="activity-visibility">' + (entry.visibility === "private" ? "Yalnızca PO" : "Takım notu") + '</span>' : '') + (entry.attachments?.length ? '<div class="activity-attachments">' + attachmentListMarkup(entry.attachments, "") + '</div>' : '') + '<small>' + esc(entry.actor) + ' · ' + esc(new Date(entry.occurredAt).toLocaleString("tr-TR", { dateStyle: "medium", timeStyle: "short" })) + '</small></div></li>').join("") + '</ol>' : '<p class="activity-empty">Bu işte henüz bir değişiklik kaydedilmedi.</p>') + '</section>';
+  return '<section class="detail-section work-activity"><div class="section-title-row"><h3>İş geçmişi <span class="count-chip">' + activity.length + '</span></h3><select id="activity-kind-filter" class="field-input activity-filter" aria-label="Geçmiş türüne göre filtrele"><option value="all">Tüm hareketler</option><option value="comment">İlerleme notları</option><option value="change">Alan değişiklikleri</option><option value="attachment">Dosya ekleri</option><option value="release">Release hareketleri</option></select></div>' + (activity.length ? '<ol class="activity-list">' + activity.map((entry, index) => '<li class="activity-entry activity-' + esc(entry.kind) + (index === 0 ? ' recent-activity' : '') + '"><span class="activity-marker">' + (entry.kind === "created" ? "＋" : entry.kind === "release" ? "◷" : entry.kind === "attachment" ? "▤" : "•") + '</span><div><p>' + esc(entry.message) + '</p>' + (entry.visibility ? '<span class="activity-visibility">' + (entry.visibility === "private" ? "Yalnızca ben" : "Takım notu") + '</span>' : '') + (entry.attachments?.length ? '<div class="activity-attachments">' + attachmentListMarkup(entry.attachments, "") + '</div>' : '') + '<small>' + esc(entry.actor) + ' · ' + esc(new Date(entry.occurredAt).toLocaleString("tr-TR", { dateStyle: "medium", timeStyle: "short" })) + '</small></div></li>').join("") + '</ol>' : '<p class="activity-empty">Bu işte henüz bir değişiklik kaydedilmedi.</p>') + '</section>';
 }
 
 function dependencyMarkup(item: WorkItem): string {
@@ -1041,7 +1041,7 @@ function openRelatedRecordPicker(itemId: string): void {
 }
 
 function progressComposerMarkup(): string {
-  return '<section class="detail-section activity-note-composer"><h3>İlerleme notu ekle</h3><textarea id="progress-note-text" class="field-input field-textarea" rows="3" maxlength="3000" placeholder="İlerleme, karar veya beklenen sonraki adımı yaz…"></textarea><div class="progress-note-actions"><select id="progress-note-visibility" class="field-input" aria-label="Not görünürlüğü"><option value="team">Takımla paylaş</option><option value="private">Yalnızca PO</option></select><button type="button" class="button button-secondary button-small" data-add-progress-attachment>＋ Dosya ekle</button><button type="button" class="button button-primary button-small" data-save-progress-note>Notu ekle</button><input id="progress-note-file-fallback" type="file" multiple hidden></div><div id="progress-note-files" class="progress-note-files">' + (progressAttachments.length ? progressAttachments.map((file, index) => '<span class="progress-note-file">' + esc(file.name) + '<button type="button" data-remove-progress-file="' + index + '" aria-label="Eki kaldır">×</button></span>').join("") : '') + '</div></section>';
+  return '<section class="detail-section activity-note-composer"><h3>İlerleme notu ekle</h3><textarea id="progress-note-text" class="field-input field-textarea" rows="3" maxlength="3000" placeholder="İlerleme, karar veya beklenen sonraki adımı yaz…"></textarea><div class="progress-note-actions"><select id="progress-note-visibility" class="field-input" aria-label="Not görünürlüğü"><option value="team">Takımla paylaş</option><option value="private">Yalnızca ben</option></select><button type="button" class="button button-secondary button-small" data-add-progress-attachment>＋ Dosya ekle</button><button type="button" class="button button-primary button-small" data-save-progress-note>Notu ekle</button><input id="progress-note-file-fallback" type="file" multiple hidden></div><div id="progress-note-files" class="progress-note-files">' + (progressAttachments.length ? progressAttachments.map((file, index) => '<span class="progress-note-file">' + esc(file.name) + '<button type="button" data-remove-progress-file="' + index + '" aria-label="Eki kaldır">×</button></span>').join("") : '') + '</div></section>';
 }
 
 function logWorkChange(item: WorkItem, label: string, before: unknown, after: unknown): void {
@@ -1053,9 +1053,9 @@ function logWorkChange(item: WorkItem, label: string, before: unknown, after: un
 }
 
 function blockerOwnerOptions(selected = ""): string {
-  const owners = [state.profile.userName ? state.profile.userName + " (PO)" : "PO", ...state.teams.flatMap((team) => team.members.map((member) => member + " · " + team.name))];
-  const uniqueOwners = [...new Set(owners)];
-  return '<option value="">Takip sahibi seç</option>' + uniqueOwners.map((owner) => '<option value="' + esc(owner) + '" ' + (owner === selected ? "selected" : "") + '>' + esc(owner) + '</option>').join("");
+  const owners = [state.profile.userName || "Kullanıcı", ...state.teams.flatMap((team) => team.members.map((member) => member + " · " + team.name))];
+  const uniqueOwners = [...new Set([...owners, ...(selected ? [selected] : [])])];
+  return '<option value="">Takip sahibi seç</option>' + uniqueOwners.map((owner) => '<option value="' + esc(owner) + '" ' + (owner === selected ? "selected" : "") + '>' + esc(owner.replace(/ \(PO\)$/i, "")) + '</option>').join("");
 }
 
 function applyWorkStatus(item: WorkItem, status: WorkItem["status"], blocker?: Pick<WorkBlocker, "reason" | "nextStep" | "expectedAction" | "owner" | "followUpAt">, updateNote = ""): boolean {
@@ -1082,7 +1082,7 @@ function applyWorkStatus(item: WorkItem, status: WorkItem["status"], blocker?: P
     item.blocker.resolvedAt = new Date().toISOString();
     addWorkActivity(item, "change", "Blokaj çözüldü.");
   }
-  if (updateNote) item.activity?.unshift({ id: nextId("ACT"), kind: "comment", message: updateNote, actor: state.profile.userName || "PO", occurredAt: new Date().toISOString(), visibility: "team" });
+  if (updateNote) item.activity?.unshift({ id: nextId("ACT"), kind: "comment", message: updateNote, actor: state.profile.userName || "Kullanıcı", occurredAt: new Date().toISOString(), visibility: "team" });
   return true;
 }
 
@@ -1093,7 +1093,7 @@ function openStatusUpdateModal(itemId: string, nextStatus: WorkItem["status"], r
   const blocker = item.blocker;
   const blocked = nextStatus === "Bloke";
   modalRoot.innerHTML = '<div class="modal-backdrop"><section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="status-update-title"><header class="modal-header"><div><div class="panel-kicker">DURUM GÜNCELLEMESİ · ' + esc(item.id) + '</div><h2 id="status-update-title">' + (blocked ? "İş neden bloke?" : esc(nextStatus) + " durumuna geçir") + '</h2></div><button class="modal-close" data-cancel-status-update>×</button></header><div class="settings-form"><p class="settings-intro">' + (blocked ? "Blokajı takip edebilmek için nedenini ve sıradaki adımı kaydet." : "İstersen bu durum değişikliği için kısa bir güncelleme notu ekle.") + '</p>' + (blocked ? '<label class="field-label">Blokaj nedeni<textarea id="blocker-reason" class="field-input field-textarea" rows="3" maxlength="1000" required>' + esc(blocker?.reason || "") + '</textarea></label><label class="field-label">Sonraki adım<textarea id="blocker-next-step" class="field-input field-textarea" rows="2" maxlength="1000" required>' + esc(blocker?.nextStep || "") + '</textarea></label>' : '') + '<label class="field-label">Güncelleme notu <small>(isteğe bağlı)</small><textarea id="status-update-note" class="field-input field-textarea" rows="2" maxlength="2000" placeholder="İlerleme, karar veya sonraki adım…"></textarea></label><footer class="modal-footer"><button type="button" class="button button-quiet" data-cancel-status-update>Vazgeç</button><button type="button" class="button button-primary" data-save-item-status="' + esc(itemId) + '" data-next-status="' + esc(nextStatus) + '">Kaydet</button></footer></div></section></div>';
-  if (blocked) modalRoot.querySelector("#blocker-next-step")?.parentElement?.insertAdjacentHTML("afterend", '<label class="field-label">Beklenen karar veya iş<textarea id="blocker-expected" class="field-input field-textarea" rows="2" maxlength="1000" required>' + esc(blocker?.expectedAction || "") + '</textarea></label><label class="field-label">Takip sahibi<select id="blocker-owner" class="field-input" required>' + blockerOwnerOptions(blocker?.owner || (state.profile.userName ? state.profile.userName + " (PO)" : "PO")) + '</select></label><label class="field-label">Takip hatırlatması<input id="blocker-follow-up" type="datetime-local" class="field-input" value="' + esc(blocker?.followUpAt || "") + '"></label>');
+  if (blocked) modalRoot.querySelector("#blocker-next-step")?.parentElement?.insertAdjacentHTML("afterend", '<label class="field-label">Beklenen karar veya iş<textarea id="blocker-expected" class="field-input field-textarea" rows="2" maxlength="1000" required>' + esc(blocker?.expectedAction || "") + '</textarea></label><label class="field-label">Takip sahibi<select id="blocker-owner" class="field-input" required>' + blockerOwnerOptions(blocker?.owner || (state.profile.userName || "Kullanıcı")) + '</select></label><label class="field-label">Takip hatırlatması<input id="blocker-follow-up" type="datetime-local" class="field-input" value="' + esc(blocker?.followUpAt || "") + '"></label>');
 }
 
 const icon = (name: string): string => {
@@ -1368,7 +1368,7 @@ function stepMeetingStage(offset: number): void {
 }
 
 function meetingClosingGroups(stage: NonNullable<typeof meetingStage>, includeNotes = false) {
-  return ["", ...stage.ids].flatMap((id) => {
+  return [...new Set(["", ...stage.ids, ...stage.meeting.entries.map((entry) => entry.linkedItemId)])].flatMap((id) => {
     const records = stage.meeting.entries.filter((entry) => entry.linkedItemId === id);
     const labels = includeNotes ? { ...meetingClosingLabels, note: "Notlar" } : meetingClosingLabels;
     const sections = Object.entries(labels).flatMap(([kind, label]) => {
@@ -1447,7 +1447,7 @@ function moveMeetingAgendaItem(id: string, targetId: string): void {
 
 function renderMeetingClosing(stage: NonNullable<typeof meetingStage>): void {
   const groups = meetingClosingGroups(stage, true);
-  const hasSummary = meetingClosingGroups(stage).length > 0;
+  const hasSummary = groups.length > 0;
   root.innerHTML = `<div class="page-content po-page meeting-stage" data-scroll-layout="ready">
     <header class="meeting-stage-heading"><div><p class="panel-kicker">TOPLANTI MODU</p><h1 id="meeting-closing-title" tabindex="-1">Toplantı kapanış kartı</h1></div>
       <div class="meeting-stage-actions">
@@ -1468,18 +1468,56 @@ function renderMeetingClosing(stage: NonNullable<typeof meetingStage>): void {
 
 async function copyMeetingClosing(): Promise<void> {
   if (!meetingStage?.showClosing) return;
-  const groups = meetingClosingGroups(meetingStage);
+  const groups = meetingClosingGroups(meetingStage, true);
   if (!groups.length) return;
-  const text = ["Toplantı özeti", ...groups.map(({ title, sections, deferred }) =>
-    [title + (deferred ? " · Ertelendi" : ""), ...sections.map(({ label, entries }) =>
-      [label, ...entries.map((entry) => "• " + entry.text.replaceAll("\n", "\n  "))].join("\n")
-    )].join("\n\n")
-  )].join("\n\n");
+  const title = "Toplantı özeti · " + meetingStage.meeting.title;
+  const plain = [title];
+  const html = ['<div style="font-family:Arial,sans-serif;font-size:14px;color:#202124"><h1>' + esc(title) + '</h1>'];
+  const multiline = (value: string) => esc(value).replace(/\r?\n/g, "<br>");
+  for (const group of groups) {
+    const heading = group.title + (group.deferred ? " · Ertelendi" : "");
+    plain.push(heading);
+    html.push("<h2>" + esc(heading) + "</h2>");
+    for (const { label, entries } of group.sections) {
+      plain.push(label);
+      html.push("<h3>" + esc(label) + "</h3><ul>");
+      for (const entry of entries) {
+        const record = entry.recordId ? getShareRecord(entry.kind, entry.recordId) : undefined;
+        const lines = [record?.title || entry.text];
+        const details: string[] = [];
+        for (const [name, value] of record?.metadata || []) {
+          if (!value?.trim()) continue;
+          lines.push(name + ": " + value);
+          details.push("<strong>" + esc(name) + ":</strong> " + multiline(value));
+        }
+        for (const [name, value] of record?.sections || []) {
+          const text = Array.isArray(value) ? value.filter((part) => part.trim()).join("\n") : value;
+          if (!text?.trim()) continue;
+          lines.push(name + ":\n" + text);
+          details.push("<strong>" + esc(name) + ":</strong><br>" + multiline(text));
+        }
+        plain.push("• " + lines.join("\n").replaceAll("\n", "\n  "));
+        html.push('<li style="margin-bottom:12px"><strong>' + multiline(lines[0]) + '</strong>' +
+          (details.length ? '<p style="margin:4px 0">' + details.join("<br>") + '</p>' : "") + '</li>');
+      }
+      html.push("</ul>");
+    }
+  }
+  html.push("</div>");
+  const text = plain.join("\n\n");
   try {
-    await navigator.clipboard.writeText(text);
-    toast("Toplantı özeti panoya kopyalandı.");
+    await navigator.clipboard.write([new ClipboardItem({
+      "text/html": new Blob([html.join("")], { type: "text/html" }),
+      "text/plain": new Blob([text], { type: "text/plain" })
+    })]);
+    toast("Toplantı özeti biçimli olarak panoya kopyalandı.");
   } catch {
-    toast("Toplantı özeti panoya kopyalanamadı.");
+    try {
+      await navigator.clipboard.writeText(text);
+      toast("Toplantı özeti düz metin olarak panoya kopyalandı.");
+    } catch {
+      toast("Toplantı özeti panoya kopyalanamadı.");
+    }
   }
 }
 
@@ -1892,7 +1930,7 @@ function setView(view: string): void {
   activeBacklogViewId = "";
   document.querySelectorAll<HTMLElement>(".nav-item").forEach((node) => node.classList.toggle("active", node.dataset.view === view));
   document.querySelector<HTMLElement>(".workspace-switcher")?.classList.toggle("active", view === "overview");
-  const names: Record<string, string> = { overview: "Genel bakış", favspace: "Favspace", meetings: "Toplantı modu", "my-actions": "Bana düşenler", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", roadmap: "Yol haritası", decisions: "Ürün kararları", releases: "Release planı", questions: "Açık sorular", "archive-search": "Arşivde ara" };
+  const names: Record<string, string> = { overview: "Genel bakış", favspace: "Favspace", meetings: "Toplantı modu", backlog: "Backlog", jira: "Jira", assets: "Ürün envanteri", roadmap: "Yol haritası", decisions: "Ürün kararları", releases: "Release planı", questions: "Açık sorular", "archive-search": "Arşivde ara" };
   (document.getElementById("breadcrumb-current") as HTMLElement).textContent = names[view] ?? "Genel bakış";
   render();
   animateViewEnter();
@@ -2089,7 +2127,7 @@ function render(): void {
   if (jiraState) jiraState.textContent = jiraEnabled ? "Hazır" : "Kapalı";
   if (activeView === "overview") renderOverview();
   else if (activeView === "meetings") renderMeetingStage();
-  else if (activeView === "my-actions") poTools.renderMine();
+  else if (activeView === "my-actions") { activeView = "overview"; renderOverview(); }
   else if (activeView === "backlog") renderBacklog();
   else if (activeView === "favspace") renderFavspace(root, state, save, (kind, id) => { if (kind === "notes") showNote(id); else if (kind === "tasks") openTask(id); else if (kind === "items") openItem(id); else if (kind === "assets") openAsset(id); else if (kind === "decisions") openDecisionDetail(id); else if (kind === "releases") openReleaseEditor(id); else if (["roadmap", "meetings"].includes(kind)) setView(kind); else if (state.items.some((item) => item.id === id)) openItem(id); else toast("Kaynak kayıt: " + kind); });
   else if (activeView === "jira") renderJira();
@@ -2536,6 +2574,48 @@ document.addEventListener("click", (event) => {
   toast(pinned ? "Odaktan çıkarıldı. Asıl kayıt korunuyor." : "Bugünkü odağına eklendi.");
 }, true);
 
+const dashboardPanelLabels: Record<string, string> = { focus: "Bugünkü odağım", responses: "Yanıt bekleyenler", tasks: "Görevlerim", notes: "Notlarım", questions: "Sorularım", items: "Backlog işleri" };
+function hiddenDashboardPanels(): string[] {
+  return Array.isArray(state.hiddenDashboardPanels) ? state.hiddenDashboardPanels.filter((id) => Object.hasOwn(dashboardPanelLabels, id)) : [];
+}
+function dashboardVisibilityControl(): string {
+  return '<div class="dashboard-visibility-toolbar"><button type="button" class="button button-secondary button-small" popovertarget="dashboard-visibility">' + icon("board") + 'Paneller <span data-hidden-panel-count></span>' + icon("chevronDown") + '</button><div id="dashboard-visibility" class="dashboard-visibility-popover" popover><strong>Görünür paneller</strong>' + Object.entries(dashboardPanelLabels).map(([id, label]) => '<label><input type="checkbox" data-dashboard-visible="' + id + '"><span>' + label + '</span></label>').join("") + '<button type="button" class="button button-quiet button-small" data-dashboard-show-all>Tümünü göster</button></div></div>';
+}
+function applyDashboardVisibility(): void {
+  const hidden = hiddenDashboardPanels();
+  for (const [id, label] of Object.entries(dashboardPanelLabels)) {
+    const selector = id === "focus" ? ".personal-focus" : id === "responses" ? "#workspace-responses" : '[data-dashboard-panel="' + id + '"]';
+    const panel = root.querySelector<HTMLElement>(selector);
+    if (panel) {
+      panel.hidden = hidden.includes(id);
+      const header = panel.querySelector(".personal-panel-heading, .personal-focus-heading");
+      if (header && !header.querySelector("[data-dashboard-hide]")) header.insertAdjacentHTML("beforeend", '<button type="button" class="personal-icon" data-dashboard-hide="' + id + '" aria-label="' + label + ' panelini gizle" data-tooltip="Paneli gizle">' + icon("close") + '</button>');
+    }
+    const checkbox = root.querySelector<HTMLInputElement>('[data-dashboard-visible="' + id + '"]');
+    if (checkbox) checkbox.checked = !hidden.includes(id);
+  }
+  const count = root.querySelector("[data-hidden-panel-count]");
+  if (count) count.textContent = hidden.length ? "· " + hidden.length + " gizli" : "";
+}
+function setDashboardVisibility(id?: string, visible = true): void {
+  const previous = state.hiddenDashboardPanels;
+  const hidden = hiddenDashboardPanels();
+  state.hiddenDashboardPanels = id ? visible ? hidden.filter((entry) => entry !== id) : [...new Set([...hidden, id])] : [];
+  if (!save()) { state.hiddenDashboardPanels = previous; applyDashboardVisibility(); return; }
+  if (id && !visible && maximizedDashboardPanel === id) { maximizedDashboardPanel = null; applyDashboardMaximize(); }
+  applyDashboardVisibility();
+}
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const hide = target?.closest<HTMLElement>("[data-dashboard-hide]");
+  if (hide) { setDashboardVisibility(hide.dataset.dashboardHide, false); root.querySelector<HTMLButtonElement>('[popovertarget="dashboard-visibility"]')?.focus(); }
+  if (target?.closest("[data-dashboard-show-all]")) setDashboardVisibility();
+});
+document.addEventListener("change", (event) => {
+  const input = event.target;
+  if (input instanceof HTMLInputElement && input.dataset.dashboardVisible) setDashboardVisibility(input.dataset.dashboardVisible, input.checked);
+});
+
 function normalizeDashboardLayout(value: unknown): DashboardPanelLayout[] {
   const ids: DashboardPanelId[] = ["tasks", "notes", "questions", "items"];
   const result: DashboardPanelLayout[] = [];
@@ -2882,7 +2962,8 @@ function renderOverview(): void {
 
   const empty = (text: string) => '<p class="personal-empty">' + text + '</p>';
   const heading = (title: string, count: number, glyph: string, action: string, label: string, kind: DashboardSearchKind) => '<header class="personal-panel-heading"><h2>' + icon(glyph) + title + '<span>' + count + '</span></h2><button type="button" class="personal-icon icon-action" ' + action + ' aria-label="' + label + '" data-tooltip="' + label + '">' + icon("add") + '</button>' + dashboardSearchControl(kind) + '</header>';
-  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><div class="personal-dashboard-body"><section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span>' + dashboardSearchControl("focus") + '</header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry" data-focus-entry-kind="' + entry.kind + '" data-focus-entry-id="' + esc(entry.id) + '" data-panel-search-text="' + esc([record.title, record.label, record.meta].join(" ")) + '"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section>' + '<div class="dashboard-layout-toolbar"><button type="button" class="personal-icon" data-dashboard-reset aria-label="Düzeni sıfırla" title="Düzeni sıfırla">' + icon("undo") + '</button></div><div class="personal-grid"><section class="personal-panel personal-tasks" data-dashboard-panel="tasks" aria-label="Görevlerim">' + heading("Görevlerim", tasks.length, "task", 'data-message-focus="tasks"', "Kişisel görev yaz", "tasks") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("tasks") + '</section><section class="personal-panel personal-notes" data-dashboard-panel="notes" aria-label="Notlarım">' + heading("Notlarım", state.notes.length, "note", 'data-message-focus="notes"', "Not yaz", "notes") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("notes") + '</section><section class="personal-panel personal-questions" data-dashboard-panel="questions" aria-label="Sorularım">' + heading("Sorularım", questions.length, "help", 'data-message-focus="questions"', "Soru yaz", "questions") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("questions") + '</section><section class="personal-panel personal-critical" data-dashboard-panel="items" aria-label="Backlog işleri"><header class="personal-panel-heading"><h2>' + icon("bug") + 'Backlog işleri<span>' + critical.length + '</span></h2>' + priorityFilter + dashboardSearchControl("items") + '</header><div class="personal-record-list"></div>' + workspaceMessageComposer("items") + '</section></div></div></div>';
+  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><div class="personal-dashboard-body">' + dashboardVisibilityControl() + '<section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span>' + dashboardSearchControl("focus") + '</header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry" data-focus-entry-kind="' + entry.kind + '" data-focus-entry-id="' + esc(entry.id) + '" data-panel-search-text="' + esc([record.title, record.label, record.meta].join(" ")) + '"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section><section id="workspace-responses" class="workspace-responses po-page" aria-labelledby="workspace-responses-title"></section>' + '<div class="dashboard-layout-toolbar"><button type="button" class="personal-icon" data-dashboard-reset aria-label="Düzeni sıfırla" title="Düzeni sıfırla">' + icon("undo") + '</button></div><div class="personal-grid"><section class="personal-panel personal-tasks" data-dashboard-panel="tasks" aria-label="Görevlerim">' + heading("Görevlerim", tasks.length, "task", 'data-message-focus="tasks"', "Kişisel görev yaz", "tasks") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("tasks") + '</section><section class="personal-panel personal-notes" data-dashboard-panel="notes" aria-label="Notlarım">' + heading("Notlarım", state.notes.length, "note", 'data-message-focus="notes"', "Not yaz", "notes") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("notes") + '</section><section class="personal-panel personal-questions" data-dashboard-panel="questions" aria-label="Sorularım">' + heading("Sorularım", questions.length, "help", 'data-message-focus="questions"', "Soru yaz", "questions") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("questions") + '</section><section class="personal-panel personal-critical" data-dashboard-panel="items" aria-label="Backlog işleri"><header class="personal-panel-heading"><h2>' + icon("bug") + 'Backlog işleri<span>' + critical.length + '</span></h2>' + priorityFilter + dashboardSearchControl("items") + '</header><div class="personal-record-list"></div>' + workspaceMessageComposer("items") + '</section></div></div></div>';
+  poTools.renderResponses();
   mountDashboardList("tasks", tasks, "İlk görevini aşağıya mesaj olarak yaz.", (task) => [task.title, task.description, task.due, task.linked],
     (task, searchText) => '<article class="personal-row' + (task.due === "Bugün" ? " personal-row-due" : "") + '" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-task-check" data-toggle-task="' + esc(task.id) + '" aria-label="Görevi tamamla: ' + esc(task.title) + '">' + icon("check") + '</button><button type="button" class="personal-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong>' + personalRecordMeta([task.due === "Bugün" ? "" : task.due, task.linked].filter(Boolean).join(" · "), task.updatedAt, task.due === "Bugün") + '</button>' + workspaceFocusPin("task", task.id) + '</article>');
   mountDashboardList("notes", state.notes, "Düşüncelerini aşağıya mesaj olarak yaz.", (note) => [note.title, note.body, note.linked],
@@ -2893,6 +2974,7 @@ function renderOverview(): void {
     (item, searchText) => '<article class="personal-row' + (item.status === "Bloke" || overdueDays(item) > 0 ? " personal-row-attention" : "") + '" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-record-open" data-open-item="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(item.id + " · " + item.project) + '</small><span class="personal-critical-reason">' + esc([item.status === "Bloke" ? "Bloke" : "", overdueDays(item) ? overdueDays(item) + " gün gecikti" : "", item.priority + " öncelik"].filter(Boolean).join(" · ")) + '</span></button>' + workspaceFocusPin("item", item.id) + '</article>');
   applyDashboardLayout();
   applyDashboardMaximize();
+  applyDashboardVisibility();
   (Object.keys(dashboardSearches) as DashboardSearchKind[]).forEach(applyDashboardSearch);
 }
 
@@ -4603,7 +4685,7 @@ function saveDecision(event: SubmitEvent): void {
   state.decisions ||= [];
   if (existing) {
     existing.history ||= [];
-    existing.history.unshift({ version: existing.history.length + 1, changedAt: now, changedBy: state.profile.userName || 'PO', summary: 'Karar kaydı güncellendi.', snapshot: decisionSnapshot(existing) });
+    existing.history.unshift({ version: existing.history.length + 1, changedAt: now, changedBy: state.profile.userName || 'Kullanıcı', summary: 'Karar kaydı güncellendi.', snapshot: decisionSnapshot(existing) });
     Object.assign(existing, next, { updatedAt: now });
   } else {
     const newId = nextId('DEC');
@@ -4612,7 +4694,7 @@ function saveDecision(event: SubmitEvent): void {
     const previous = state.decisions.find((entry) => entry.id === supersedesId && !entry.supersededById);
     if (previous) {
       previous.history ||= [];
-      previous.history.unshift({ version: previous.history.length + 1, changedAt: now, changedBy: state.profile.userName || 'PO', summary: 'Yeni karar bu kaydın yerine geçti.', snapshot: decisionSnapshot(previous) });
+      previous.history.unshift({ version: previous.history.length + 1, changedAt: now, changedBy: state.profile.userName || 'Kullanıcı', summary: 'Yeni karar bu kaydın yerine geçti.', snapshot: decisionSnapshot(previous) });
       previous.status = 'Geçersiz'; previous.supersededById = newId; previous.updatedAt = now;
       decision.supersedesId = previous.id;
     }
@@ -4739,7 +4821,7 @@ function saveRelease(event: SubmitEvent): void {
   release.updated = new Date().toISOString();
   if (existing && oldPlannedDate !== plannedDate) {
     release.dateHistory ||= [];
-    release.dateHistory.unshift({ from: oldPlannedDate || "Belirtilmedi", to: plannedDate || "Belirtilmedi", reason: dateReason, at: release.updated, actor: state.profile.userName || "PO" });
+    release.dateHistory.unshift({ from: oldPlannedDate || "Belirtilmedi", to: plannedDate || "Belirtilmedi", reason: dateReason, at: release.updated, actor: state.profile.userName || "Kullanıcı" });
   }
   if (!existing) {
     state.releases.push(release);
@@ -4792,7 +4874,7 @@ function openRoadmapEditor(id?: string, parentId?: string): void {
   const type = node?.type || (parentId ? "Epic" : "Initiative");
   const activeProjects = state.projects.filter((project) => !project.archived || project.name === node?.project);
   const parentOptions = state.roadmap.filter((entry) => entry.type === "Initiative" && entry.id !== id).map((entry) => '<option value="' + esc(entry.id) + '" ' + ((node?.parentId || parentId) === entry.id ? "selected" : "") + '>' + esc(entry.title) + '</option>').join("");
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal roadmap-editor-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">ÜRÜN PLANLAMA · ' + (type === "Initiative" ? "ÜRÜN HAMLESİ" : type.toLocaleUpperCase("tr-TR")) + '</div><h2>' + (node ? "Hedefi düzenle" : (type === "Initiative" ? "Ürün hamlesi" : type) + " oluştur") + '</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="roadmap-form" class="settings-form"><div class="form-two-col"><label class="field-label">Başlık<input class="field-input" name="title" maxlength="140" required value="' + esc(node?.title || "") + '"></label><label class="field-label">Proje<select class="field-input" name="project" required>' + activeProjects.map((project) => '<option ' + (project.name === node?.project ? "selected" : "") + '>' + esc(project.name) + '</option>').join("") + '</select></label>' + (type === "Epic" ? '<label class="field-label">Bağlı ürün hamlesi<select class="field-input" name="parentId" required><option value="">Ürün hamlesi seç</option>' + parentOptions + '</select></label>' : '') + '<label class="field-label">Ürün aşaması<select class="field-input" name="stage">' + productStageOptions(node?.stage || "Fikirler") + '</select></label><label class="field-label">Sahip<input class="field-input" name="owner" maxlength="100" value="' + esc(node?.owner || state.profile.userName) + '" placeholder="PO veya sorumlu"></label><label class="field-label">Başlangıç tarihi<input class="field-input" name="startDate" type="date" value="' + esc(node?.startDate || "") + '"></label><label class="field-label">Hedef bitiş tarihi<input class="field-input" name="targetDate" type="date" value="' + esc(node?.targetDate || "") + '"></label></div><label class="field-label">Ürün hedefi<textarea class="field-input field-textarea" name="goal" rows="3" maxlength="1500" placeholder="Hangi ürün sonucunu elde etmek istiyoruz?">' + esc(node?.goal || "") + '</textarea></label><label class="field-label">Ölçülebilir başarı ölçütü<textarea class="field-input field-textarea" name="successMetric" rows="2" maxlength="800" placeholder="Örn. işlem başarısızlığı %2 altına düşer">' + esc(node?.successMetric || "") + '</textarea></label><input type="hidden" name="id" value="' + esc(node?.id || "") + '"><input type="hidden" name="type" value="' + type + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal roadmap-editor-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">ÜRÜN PLANLAMA · ' + (type === "Initiative" ? "ÜRÜN HAMLESİ" : type.toLocaleUpperCase("tr-TR")) + '</div><h2>' + (node ? "Hedefi düzenle" : (type === "Initiative" ? "Ürün hamlesi" : type) + " oluştur") + '</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="roadmap-form" class="settings-form"><div class="form-two-col"><label class="field-label">Başlık<input class="field-input" name="title" maxlength="140" required value="' + esc(node?.title || "") + '"></label><label class="field-label">Proje<select class="field-input" name="project" required>' + activeProjects.map((project) => '<option ' + (project.name === node?.project ? "selected" : "") + '>' + esc(project.name) + '</option>').join("") + '</select></label>' + (type === "Epic" ? '<label class="field-label">Bağlı ürün hamlesi<select class="field-input" name="parentId" required><option value="">Ürün hamlesi seç</option>' + parentOptions + '</select></label>' : '') + '<label class="field-label">Ürün aşaması<select class="field-input" name="stage">' + productStageOptions(node?.stage || "Fikirler") + '</select></label><label class="field-label">Sahip<input class="field-input" name="owner" maxlength="100" value="' + esc(node?.owner || state.profile.userName) + '" placeholder="Sorumlu kişi"></label><label class="field-label">Başlangıç tarihi<input class="field-input" name="startDate" type="date" value="' + esc(node?.startDate || "") + '"></label><label class="field-label">Hedef bitiş tarihi<input class="field-input" name="targetDate" type="date" value="' + esc(node?.targetDate || "") + '"></label></div><label class="field-label">Ürün hedefi<textarea class="field-input field-textarea" name="goal" rows="3" maxlength="1500" placeholder="Hangi ürün sonucunu elde etmek istiyoruz?">' + esc(node?.goal || "") + '</textarea></label><label class="field-label">Ölçülebilir başarı ölçütü<textarea class="field-input field-textarea" name="successMetric" rows="2" maxlength="800" placeholder="Örn. işlem başarısızlığı %2 altına düşer">' + esc(node?.successMetric || "") + '</textarea></label><input type="hidden" name="id" value="' + esc(node?.id || "") + '"><input type="hidden" name="type" value="' + type + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
   if (type === "Initiative") modalRoot.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>('[name="owner"], [name="goal"], [name="successMetric"]').forEach((field) => { field.required = true; });
 }
 
@@ -4822,7 +4904,7 @@ function saveRoadmapNode(event: SubmitEvent): void {
   node.updated = new Date().toISOString();
   if (existing && (previousStart !== startDate || previousTarget !== targetDate)) {
     node.dateHistory ||= [];
-    node.dateHistory.unshift({ from: [previousStart, previousTarget].filter(Boolean).join(" → ") || "Belirlenmedi", to: [startDate, targetDate].filter(Boolean).join(" → ") || "Belirlenmedi", at: node.updated, actor: state.profile.userName || "PO" });
+    node.dateHistory.unshift({ from: [previousStart, previousTarget].filter(Boolean).join(" → ") || "Belirlenmedi", to: [startDate, targetDate].filter(Boolean).join(" → ") || "Belirlenmedi", at: node.updated, actor: state.profile.userName || "Kullanıcı" });
   }
   if (!existing) state.roadmap.push(node);
   save(); closeModal(); render(); toast(type + " kaydedildi.");
@@ -5176,7 +5258,7 @@ async function exportBacklogExcel(): Promise<void> {
     });
     (item.attachments || []).forEach((attachment) => attachmentRows.push([item.id, item.title, "İş eki", "", attachment.name, attachment.size, "Dosya içeriği Excel'e gömülmedi; Rota çalışma alanındaki ekte bulunur."]));
     (item.activity || []).forEach((activity) => {
-      activityRows.push([item.id, item.title, activity.kind, activity.message, activity.actor, activity.occurredAt, activity.visibility === "private" ? "Yalnızca PO" : activity.visibility === "team" ? "Takımla paylaş" : ""]);
+      activityRows.push([item.id, item.title, activity.kind, activity.message, activity.actor, activity.occurredAt, activity.visibility === "private" ? "Yalnızca ben" : activity.visibility === "team" ? "Takımla paylaş" : ""]);
       (activity.attachments || []).forEach((attachment) => attachmentRows.push([item.id, item.title, "Aktivite eki", activity.id, attachment.name, attachment.size, "Dosya içeriği Excel'e gömülmedi; Rota çalışma alanındaki ekte bulunur."]));
     });
     const assetNames = (item.assetIds || []).map((id) => {
@@ -5844,7 +5926,7 @@ function refreshItemDetail(item: WorkItem): void {
   const typeIcon = dialog.querySelector(".detail-identity .table-type");
   if (typeIcon) { typeIcon.className = "table-type " + (item.type === "Bug" ? "bug-type" : item.type === "Task" ? "task-type" : "story-type"); typeIcon.innerHTML = itemIcon(item.type); }
   const byline = dialog.querySelector(".detail-byline");
-  if (byline) byline.innerHTML = '<span class="profile-avatar small-avatar">PO</span><span>' + esc(state.profile.userName || "PO") + '</span><span>·</span><span>Son güncelleme ' + esc(itemLastActivityLabel(item)) + '</span>';
+  if (byline) byline.innerHTML = '<span class="profile-avatar small-avatar">' + esc((state.profile.userName || 'Kullanıcı').trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toLocaleUpperCase('tr-TR')) + '</span><span>' + esc(state.profile.userName || "Kullanıcı") + '</span><span>·</span><span>Son güncelleme ' + esc(itemLastActivityLabel(item)) + '</span>';
   const activity = dialog.querySelector<HTMLElement>(".work-activity");
   if (activity && !detailEdit?.field.startsWith("comment:")) {
     const filter = activity.querySelector<HTMLSelectElement>("#activity-kind-filter")?.value || "all";
@@ -6153,7 +6235,7 @@ function openItem(id: string, direction?: "previous" | "next"): void {
   modalRoot.querySelector(".modal-backdrop")?.classList.add("detail-backdrop-sidepanel");
   modalRoot.querySelector(".detail-modal")?.classList.add("detail-modal-sidepanel");
   const byline = modalRoot.querySelector(".detail-byline");
-  if (byline) byline.innerHTML = '<span class="profile-avatar small-avatar">PO</span><span>' + esc(state.profile.userName || "PO") + '</span><span>·</span><span>Son güncelleme ' + esc(itemLastActivityLabel(item)) + '</span>';
+  if (byline) byline.innerHTML = '<span class="profile-avatar small-avatar">' + esc((state.profile.userName || 'Kullanıcı').trim().split(/\s+/).map((part) => part[0]).slice(0, 2).join('').toLocaleUpperCase('tr-TR')) + '</span><span>' + esc(state.profile.userName || "Kullanıcı") + '</span><span>·</span><span>Son güncelleme ' + esc(itemLastActivityLabel(item)) + '</span>';
   const linkedAssets = (item.assetIds || []).map((assetId) => state.assets.find((asset) => asset.id === assetId)).filter((asset): asset is ProductAsset => Boolean(asset));
   modalRoot.querySelector(".detail-main .detail-section")?.insertAdjacentHTML("afterend", '<section class="detail-section linked-assets-section"><div class="section-title-row"><h3>Ürün bileşenleri <span class="count-chip">' + linkedAssets.length + '</span></h3><button class="text-button" data-action="edit-item" data-id="' + esc(item.id) + '">Düzenle</button></div>' + (linkedAssets.length ? '<div class="asset-chip-list">' + linkedAssets.map((asset) => '<button class="linked-badge" data-open-asset="' + esc(asset.id) + '">' + esc(asset.code + " · " + asset.name) + (!asset.active ? " · Pasif" : "") + '</button>').join("") + '</div>' : '<p class="asset-muted">Bu iş henüz bir ürün bileşenine bağlanmadı.</p>') + '</section>');
   modalRoot.querySelector(".detail-main")?.insertAdjacentHTML("beforeend", activityMarkup(item));
@@ -6264,7 +6346,7 @@ function saveProgressNote(id: string): void {
   const visibility = (document.getElementById("progress-note-visibility") as HTMLSelectElement | null)?.value === "private" ? "private" : "team";
   const previousActivity = structuredClone(item.activity || []);
   item.activity ||= [];
-  item.activity.unshift({ id: nextId("ACT"), kind: "comment", message: text, actor: state.profile.userName || "PO", occurredAt: new Date().toISOString(), visibility, attachments: [...progressAttachments] });
+  item.activity.unshift({ id: nextId("ACT"), kind: "comment", message: text, actor: state.profile.userName || "Kullanıcı", occurredAt: new Date().toISOString(), visibility, attachments: [...progressAttachments] });
   if (!save()) { item.activity = previousActivity; detailFeedback("Not kaydedilemedi; metin ve ekler korundu.", true); return; }
   progressAttachments = [];
   const composer = document.getElementById("progress-note-text") as HTMLTextAreaElement | null; if (composer) composer.value = "";
@@ -6424,45 +6506,43 @@ function toggleTask(id: string): void {
 }
 
 function openTask(id: string): void {
-  const task = state.tasks.find((entry) => entry.id === id);
-  if (!task) return;
-  attachmentTarget = { kind: "task", id };
-  const related = task.linked && itemById(task.linked);
-  const files = task.attachments || [];
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal work-record-modal task-detail-modal note-modal" data-context-task-id="' + esc(task.id) + '" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">GÖREV · ' + esc(task.due) + '</div><h2>' + esc(task.title) + '</h2></div><button class="modal-close" data-close-modal>×</button></header><p class="note-detail-body">' + esc(task.description || "Bu görev için ek bir açıklama yok.") + '</p>' + (related ? '<button class="linked-badge" data-open-item="' + esc(related.id) + '">' + esc(related.id) + ' · ilişkili iş</button>' : '<span class="independent-label">Bağımsız görev</span>') + '<div class="detail-section"><div class="section-title-row"><h3>Dosya ekleri <span class="count-chip">' + files.length + '</span></h3><button class="text-button" data-add-to-task="' + esc(task.id) + '">+ Dosya ekle</button></div>' + (files.length ? attachmentListMarkup(files, "task:" + task.id) : '<div class="attachment-empty"><span>▤</span><span>Bu görevde dosya eki yok.</span></div>') + '<input id="task-file-fallback" type="file" multiple hidden></div></section></div>';
-  if (task.owner) modalRoot.querySelector(".note-detail-body")?.insertAdjacentHTML("afterend",
-    '<div class="detail-property"><span>Sorumlu</span><strong>' + esc(task.owner) + '</strong></div>');
-  if (task.remindAt) modalRoot.querySelector(".note-detail-body")?.insertAdjacentHTML("afterend", '<div class="detail-property reminder-property"><span>Hatırlatma</span><strong>' + esc(new Date(task.remindAt).toLocaleString("tr-TR")) + '</strong></div>');
-  if (task.sourceEmail) { const source = task.sourceEmail; const sourceFile = files.find((file) => file.name === source.name); modalRoot.querySelector(".note-detail-body")?.insertAdjacentHTML("afterend", '<div class="email-source-card"><span class="email-source-icon">✉</span><span><strong>E-postadan oluşturuldu</strong><small>' + esc(source.name + (source.from ? " · " + source.from : "") + (source.date ? " · " + source.date : "")) + '</small></span>' + (sourceFile?.storedName ? '<button type="button" class="text-button" data-open-source-email="' + esc(sourceFile.storedName) + '">Özgün e-postayı aç</button>' : '') + '</div>'); }
-  modalRoot.querySelector(".modal-header")?.insertAdjacentHTML("beforeend", '<span class="detail-actions"><button class="button button-secondary" data-action="edit-task" data-id="' + esc(task.id) + '">Düzenle</button><button class="button button-danger" data-action="delete-task" data-id="' + esc(task.id) + '">Sil</button></span>');
-  addRecordCopyAction("task", task.id);
+  openRecordEditor("task", id);
 }
 
 function showNote(id: string): void {
-  const note = state.notes.find((entry) => entry.id === id);
-  if (!note) return;
   rememberDeskPin(modalRoot.querySelector(".detail-modal"));
-  attachmentTarget = { kind: "note", id };
-  const related = note.linked && itemById(note.linked);
-  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal note-modal" data-context-note-id="' + esc(note.id) + '" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">NOT · ' + esc(note.updated) + '</div><h2>' + esc(note.title) + '</h2></div><button class="modal-close" data-close-modal>×</button></header><div class="note-detail-body structured-content">' + structuredTextMarkup(note.body) + '</div>' + (related ? '<button class="linked-badge" data-open-item="' + esc(related.id) + '">' + esc(related.id) + ' · ilişkili iş</button>' : '<span class="independent-label">Bağımsız not</span>') + '<div class="detail-section"><div class="section-title-row"><h3>Dosya ekleri <span class="count-chip">' + (note.attachments?.length || 0) + '</span></h3><button class="text-button" data-add-to-note="' + esc(note.id) + '">+ Dosya ekle</button></div>' + (note.attachments?.length ? attachmentListMarkup(note.attachments, "note:" + note.id) : '<div class="attachment-empty"><span>▤</span><span>Bu notta dosya eki yok.</span></div>') + '<input id="note-file-fallback" type="file" multiple hidden></div></section></div>';
-  if (note.sourceEmail) { const source = note.sourceEmail; const sourceFile = (note.attachments || []).find((file) => file.name === source.name); modalRoot.querySelector(".note-detail-body")?.insertAdjacentHTML("afterend", '<div class="email-source-card"><span class="email-source-icon">✉</span><span><strong>E-postadan oluşturuldu</strong><small>' + esc(source.name + (source.from ? " · " + source.from : "") + (source.date ? " · " + source.date : "")) + '</small></span>' + (sourceFile?.storedName ? '<button type="button" class="text-button" data-open-source-email="' + esc(sourceFile.storedName) + '">Özgün e-postayı aç</button>' : '') + '</div>'); }
-  modalRoot.querySelector(".detail-section")?.insertAdjacentHTML("beforebegin", diagramSectionMarkup("note", note.id));
-  modalRoot.querySelector(".modal-header")?.insertAdjacentHTML("beforeend", '<span class="detail-actions"><button class="button button-secondary" data-action="edit-note" data-id="' + esc(note.id) + '">Düzenle</button><button class="button button-danger" data-action="delete-note" data-id="' + esc(note.id) + '">Sil</button></span>');
-  addRecordCopyAction("note", note.id);
+  openRecordEditor("note", id);
+}
+
+function addRecordEditorDetails(kind: "task" | "note", id: string): void {
+  const record = kind === "task" ? state.tasks.find((entry) => entry.id === id) : state.notes.find((entry) => entry.id === id);
+  if (!record) return;
+  attachmentTarget = { kind, id };
+  modalRoot.querySelector(".modal")?.setAttribute("data-context-" + kind + "-id", id);
+  const files = record.attachments || [];
+  const source = record.sourceEmail;
+  const sourceFile = source && files.find((file) => file.name === source.name);
+  const sourceMarkup = source ? '<div class="email-source-card"><span class="email-source-icon">✉</span><span><strong>E-postadan oluşturuldu</strong><small>' + esc(source.name + (source.from ? " · " + source.from : "") + (source.date ? " · " + source.date : "")) + '</small></span>' + (sourceFile?.storedName ? '<button type="button" class="text-button" data-open-source-email="' + esc(sourceFile.storedName) + '">Özgün e-postayı aç</button>' : '') + '</div>' : '';
+  modalRoot.querySelector(".modal-footer")?.insertAdjacentHTML("beforebegin", sourceMarkup + (kind === "note" ? diagramSectionMarkup("note", id) : "") +
+    '<div class="detail-section"><div class="section-title-row"><h3>Dosya ekleri <span class="count-chip">' + files.length + '</span></h3><button type="button" class="text-button" data-add-to-' + kind + '="' + esc(id) + '">+ Dosya ekle</button></div>' + (files.length ? attachmentListMarkup(files, kind + ":" + id) : '<div class="attachment-empty"><span>▤</span><span>Dosya eki yok.</span></div>') + '<input id="' + kind + '-file-fallback" type="file" multiple hidden></div>');
+  modalRoot.querySelector(".modal-footer")?.insertAdjacentHTML("afterbegin", '<button type="button" class="button button-danger" data-action="delete-' + kind + '" data-id="' + esc(id) + '">Sil</button>');
+  modalRoot.querySelectorAll<HTMLButtonElement>("form button:not([type])").forEach((button) => { button.type = "button"; });
+  addRecordCopyAction(kind, id);
 }
 
 function openRecordEditor(kind: "item" | "task" | "note", id: string): void {
-  queueMicrotask(() => { const textarea = modalRoot.querySelector<HTMLTextAreaElement>('textarea[name="description"], textarea[name="body"]'); if (textarea) { textarea.id ||= "record-body-editor"; textarea.insertAdjacentHTML("afterend", structuredEditorToolbar(textarea.id)); } });
+  queueMicrotask(() => { const textarea = modalRoot.querySelector<HTMLTextAreaElement>('textarea[name="description"], textarea[name="body"]'); if (textarea && !textarea.closest(".field-label")?.querySelector(".structured-editor-toolbar")) { textarea.id ||= "record-body-editor"; textarea.insertAdjacentHTML("afterend", structuredEditorToolbar(textarea.id)); } });
   const linkedOptions = (selected: string) => '<option value="">Bağımsız</option>' + state.items.map((item) => '<option value="' + esc(item.id) + '" ' + (item.id === selected ? "selected" : "") + '>' + esc(item.id + " · " + item.title) + '</option>').join("");
   if (kind === "item") { openItem(id); return; }
   if (kind === "task") {
     const task = state.tasks.find((entry) => entry.id === id); if (!task) return;
-    modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">GÖREV</div><h2>Görevi düzenle</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="edit-task-form" class="settings-form"><label class="field-label">Başlık<input class="field-input" name="title" maxlength="120" required value="' + esc(task.title) + '"></label><label class="field-label">Son tarih<input class="field-input" name="due" maxlength="40" value="' + esc(task.due) + '"></label><label class="field-label">Açıklama<textarea class="field-input field-textarea" name="description" rows="4">' + esc(task.description || "") + '</textarea></label><label class="field-label">İlişkili backlog işi<select class="field-input" name="linked">' + linkedOptions(task.linked) + '</select></label><input type="hidden" name="id" value="' + esc(id) + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-open-task="' + esc(id) + '">Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
+    modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">GÖREV</div><h2>Görevi düzenle</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="edit-task-form" class="settings-form"><label class="field-label">Başlık<input class="field-input" name="title" maxlength="120" required value="' + esc(task.title) + '"></label><label class="field-label">Son tarih<input class="field-input" name="due" maxlength="40" value="' + esc(task.due) + '"></label><label class="field-label">Açıklama<textarea class="field-input field-textarea" name="description" rows="4">' + esc(task.description || "") + '</textarea></label><label class="field-label">İlişkili backlog işi<select class="field-input" name="linked">' + linkedOptions(task.linked) + '</select></label><input type="hidden" name="id" value="' + esc(id) + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
     modalRoot.querySelector('input[name="due"]')?.closest(".field-label")?.insertAdjacentHTML("afterend", '<label class="field-label">Hatırlat<input class="field-input" type="datetime-local" name="remindAt" value="' + esc(task.remindAt || "") + '"></label>');
   } else {
     const note = state.notes.find((entry) => entry.id === id); if (!note) return;
-    modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">NOT</div><h2>Notu düzenle</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="edit-note-form" class="settings-form"><label class="field-label">Başlık<input class="field-input" name="title" maxlength="120" required value="' + esc(note.title) + '"></label><label class="field-label">Not' + structuredEditorToolbar("edit-note-body") + '<textarea id="edit-note-body" class="field-input field-textarea" name="body" rows="7" required>' + esc(note.body) + '</textarea></label><label class="field-label">İlişkili backlog işi<select class="field-input" name="linked">' + linkedOptions(note.linked) + '</select></label><input type="hidden" name="id" value="' + esc(id) + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-open-note="' + esc(id) + '">Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
+    modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">NOT</div><h2>Notu düzenle</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="edit-note-form" class="settings-form"><label class="field-label">Başlık<input class="field-input" name="title" maxlength="120" required value="' + esc(note.title) + '"></label><label class="field-label">Not' + structuredEditorToolbar("edit-note-body") + '<textarea id="edit-note-body" class="field-input field-textarea" name="body" rows="7" required>' + esc(note.body) + '</textarea></label><label class="field-label">İlişkili backlog işi<select class="field-input" name="linked">' + linkedOptions(note.linked) + '</select></label><input type="hidden" name="id" value="' + esc(id) + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
   }
+  addRecordEditorDetails(kind, id);
 }
 
 async function deleteBacklogItems(ids: string[], confirmation?: string): Promise<void> {

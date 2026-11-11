@@ -168,7 +168,7 @@ const numeric = (value) => { if (!/^\d{1,20}$/.test(String(value))) throw new Er
 const sheetsExcel = async (sheets) => {
   if (!Array.isArray(sheets) || sheets.length < 1 || sheets.length > 12) throw new Error("Excel dışa aktarım sayfaları geçersiz.");
   const { default: ExcelJS } = await import("exceljs");
-  const workbook = new ExcelJS.Workbook(); workbook.creator = "Rota · PO çalışma alanı";
+  const workbook = new ExcelJS.Workbook(); workbook.creator = "Rota · Çalışma alanı";
   const used = new Set();
   for (const [index, sheet] of sheets.entries()) {
     let name = String(sheet.name || `Sayfa ${index + 1}`).replace(/[\\/*?:\[\]]/g, " ").trim().slice(0, 31) || `Sayfa ${index + 1}`;

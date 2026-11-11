@@ -13,7 +13,7 @@ interface IndexedResource extends FavspaceResource { source?: { kind: string; id
 /** Read through the current workspace: no copies of source records are persisted. */
 export function collectWorkspaceResources(state: WorkspaceState): IndexedResource[] {
   const result: IndexedResource[] = [];
-  const groups: Record<string, string> = { notes: "Notlar", items: "Backlog", tasks: "Görevler", assets: "Ürün envanteri", decisions: "Kararlar", releases: "Yayınlar", roadmap: "Yol haritası", meetings: "Toplantılar", poRequests: "PO talepleri", workConversations: "Konuşmalar", productRules: "İş kuralları", openQuestions: "Sorular", risks: "Riskler", diagrams: "Diyagramlar", sprints: "Sprintler", dailyPlans: "Günlük planlar", formDrafts: "Taslaklar", workTemplates: "İş şablonları", acceptanceTemplates: "Kabul şablonları" };
+  const groups: Record<string, string> = { notes: "Notlar", items: "Backlog", tasks: "Görevler", assets: "Ürün envanteri", decisions: "Kararlar", releases: "Yayınlar", roadmap: "Yol haritası", meetings: "Toplantılar", poRequests: "Yanıt talepleri", workConversations: "Konuşmalar", productRules: "İş kuralları", openQuestions: "Sorular", risks: "Riskler", diagrams: "Diyagramlar", sprints: "Sprintler", dailyPlans: "Günlük planlar", formDrafts: "Taslaklar", workTemplates: "İş şablonları", acceptanceTemplates: "Kabul şablonları" };
   for (const [kind, label] of Object.entries(groups)) {
     const records = (state as unknown as Record<string, unknown>)[kind];
     if (!Array.isArray(records)) continue;

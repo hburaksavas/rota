@@ -14,11 +14,21 @@
 
 - **Windows’ta hızlı yakalama penceresi.** Sistem genelinde çalışan bir klavye kısayolu, başka bir uygulamadayken küçük bir Rota penceresi açar. Kullanıcı metin, bağlantı veya dosyayı kişisel gelen kutusuna kaydeder ve daha sonra bir işe, nota veya soruya dönüştürebilir. İlk kayıtta proje veya kayıt türü seçmek gerekmez.
 
-- **Kişisel takipler.** Görev, soru ve notlardaki zil simgesiyle belirli bir tarih veya kayıt güncellemesi için takip başlatılabilir. Kayıtsız konular **Hızlı takip ekle** ile başlık ve tarih girilerek oluşturulabilir, sonradan bir işe bağlanabilir. Zamanı gelen takipler **Bana düşenler → Takipler** bölümünde görünme nedeni ve varsa bağlı işiyle listelenir. Kullanıcı kaydı açabilir, takibi erteleyebilir veya bitirebilir. Aynı kaydı birden fazla kişi kendi koşuluyla takip edebilir.
+- **Kişisel takipler.** Görev, soru ve notlardaki zil simgesiyle belirli bir tarih veya kayıt güncellemesi için takip başlatılabilir. Kayıtsız konular **Hızlı takip ekle** ile başlık ve tarih girilerek oluşturulabilir, sonradan bir işe bağlanabilir. Zamanı gelen takipler **Çalışma alanı → Takipler** bölümünde görünme nedeni ve varsa bağlı işiyle listelenir. Kullanıcı kaydı açabilir, takibi erteleyebilir veya bitirebilir. Aynı kaydı birden fazla kişi kendi koşuluyla takip edebilir.
 
 - **Backlog’da düzenleme sonrası işin konumunu göster.** Liste’de durum veya öncelik düzenlemesi ve Board’da öncelik düzenlemesi işi görünür alanda taşıdığında hedef kısa süre vurgulanır. Hedef ekran dışındaysa bildirimde **İşe git** eylemi sunulur.
 
 ## Tamamlanan
+
+- **Çalışma alanında panel görünürlüğü** · 11 Kasım 2026. Odak, Yanıt bekleyenler, Görevlerim, Notlarım, Sorularım ve Backlog işleri başlıklarından gizlenebilir. Üstteki Paneller menüsünden tek tek geri getirilebilir veya tümü gösterilebilir. Tercihler çalışma alanıyla saklanır; kayıtlar ve panel yerleşimleri korunur.
+
+- **Kayıtları doğrudan düzenleme** · 11 Kasım 2026. Görev ve notlar önizleme adımı olmadan düzenleme formunda açılır. Sorular da doğrudan düzenlenir. Ekler, not diyagramları, kopyalama ve silme aynı ekrandadır; Vazgeç pencereyi kapatır.
+
+- **Genel kullanıma uygun arayüz dili** · 11 Kasım 2026. Role özel ifadeler kaldırıldı; çalışma alanı, yanıt talepleri, görünürlük ve varsayılan profil metinleri genel kullanıma uyarlandı. Yanıt bekleyenler boş durumundaki yönlendirme cümlesi kaldırıldı.
+
+- **Çalışma alanında yanıt bekleyenler** · 11 Kasım 2026. Bana düşenler menüsü ve ayrı ekranı kaldırıldı. Yanıt talepleri ve kullanıcıya atanmış sorular, Bugünkü odağım altında kendi kaydırma alanı olan panelde gösterilir. Bekleyen/yanıtlanan, arama, tür filtresi, yanıt verme ve yeniden açma desteklenir.
+
+- **Toplantı kapanışını biçimli kopyalama** · 11 Kasım 2026. Özet; notlar, kararlar, sorular, görevler ve ertelenen gündemleri kapsar. Kayıtların güncel ayrıntıları, sorumlu ve tarih alanları HTML başlıkları ve listeleriyle kopyalanır; düz metin karşılığı da panoya eklenir.
 
 - **Aranabilir seçim alanları** · 11 Kasım 2026. Mevcut ve yeni tekli veya çoklu seçim alanları açıldığında seçenekler yazıyla filtrelenebilir. Arama Türkçe karakterleri destekler ve klavyeyle kullanılabilir.
 
@@ -54,7 +64,7 @@
 
 - **Masanın kenarı** · 6 Kasım 2026. İş detayları uygulama oturumu boyunca sağ kenara iğnelenebilir. İğnelenen iş, son açık bölüm ve kaydırma konumuyla yeniden açılır.
 
-- **Toplantı kapanış kartı** · 6 Kasım 2026. Toplantı sahnesinde oturum boyunca kaydedilen kararlar, açık sorular ve görevler gündem sırasına göre gruplanır. **Özeti kopyala** tüm çıktıyı tek seferde düz metin olarak panoya yazar.
+- **Toplantı kapanış kartı** · 6 Kasım 2026. Toplantı sahnesinde oturum boyunca kaydedilen kararlar, açık sorular ve görevler gündem sırasına göre gruplanır. **Özeti kopyala** tüm çıktıyı tek seferde biçimli HTML ve düz metin olarak panoya yazar.
 
 - **Kaydı biçimli kopyala** · 5 Kasım 2026. İş, kişisel görev, karar, açık soru ve not ekranlarındaki kopyalama simgesi, kaydı başlıkları ve ilgili alanlarıyla birlikte biçimli HTML ve düz metin olarak panoya yazar.
 

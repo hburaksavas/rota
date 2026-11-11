@@ -59,7 +59,7 @@ export function createPoTools(api: PoToolsApi) {
     const id = api.id('DEC');
     (workspace.decisions ||= []).unshift({
       id, title: title.slice(0, 140), context: 'Toplantı: ' + meetingTitle, rationale: text, options: [],
-      owner: workspace.profile.userName || 'PO', decidedAt: at.slice(0, 10), status: 'Taslak',
+      owner: workspace.profile.userName || 'Kullanıcı', decidedAt: at.slice(0, 10), status: 'Taslak',
       workItemIds: item ? [item.id] : [],
       projectIds: item ? workspace.projects.filter(project => project.name === item.project).map(project => project.id) : [],
       assetIds: [], releaseIds: [], history: [], updatedAt: at
@@ -89,7 +89,9 @@ export function createPoTools(api: PoToolsApi) {
     const name = state().profile.userName.trim().toLocaleLowerCase('tr-TR');
     return [name, 'po', name + ' (po)'].includes(question.owner.trim().toLocaleLowerCase('tr-TR')) && !!question.owner.trim();
   }
-  function renderMine() {
+  function renderResponses() {
+    const panel = root.querySelector<HTMLElement>('#workspace-responses');
+    if (!panel) return;
     const mine = (state().poRequests || []).filter(request => liveItems().some(item => item.id === request.itemId) && !!request.resolvedAt === mineResolved && (!mineFilter || request.kind === mineFilter));
     const questions = (state().openQuestions || []).filter(question => isMine(question) && (question.status === 'Yanıtlandı') === mineResolved && !mineFilter && (!question.linkedItemId || liveItems().some(item => item.id === question.linkedItemId)));
     const query = mineQuery.toLocaleLowerCase('tr-TR');
@@ -98,7 +100,7 @@ export function createPoTools(api: PoToolsApi) {
       const item = state().items.find(item => item.id === request.itemId)!;
       return '<article class="po-request-card"><header><span class="po-chip">' + kindLabels[request.kind] + '</span><small>' + e(request.requestedBy + ' · ' + dateLabel(request.createdAt)) + '</small></header><p>' + e(request.text) + '</p><button type="button" class="po-item-link" data-po="open-item" data-id="' + e(item.id) + '">' + e(item.id + ' · ' + item.title) + icon('chevronRight') + '</button>' + (request.resolvedAt ? '<div class="po-answer"><strong>Yanıtın</strong><p>' + e(request.answer || '') + '</p><small>' + e(dateLabel(request.resolvedAt)) + '</small></div><button type="button" class="po-text-button" data-po="reopen-request" data-id="' + e(request.id) + '">Yeniden aç</button>' : answerForm('request', request.id)) + '</article>';
     }).join('') + questions.filter(question => [question.text, question.answer, question.linkedItemId].join(' ').toLocaleLowerCase('tr-TR').includes(query)).map(question => '<article class="po-request-card"><header><span class="po-chip">Soru</span><small>' + e(dateLabel(question.createdAt)) + '</small></header><p>' + e(question.text) + '</p>' + (question.linkedItemId ? '<button type="button" class="po-item-link" data-po="open-item" data-id="' + e(question.linkedItemId) + '">' + e(question.linkedItemId) + icon('chevronRight') + '</button>' : '') + (question.status === 'Yanıtlandı' ? '<div class="po-answer"><strong>Yanıtın</strong><p>' + e(question.answer || '') + '</p></div>' : answerForm('question', question.id)) + '</article>').join('');
-    root.innerHTML = '<div class="page-content po-page" data-scroll-layout="ready">' + heading('Bana düşenler', 'Açıklama, örnek, teyit ve karar bekleyen konular', 'help') + '<div class="po-mine-toolbar"><div class="po-segments"><button type="button" data-po="mine-open" aria-pressed="' + !mineResolved + '">Bekleyen</button><button type="button" data-po="mine-resolved" aria-pressed="' + mineResolved + '">Yanıtlanan</button></div><select id="po-mine-kind" aria-label="Beklenti türü"><option value="">Tüm beklentiler</option>' + Object.entries(kindLabels).map(([key, label]) => '<option value="' + key + '" ' + (mineFilter === key ? 'selected' : '') + '>' + label + '</option>').join('') + '</select><label class="po-search">' + icon('search') + '<input id="po-mine-search" type="search" aria-label="Bana düşenlerde ara" value="' + e(mineQuery) + '"></label></div><div class="po-request-list">' + (cards || empty(mineResolved ? 'Bu görünümde yanıtlanmış konu yok.' : 'Bu görünümde senden yanıt bekleyen konu yok. İşin Konuşma sekmesinden PO beklentisi ekleyebilirsin.')) + '</div></div>';
+    panel.innerHTML = '<header class="personal-panel-heading"><div><h2 id="workspace-responses-title">' + icon('help') + 'Yanıt bekleyenler <span data-po-mine-count>0</span></h2><p>Senden açıklama, örnek, teyit veya karar bekleyen konular.</p></div><button type="button" class="personal-icon" data-dashboard-hide="responses" aria-label="Yanıt bekleyenler panelini gizle" data-tooltip="Paneli gizle">' + icon('close') + '</button></header><div class="po-mine-toolbar"><div class="po-segments"><button type="button" data-po="mine-open" aria-pressed="' + !mineResolved + '">Bekleyen</button><button type="button" data-po="mine-resolved" aria-pressed="' + mineResolved + '">Yanıtlanan</button></div><select id="po-mine-kind" aria-label="Beklenti türü"><option value="">Tüm beklentiler</option>' + Object.entries(kindLabels).map(([key, label]) => '<option value="' + key + '" ' + (mineFilter === key ? 'selected' : '') + '>' + label + '</option>').join('') + '</select><label class="po-search">' + icon('search') + '<input id="po-mine-search" type="search" aria-label="Yanıt bekleyenlerde ara" placeholder="Konu veya iş ara…" value="' + e(mineQuery) + '"></label></div><div class="po-request-list">' + (cards || empty(mineResolved ? 'Bu görünümde yanıtlanmış konu yok.' : 'Bu görünümde senden yanıt bekleyen konu yok.')) + '</div>';
     syncBadge();
   }
   function answerForm(kind: string, id: string) {
@@ -114,9 +116,9 @@ export function createPoTools(api: PoToolsApi) {
     });
     (state().decisions || []).filter(decision => decision.workItemIds.includes(item.id)).forEach(decision => rows.push({ id: decision.id, text: decision.title === decision.rationale ? decision.title : decision.title + '\n' + decision.rationale, label: decision.status === 'Taslak' ? 'Karar taslağı' : 'Karar', author: decision.owner, at: decision.updatedAt || decision.decidedAt }));
     (state().poRequests || []).filter(request => request.itemId === item.id).forEach(request => {
-      rows.push({ id: request.id, text: request.text, label: 'PO’dan ' + kindLabels[request.kind].toLocaleLowerCase('tr-TR') + ' bekleniyor', author: request.requestedBy, at: request.createdAt });
-      if (request.replies?.length) request.replies.forEach((reply, index) => rows.push({ id: request.id + ':reply:' + index, text: reply.text, label: 'PO yanıtı', author: reply.author, at: reply.createdAt }));
-      else if (request.answer) rows.push({ id: request.id + ':answer', text: request.answer, label: 'PO yanıtı', author: state().profile.userName || 'PO', at: request.resolvedAt || request.createdAt });
+      rows.push({ id: request.id, text: request.text, label: kindLabels[request.kind].toLocaleLowerCase('tr-TR') + ' bekleniyor', author: request.requestedBy, at: request.createdAt });
+      if (request.replies?.length) request.replies.forEach((reply, index) => rows.push({ id: request.id + ':reply:' + index, text: reply.text, label: 'Yanıt', author: reply.author, at: reply.createdAt }));
+      else if (request.answer) rows.push({ id: request.id + ':answer', text: request.answer, label: 'Yanıt', author: state().profile.userName || 'Kullanıcı', at: request.resolvedAt || request.createdAt });
     });
     return rows.sort((a, b) => (Date.parse(a.at) || 0) - (Date.parse(b.at) || 0) || a.id.localeCompare(b.id));
   }
@@ -129,7 +131,7 @@ export function createPoTools(api: PoToolsApi) {
     const dialog = modalRoot.querySelector<HTMLElement>('.detail-modal'); if (!dialog) return;
     if (!dialog.querySelector('[data-detail-tab="conversation"]')) {
       dialog.querySelector('.detail-tabs')?.insertAdjacentHTML('beforeend', '<button type="button" data-detail-tab="conversation">Konuşma</button>');
-      dialog.querySelector('.detail-main')?.insertAdjacentHTML('beforeend', '<section class="detail-section po-conversation" data-detail-tab-section="conversation" hidden><header><h3>Konuşma geçmişi</h3><label class="po-search">' + icon('search') + '<input type="search" data-po-thread-search aria-label="Konuşmada ara"></label></header><div class="po-thread-list"></div><form data-po-form="conversation" data-item="' + e(item.id) + '"><div class="po-conversation-controls"><select name="mode" aria-label="Mesaj türü"><option value="note">Konuşma notu</option><option value="request">PO’dan yanıt bekle</option></select><select name="kind" aria-label="PO beklentisi" hidden>' + Object.entries(kindLabels).map(([key, label]) => '<option value="' + key + '">' + label + '</option>').join('') + '</select><input name="requestedBy" maxlength="100" aria-label="Yanıt bekleyen kişi" placeholder="Yanıt bekleyen kişi" hidden></div><div class="po-message-box"><textarea name="text" rows="2" maxlength="12000" aria-label="Konuşmaya yaz" placeholder="İşe dair notunu veya beklenen yanıtı yaz…">' + e(drafts.get('conversation:' + item.id) || '') + '</textarea><button type="submit" aria-label="Konuşmaya ekle">' + icon('arrowUp') + '</button></div></form></section>');
+      dialog.querySelector('.detail-main')?.insertAdjacentHTML('beforeend', '<section class="detail-section po-conversation" data-detail-tab-section="conversation" hidden><header><h3>Konuşma geçmişi</h3><label class="po-search">' + icon('search') + '<input type="search" data-po-thread-search aria-label="Konuşmada ara"></label></header><div class="po-thread-list"></div><form data-po-form="conversation" data-item="' + e(item.id) + '"><div class="po-conversation-controls"><select name="mode" aria-label="Mesaj türü"><option value="note">Konuşma notu</option><option value="request">Yanıt bekle</option></select><select name="kind" aria-label="Yanıt türü" hidden>' + Object.entries(kindLabels).map(([key, label]) => '<option value="' + key + '">' + label + '</option>').join('') + '</select><input name="requestedBy" maxlength="100" aria-label="Yanıt bekleyen kişi" placeholder="Yanıt bekleyen kişi" hidden></div><div class="po-message-box"><textarea name="text" rows="2" maxlength="12000" aria-label="Konuşmaya yaz" placeholder="İşe dair notunu veya beklenen yanıtı yaz…">' + e(drafts.get('conversation:' + item.id) || '') + '</textarea><button type="submit" aria-label="Konuşmaya ekle">' + icon('arrowUp') + '</button></div></form></section>');
       dialog.querySelector('.detail-header .modal-close')?.insertAdjacentHTML('beforebegin', tool('toggle-split', 'Yan yana çalış', 'board'));
     }
     renderThread(dialog, item);
@@ -176,10 +178,10 @@ export function createPoTools(api: PoToolsApi) {
   document.addEventListener('click', event => {
     const button = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-po]') : null; if (!button) return;
     const action = button.dataset.po; const id = button.dataset.id || '';
-    if (action === 'meetings' || action === 'mine') { api.navigate(action === 'meetings' ? 'meetings' : 'my-actions'); return; }
-    if (action === 'mine-open' || action === 'mine-resolved') { mineResolved = action === 'mine-resolved'; renderMine(); return; }
+    if (action === 'meetings' || action === 'mine') { api.navigate(action === 'meetings' ? 'meetings' : 'overview'); return; }
+    if (action === 'mine-open' || action === 'mine-resolved') { mineResolved = action === 'mine-resolved'; renderResponses(); return; }
     if (action === 'open-item') { api.openItem(id); return; }
-    if (action === 'reopen-request') { const request = state().poRequests?.find(entry => entry.id === id); if (request) { request.resolvedAt = undefined; if (persist()) renderMine(); } return; }
+    if (action === 'reopen-request') { const request = state().poRequests?.find(entry => entry.id === id); if (request) { request.resolvedAt = undefined; if (persist()) renderResponses(); } return; }
     const dialog = modalRoot.querySelector<HTMLElement>('.detail-modal'); const item = state().items.find(item => item.id === dialog?.dataset.openItem); if (!dialog || !item) return;
     if (action === 'toggle-split') {
       if (!api.commitItemEdit()) return;
@@ -203,17 +205,17 @@ export function createPoTools(api: PoToolsApi) {
       const answer = String(data.get('answer') || '').trim(); if (!answer) return;
       const id = form.dataset.id!;
       if (form.dataset.kind === 'request') { const request = state().poRequests?.find(entry => entry.id === id); if (!request) return; request.replies ||= [];
-        if (!request.replies.length && request.answer) request.replies.push({ text: request.answer, author: state().profile.userName || 'PO', createdAt: request.resolvedAt || request.createdAt });
-        request.resolvedAt = now(); request.answer = answer; request.replies.push({ text: answer, author: state().profile.userName || 'PO', createdAt: request.resolvedAt }); }
+        if (!request.replies.length && request.answer) request.replies.push({ text: request.answer, author: state().profile.userName || 'Kullanıcı', createdAt: request.resolvedAt || request.createdAt });
+        request.resolvedAt = now(); request.answer = answer; request.replies.push({ text: answer, author: state().profile.userName || 'Kullanıcı', createdAt: request.resolvedAt }); }
       else { const question = state().openQuestions?.find(entry => entry.id === id); if (!question) return; question.answer = answer; question.answeredAt = now(); question.status = 'Yanıtlandı'; }
-      if (persist()) { drafts.delete('answer:' + id); renderMine(); } return;
+      if (persist()) { drafts.delete('answer:' + id); renderResponses(); } return;
     }
     if (kind === 'conversation') {
       const itemId = form.dataset.item!; const item = state().items.find(item => item.id === itemId); const text = String(data.get('text') || '').trim(); if (!item || !text) return;
       if (data.get('mode') === 'request') {
         const requestKind = String(data.get('kind')) as PoRequestKind; if (!(requestKind in kindLabels)) return;
         state().poRequests ||= []; state().poRequests!.push({ id: api.id('POREQ'), itemId, text, kind: requestKind, requestedBy: String(data.get('requestedBy') || '').trim() || 'Takım', createdAt: now() });
-      } else { state().workConversations ||= []; state().workConversations!.push({ id: api.id('CHAT'), itemId, text, author: state().profile.userName || 'PO', createdAt: now() }); }
+      } else { state().workConversations ||= []; state().workConversations!.push({ id: api.id('CHAT'), itemId, text, author: state().profile.userName || 'Kullanıcı', createdAt: now() }); }
       if (persist()) { drafts.delete('conversation:' + itemId); const textArea = form.querySelector<HTMLTextAreaElement>('textarea')!; textArea.value = ''; textArea.focus(); const dialog = form.closest<HTMLElement>('.detail-modal')!; renderThread(dialog, item); dialog.querySelector('.po-thread-list')?.lastElementChild?.scrollIntoView({ block: 'nearest' }); } return;
     }
   });
@@ -223,13 +225,13 @@ export function createPoTools(api: PoToolsApi) {
     if (form && input instanceof HTMLTextAreaElement) {
       const key = form.dataset.poForm === 'answer' ? 'answer:' + form.dataset.id : 'conversation:' + form.dataset.item; drafts.set(key, input.value);
     }
-    if (input.id === 'po-mine-search') { const start = input.selectionStart; mineQuery = input.value; renderMine(); const next = root.querySelector<HTMLInputElement>('#po-mine-search'); next?.focus(); next?.setSelectionRange(start, start); }
+    if (input.id === 'po-mine-search') { const start = input.selectionStart; mineQuery = input.value; renderResponses(); const next = root.querySelector<HTMLInputElement>('#po-mine-search'); next?.focus(); next?.setSelectionRange(start, start); }
     if (input.matches('[data-po-reference-title], [data-po-reference-body]')) updateReference(input);
     if (input.matches('[data-po-thread-search]')) { const dialog = input.closest<HTMLElement>('.detail-modal'); const item = state().items.find(item => item.id === dialog?.dataset.openItem); if (dialog && item) renderThread(dialog, item, input.value); }
   });
   document.addEventListener('change', event => {
     const input = event.target; if (!(input instanceof HTMLSelectElement)) return;
-    if (input.id === 'po-mine-kind') { mineFilter = input.value; renderMine(); }
+    if (input.id === 'po-mine-kind') { mineFilter = input.value; renderResponses(); }
     if (input.matches('[data-po-form="conversation"] [name="mode"]')) {
       const form = input.closest('form')!; form.querySelectorAll<HTMLElement>('[name="kind"], [name="requestedBy"]').forEach(node => { node.hidden = input.value !== 'request'; });
     }
@@ -243,5 +245,5 @@ export function createPoTools(api: PoToolsApi) {
     event.preventDefault(); event.target.closest('form')?.requestSubmit();
   });
   syncBadge();
-  return { renderMine, enhanceDetail, syncBadge, saveStageRecord };
+  return { renderResponses, enhanceDetail, syncBadge, saveStageRecord };
 }
