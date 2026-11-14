@@ -13,6 +13,8 @@
     "test:features": "node tests/feature/remaining.mjs",
     "test:po": "npm run build && node tests/feature/po-tools.mjs",
     "test:dashboard": "npm run build && node tests/feature/personal-dashboard.mjs",
+    "test:followups": "npm run build && node tests/feature/follow-ups.mjs",
+    "test:storage": "npm run build && node tests/desktop/workspace-file.mjs && node tests/desktop/workspace-storage.mjs",
     "test:shutdown": "node tests/desktop/shutdown.mjs",
     "test:acceptance": "npm run build && node tests/acceptance/uat.mjs",
     "start": "node scripts/start.mjs"

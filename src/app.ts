@@ -4,6 +4,8 @@ import { appConfirm, appPrompt } from "./dialogs";
 import type { Graph, Edge, Node } from "@antv/x6";
 import { initPomodoro } from "./pomodoro";
 import { createPoTools } from "./po-tools";
+import { createFollowUps } from "./follow-ups";
+import { createWorkspaceStore } from "./workspace-store";
 
 installSearchableSelects();
 
@@ -50,6 +52,10 @@ const seed: WorkspaceState = {
 };
 
 const STORAGE_KEY = "rota-po-workspace-v1";
+const workspaceStore = createWorkspaceStore(STORAGE_KEY, window.rotaDesktop, {
+  failed: () => { recordDiagnostic("storage", ""); pendingSaveFailureToast = true; showWorkspaceSaveError(); },
+  saved: () => { document.getElementById("workspace-save-error")?.remove(); pendingSaveFailureToast = false; }
+});
 const AUTO_BACKUP_AT_KEY = "rota-auto-backup-at";
 const BACKLOG_PREVIEW_PREFERENCE_KEY = "rota-backlog-preview-enabled";
 const BACKLOG_COLUMNS_PREFERENCE_KEY = "rota-backlog-columns";
@@ -167,7 +173,7 @@ function loadSavedBacklogViews(): BacklogSavedView[] {
     }));
   } catch { return []; }
 }
-const hasStoredWorkspace = localStorage.getItem(STORAGE_KEY) !== null;
+const hasStoredWorkspace = workspaceStore.read() !== null || workspaceStore.bootError !== null;
 function workspaceRecords<T>(value: unknown, fallback: T[]): T[] {
   return Array.isArray(value)
     ? value.filter((entry): entry is T => entry !== null && typeof entry === "object")
@@ -230,7 +236,8 @@ function syncMemberIds(workspace: Partial<WorkspaceState>): void {
   }
 }
 try {
-  const rawWorkspace = localStorage.getItem(STORAGE_KEY);
+  if (workspaceStore.bootError) throw new Error(workspaceStore.bootError);
+  const rawWorkspace = workspaceStore.read();
   const parsed = JSON.parse(rawWorkspace ?? "null") as Partial<WorkspaceState> | null;
   const saved = parsed && typeof parsed === "object" ? migrateWorkspace(parsed) : parsed;
   if (rawWorkspace !== null && (!saved || typeof saved !== "object" || !Array.isArray(saved.items) || !Array.isArray(saved.projects) || !saved.profile || typeof saved.profile !== "object")) throw new Error("Geçersiz çalışma alanı biçimi");
@@ -272,13 +279,14 @@ try {
     ,workflowChecks: saved.workflowChecks || {}
     ,labelAliases: saved.labelAliases || {}
     ,notifications: workspaceRecords<FollowUpNotification>(saved.notifications, [])
+    ,followUps: workspaceRecords<PersonalFollowUp>(saved.followUps, [])
   } : structuredClone(seed);
   if (legacySampleWorkspace) state.items.forEach((item) => {
     const sampleItem = seed.items.find((entry) => entry.id === item.id);
     if (sampleItem?.assetIds?.length) item.assetIds = [...sampleItem.assetIds];
   });
 } catch {
-  unreadableWorkspace = localStorage.getItem(STORAGE_KEY);
+  unreadableWorkspace = workspaceStore.read() ?? workspaceStore.bootError ?? "";
   state = structuredClone(seed);
 }
 let activeView = "overview";
@@ -422,7 +430,7 @@ function recordDiagnostic(category: DiagnosticEvent["category"], message: string
   state.diagnosticEvents ||= [];
   state.diagnosticEvents.unshift({ id: nextId("LOG"), category, message: ({ storage: "Yerel çalışma alanı kaydetme işlemi başarısız.", attachment: "Dosya eki işlemi başarısız.", jira: "Jira isteği başarısız.", import: "İçe aktarma işlemi başarısız.", application: "Uygulama işlemi başarısız." })[category], correlationId, occurredAt: new Date().toISOString() });
   state.diagnosticEvents = state.diagnosticEvents.slice(0, 100);
-  if (category !== "storage" && unreadableWorkspace === null) { try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* Keep the event in memory until saving is possible. */ } }
+  if (category !== "storage" && unreadableWorkspace === null) { try { workspaceStore.persist(JSON.stringify(state)); } catch { /* Keep the event in memory until saving is possible. */ } }
   return correlationId;
 }
 
@@ -802,7 +810,7 @@ const save = () => {
   try {
     syncProjectIds(state);
     syncMemberIds(state);
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+    workspaceStore.persist(JSON.stringify(state));
     recordWorkDiagramSnapshot();
     document.getElementById("workspace-save-error")?.remove();
     pendingSaveFailureToast = false;
@@ -978,6 +986,8 @@ function checkFollowUpReminders(): void {
   toast("Takip zamanı geldi: " + [...tasks.map((task) => task.title), ...blockers.map((item) => item.id + " · " + item.title)].slice(0, 3).join("; "));
 }
 
+function checkPersonalFollowUps(): void { followUps.check(); }
+
 function archiveMatches(value: string): boolean { const terms = archiveQuery.trim().toLocaleLowerCase("tr-TR").split(/\s+/).filter(Boolean); const normalized = value.toLocaleLowerCase("tr-TR"); return !terms.length || terms.every((term) => normalized.includes(term)); }
 
 function renderArchiveSearch(): void {
@@ -1110,6 +1120,7 @@ const icon = (name: string): string => {
     folder: '<path d="M3 7V5h6l2 2h10v13H3V7Z"/>',
     play: '<path d="m8 4 12 8-12 8Z"/>',
     pin: '<path d="m15 3 6 6-4 1-3 5-2-2-5 5-1-1 5-5-2-2 5-3 1-4Z"/>',
+    bell: '<path d="M6 16V11a6 6 0 0 1 12 0v5l1.5 2h-15L6 16Z"/><path d="M10 20.5a2 2 0 0 0 4 0"/>',
     focus: '<path d="M8 3H4a1 1 0 0 0-1 1v4m13-5h4a1 1 0 0 1 1 1v4M3 16v4a1 1 0 0 0 1 1h4m8 0h4a1 1 0 0 0 1-1v-4"/><circle cx="12" cy="12" r="4"/>',
     story: '<path d="M5 3.5h9l5 5v12H5z"/><path d="M14 3.5v5h5M8 13h8M8 16.5h6"/>',
     bug: '<path d="M8 8h8a2 2 0 0 1 2 2v6a4 4 0 0 1-4 4h-4a4 4 0 0 1-4-4v-6a2 2 0 0 1 2-2z"/><path d="M9 8V6a3 3 0 0 1 6 0v2M4 12h4m8 0h4M4 17h4m8 0h4M8 3 6.5 1.5M16 3l1.5-1.5"/>',
@@ -2458,7 +2469,7 @@ function initWorkspaceToolbar(): void {
     }
   }, true);
   document.addEventListener("pointerdown", (event) => { if (workspaceShelf && event.target instanceof Element && !event.target.closest(".workspace-commandbar, [data-workspace-panel]")) closeWorkspaceShelf(false); });
-  document.addEventListener("keydown", (event) => { if (workspaceShelf && event.key === "Escape" && !modalRoot.children.length) { event.preventDefault(); event.stopImmediatePropagation(); closeWorkspaceShelf(true); } }, true);
+  document.addEventListener("keydown", (event) => { if (workspaceShelf && event.key === "Escape" && !modalRoot.children.length && !document.querySelector(".context-menu")) { event.preventDefault(); event.stopImmediatePropagation(); closeWorkspaceShelf(true); } }, true);
   document.getElementById("workspace-shelf-search")?.addEventListener("input", (event) => { workspaceShelfQuery = (event.target as HTMLInputElement).value; renderWorkspaceShelf(); });
   document.getElementById("workspace-show-completed")?.addEventListener("change", (event) => { workspaceShowCompleted = (event.target as HTMLInputElement).checked; renderWorkspaceShelf(); });
   syncWorkspaceToolbar();
@@ -2574,7 +2585,7 @@ document.addEventListener("click", (event) => {
   toast(pinned ? "Odaktan çıkarıldı. Asıl kayıt korunuyor." : "Bugünkü odağına eklendi.");
 }, true);
 
-const dashboardPanelLabels: Record<string, string> = { focus: "Bugünkü odağım", responses: "Yanıt bekleyenler", tasks: "Görevlerim", notes: "Notlarım", questions: "Sorularım", items: "Backlog işleri" };
+const dashboardPanelLabels: Record<string, string> = { focus: "Bugünkü odağım", followups: "Takipler", responses: "Yanıt bekleyenler", tasks: "Görevlerim", notes: "Notlarım", questions: "Sorularım", items: "Backlog işleri" };
 function hiddenDashboardPanels(): string[] {
   return Array.isArray(state.hiddenDashboardPanels) ? state.hiddenDashboardPanels.filter((id) => Object.hasOwn(dashboardPanelLabels, id)) : [];
 }
@@ -2584,7 +2595,7 @@ function dashboardVisibilityControl(): string {
 function applyDashboardVisibility(): void {
   const hidden = hiddenDashboardPanels();
   for (const [id, label] of Object.entries(dashboardPanelLabels)) {
-    const selector = id === "focus" ? ".personal-focus" : id === "responses" ? "#workspace-responses" : '[data-dashboard-panel="' + id + '"]';
+    const selector = id === "focus" ? ".personal-focus" : id === "followups" ? "#workspace-followups" : id === "responses" ? "#workspace-responses" : '[data-dashboard-panel="' + id + '"]';
     const panel = root.querySelector<HTMLElement>(selector);
     if (panel) {
       panel.hidden = hidden.includes(id);
@@ -2962,14 +2973,15 @@ function renderOverview(): void {
 
   const empty = (text: string) => '<p class="personal-empty">' + text + '</p>';
   const heading = (title: string, count: number, glyph: string, action: string, label: string, kind: DashboardSearchKind) => '<header class="personal-panel-heading"><h2>' + icon(glyph) + title + '<span>' + count + '</span></h2><button type="button" class="personal-icon icon-action" ' + action + ' aria-label="' + label + '" data-tooltip="' + label + '">' + icon("add") + '</button>' + dashboardSearchControl(kind) + '</header>';
-  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><div class="personal-dashboard-body">' + dashboardVisibilityControl() + '<section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span>' + dashboardSearchControl("focus") + '</header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry" data-focus-entry-kind="' + entry.kind + '" data-focus-entry-id="' + esc(entry.id) + '" data-panel-search-text="' + esc([record.title, record.label, record.meta].join(" ")) + '"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section><section id="workspace-responses" class="workspace-responses po-page" aria-labelledby="workspace-responses-title"></section>' + '<div class="dashboard-layout-toolbar"><button type="button" class="personal-icon" data-dashboard-reset aria-label="Düzeni sıfırla" title="Düzeni sıfırla">' + icon("undo") + '</button></div><div class="personal-grid"><section class="personal-panel personal-tasks" data-dashboard-panel="tasks" aria-label="Görevlerim">' + heading("Görevlerim", tasks.length, "task", 'data-message-focus="tasks"', "Kişisel görev yaz", "tasks") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("tasks") + '</section><section class="personal-panel personal-notes" data-dashboard-panel="notes" aria-label="Notlarım">' + heading("Notlarım", state.notes.length, "note", 'data-message-focus="notes"', "Not yaz", "notes") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("notes") + '</section><section class="personal-panel personal-questions" data-dashboard-panel="questions" aria-label="Sorularım">' + heading("Sorularım", questions.length, "help", 'data-message-focus="questions"', "Soru yaz", "questions") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("questions") + '</section><section class="personal-panel personal-critical" data-dashboard-panel="items" aria-label="Backlog işleri"><header class="personal-panel-heading"><h2>' + icon("bug") + 'Backlog işleri<span>' + critical.length + '</span></h2>' + priorityFilter + dashboardSearchControl("items") + '</header><div class="personal-record-list"></div>' + workspaceMessageComposer("items") + '</section></div></div></div>';
+  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><div class="personal-dashboard-body">' + dashboardVisibilityControl() + '<section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span>' + dashboardSearchControl("focus") + '</header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry" data-focus-entry-kind="' + entry.kind + '" data-focus-entry-id="' + esc(entry.id) + '" data-panel-search-text="' + esc([record.title, record.label, record.meta].join(" ")) + '"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section><section id="workspace-followups" class="workspace-followups workspace-responses po-page" aria-labelledby="workspace-followups-title"></section><section id="workspace-responses" class="workspace-responses po-page" aria-labelledby="workspace-responses-title"></section>' + '<div class="dashboard-layout-toolbar"><button type="button" class="personal-icon" data-dashboard-reset aria-label="Düzeni sıfırla" title="Düzeni sıfırla">' + icon("undo") + '</button></div><div class="personal-grid"><section class="personal-panel personal-tasks" data-dashboard-panel="tasks" aria-label="Görevlerim">' + heading("Görevlerim", tasks.length, "task", 'data-message-focus="tasks"', "Kişisel görev yaz", "tasks") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("tasks") + '</section><section class="personal-panel personal-notes" data-dashboard-panel="notes" aria-label="Notlarım">' + heading("Notlarım", state.notes.length, "note", 'data-message-focus="notes"', "Not yaz", "notes") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("notes") + '</section><section class="personal-panel personal-questions" data-dashboard-panel="questions" aria-label="Sorularım">' + heading("Sorularım", questions.length, "help", 'data-message-focus="questions"', "Soru yaz", "questions") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("questions") + '</section><section class="personal-panel personal-critical" data-dashboard-panel="items" aria-label="Backlog işleri"><header class="personal-panel-heading"><h2>' + icon("bug") + 'Backlog işleri<span>' + critical.length + '</span></h2>' + priorityFilter + dashboardSearchControl("items") + '</header><div class="personal-record-list"></div>' + workspaceMessageComposer("items") + '</section></div></div></div>';
   poTools.renderResponses();
+  followUps.renderPanel();
   mountDashboardList("tasks", tasks, "İlk görevini aşağıya mesaj olarak yaz.", (task) => [task.title, task.description, task.due, task.linked],
-    (task, searchText) => '<article class="personal-row' + (task.due === "Bugün" ? " personal-row-due" : "") + '" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-task-check" data-toggle-task="' + esc(task.id) + '" aria-label="Görevi tamamla: ' + esc(task.title) + '">' + icon("check") + '</button><button type="button" class="personal-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong>' + personalRecordMeta([task.due === "Bugün" ? "" : task.due, task.linked].filter(Boolean).join(" · "), task.updatedAt, task.due === "Bugün") + '</button>' + workspaceFocusPin("task", task.id) + '</article>');
+    (task, searchText) => '<article class="personal-row' + (task.due === "Bugün" ? " personal-row-due" : "") + '" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-task-check" data-toggle-task="' + esc(task.id) + '" aria-label="Görevi tamamla: ' + esc(task.title) + '">' + icon("check") + '</button><button type="button" class="personal-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong>' + personalRecordMeta([task.due === "Bugün" ? "" : task.due, task.linked].filter(Boolean).join(" · "), task.updatedAt, task.due === "Bugün") + '</button>' + followUps.bell("task", task.id) + workspaceFocusPin("task", task.id) + '</article>');
   mountDashboardList("notes", state.notes, "Düşüncelerini aşağıya mesaj olarak yaz.", (note) => [note.title, note.body, note.linked],
-    (note, searchText) => '<article class="personal-row" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-record-open" data-note="' + esc(note.id) + '"><strong>' + esc(note.title) + '</strong><p>' + esc(note.body.slice(0, 180)) + '</p>' + personalRecordMeta(note.linked, note.updatedAt || note.createdAt) + '</button>' + workspaceFocusPin("note", note.id) + '</article>');
+    (note, searchText) => '<article class="personal-row" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-record-open" data-note="' + esc(note.id) + '"><strong>' + esc(note.title) + '</strong><p>' + esc(note.body.slice(0, 180)) + '</p>' + personalRecordMeta(note.linked, note.updatedAt || note.createdAt) + '</button>' + followUps.bell("note", note.id) + workspaceFocusPin("note", note.id) + '</article>');
   mountDashboardList("questions", questions, "Takip edeceğin soruyu aşağıya yaz.", (question) => [question.text, question.owner, question.linkedItemId],
-    (question, searchText) => '<article class="personal-row" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-record-open" data-action="edit-open-question" data-id="' + esc(question.id) + '"><strong>' + esc(question.text) + '</strong>' + personalRecordMeta([question.owner, question.expectedAt ? "Beklenen: " + question.expectedAt : "Yanıt bekleniyor", question.linkedItemId].filter(Boolean).join(" · "), question.updatedAt || question.answeredAt || question.createdAt) + '</button><button type="button" class="personal-icon" data-action="answer-open-question" data-id="' + esc(question.id) + '" aria-label="Soruyu yanıtla" data-tooltip="Yanıtı kaydet">' + icon("check") + '</button>' + workspaceFocusPin("question", question.id) + '</article>');
+    (question, searchText) => '<article class="personal-row" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-record-open" data-action="edit-open-question" data-id="' + esc(question.id) + '"><strong>' + esc(question.text) + '</strong>' + personalRecordMeta([question.owner, question.expectedAt ? "Beklenen: " + question.expectedAt : "Yanıt bekleniyor", question.linkedItemId].filter(Boolean).join(" · "), question.updatedAt || question.answeredAt || question.createdAt) + '</button><button type="button" class="personal-icon" data-action="answer-open-question" data-id="' + esc(question.id) + '" aria-label="Soruyu yanıtla" data-tooltip="Yanıtı kaydet">' + icon("check") + '</button>' + followUps.bell("question", question.id) + workspaceFocusPin("question", question.id) + '</article>');
   mountDashboardList("items", critical, "Bu öncelikte açık backlog işi yok.", (item) => [item.id, item.title, item.description, item.project, item.priority, item.status],
     (item, searchText) => '<article class="personal-row' + (item.status === "Bloke" || overdueDays(item) > 0 ? " personal-row-attention" : "") + '" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-record-open" data-open-item="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(item.id + " · " + item.project) + '</small><span class="personal-critical-reason">' + esc([item.status === "Bloke" ? "Bloke" : "", overdueDays(item) ? overdueDays(item) + " gün gecikti" : "", item.priority + " öncelik"].filter(Boolean).join(" · ")) + '</span></button>' + workspaceFocusPin("item", item.id) + '</article>');
   applyDashboardLayout();
@@ -3864,7 +3876,7 @@ function refreshBacklogAssigneeFilter(): void {
 function openCreateSprintModal(): void {
   const selectedItems = getSelectedBacklogItems();
   if (!selectedItems.length) { toast("Önce sprint kapsamına alacağın işleri seç."); return; }
-  if (!state.teams.length) { toast("Sprint oluşturmadan önce Takım panelinden bir takım ekle."); return; }
+  if (!state.teams.length) { toast("Sprint oluşturmadan önce Ayarlar › Takımlar bölümünden bir takım ekle."); return; }
   const start = new Date();
   const priorSprint = state.sprints?.[0];
   const priorDuration = priorSprint ? Math.max(1, Math.round((new Date(priorSprint.endDate + "T00:00:00").getTime() - new Date(priorSprint.startDate + "T00:00:00").getTime()) / 86400000) + 1) : 14;
@@ -5304,11 +5316,11 @@ async function restoreWorkspaceBackup(): Promise<void> {
     }
     if (unreadableWorkspace === null && hasStoredWorkspace) await desktop.createAutomaticBackup(state);
     const previousState = state;
-    const previousStorage = localStorage.getItem(STORAGE_KEY);
+    const previousStorage = workspaceStore.read();
     const previousUnreadable = unreadableWorkspace;
     try {
       const restored = { ...migrateWorkspace(candidate), decisions: candidate.decisions || [], diagrams: candidate.diagrams || [], sprints: candidate.sprints || [] } as WorkspaceState;
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(restored));
+      workspaceStore.persist(JSON.stringify(restored));
       await desktop.commitWorkspaceRestore(restoreToken);
       staged = null;
       state = restored;
@@ -5321,7 +5333,7 @@ async function restoreWorkspaceBackup(): Promise<void> {
     } catch (error) {
       state = previousState;
       unreadableWorkspace = previousUnreadable;
-      if (previousStorage === null) localStorage.removeItem(STORAGE_KEY); else localStorage.setItem(STORAGE_KEY, previousStorage);
+      if (previousStorage === null) workspaceStore.clear(); else workspaceStore.persist(previousStorage);
       showWorkspaceRecovery();
       if (staged) await desktop.cancelWorkspaceRestore(restoreToken).catch(() => undefined);
       throw error;
@@ -7549,12 +7561,12 @@ document.addEventListener("click", async (event) => {
         const current = workDiagramUndoHistory.pop()!; workDiagramRedoHistory.push(current);
         const previous = JSON.parse(workDiagramUndoHistory[workDiagramUndoHistory.length - 1]) as WorkDiagram;
         const index = state.diagrams.findIndex((entry) => entry.id === activeWorkDiagramId); if (index >= 0) state.diagrams[index] = previous;
-        localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); renderWorkDiagramEditor(previous, true);
+        workspaceStore.persist(JSON.stringify(state)); renderWorkDiagramEditor(previous, true);
       }
     }
     else if (action.dataset.action === "diagram-redo" && activeWorkDiagramId) {
       const next = workDiagramRedoHistory.pop();
-      if (next) { const diagram = JSON.parse(next) as WorkDiagram; workDiagramUndoHistory.push(next); const index = state.diagrams.findIndex((entry) => entry.id === activeWorkDiagramId); if (index >= 0) state.diagrams[index] = diagram; localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); renderWorkDiagramEditor(diagram, true); }
+      if (next) { const diagram = JSON.parse(next) as WorkDiagram; workDiagramUndoHistory.push(next); const index = state.diagrams.findIndex((entry) => entry.id === activeWorkDiagramId); if (index >= 0) state.diagrams[index] = diagram; workspaceStore.persist(JSON.stringify(state)); renderWorkDiagramEditor(diagram, true); }
     }
     else if (action.dataset.action === "sprint-carryover" && action.dataset.sprintId) openSprintCarryover(action.dataset.sprintId);
     else if (action.dataset.action === "sprint-summary" && action.dataset.sprintId) openSprintSummary(action.dataset.sprintId);
@@ -8916,6 +8928,8 @@ function toggleTheme(): void {
 syncThemeToggle();
 
 const poTools = createPoTools({ state: () => state, save, id: nextId, icon, esc, navigate: setView, activeProject: () => activeProjectId, openItem, toast, commitItemEdit: () => !detailEdit || commitDetailEdit() });
+const followUps = createFollowUps({ state: () => state, save, id: nextId, icon, esc, toast, openItem, closeModal: () => closeModal(),
+  openRecord: (kind, id) => { if (kind === "task") openTask(id); else if (kind === "note") showNote(id); else openQuestionForm(id); } });
 initSidebarCustomization();
 initWorkspaceToolbar();
 initPomodoro({ desktop, modalRoot, record: workspaceFocusRecord, toast });
@@ -8923,7 +8937,8 @@ initPomodoro({ desktop, modalRoot, record: workspaceFocusRecord, toast });
 render();
 showWorkspaceRecovery();
 checkFollowUpReminders();
-window.setInterval(checkFollowUpReminders, 60_000);
+checkPersonalFollowUps();
+window.setInterval(() => { checkFollowUpReminders(); checkPersonalFollowUps(); }, 60_000);
 window.setTimeout(() => { void createAutomaticBackup(); }, 10_000);
 window.setInterval(() => { void createAutomaticBackup(); }, 60 * 60_000);
 if (!hasStoredWorkspace) openSetupWizard(true);

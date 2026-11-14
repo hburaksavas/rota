@@ -56,8 +56,9 @@ Bu akışların testleri `npm run test:po` ile çalıştırılır; testler ayrı
 
 ## Veri ve özellik notları
 
-- Çalışma alanı verileri WebView2 profilinde, ek dosyalar uygulama kullanıcı veri klasöründe yerel olarak saklanır. Kullanıcı profili `%APPDATA%\\rota-po` altındadır.
-- Uygulama arayüzü sabit `http://127.0.0.1:41739` kaynağında sunulur; bu sabit adres, WebView2 `localStorage` verilerinin yeniden başlatmalarda aynı kalmasını sağlar. Önceki Electron veya dosya adresli WebView2 sürümündeki veriler yeni kaynağa otomatik taşınmaz; eski profil silinmez. Gerekirse eski sürümden yedek alıp yeni sürümde geri yükleyin.
+- Çalışma alanı verileri `%APPDATA%\rota-po\workspace.json` dosyasında, ek dosyalar aynı klasörün `attachments` alt klasöründe saklanır. Dosya her değişiklikten kısa süre sonra geçici dosyaya yazılıp yeniden adlandırılarak atomik biçimde güncellenir; uygulama kapanırken bekleyen değişiklik senkron yazılır. Her oturumun ilk yazmasından önce önceki dosya `workspace.previous.json` olarak saklanır.
+- Önceki sürümlerde veriler WebView2 `localStorage` içindeydi. İlk açılışta bu kayıt olduğu gibi `workspace.json` dosyasına kopyalanır ve silinmez; geçiş süresince her kayıtta yedek kopya olarak güncellenmeye devam eder. `workspace.json` yoksa bu kopyadan geri taşınır.
+- Uygulama arayüzü varsayılan olarak `http://127.0.0.1:41739` kaynağında sunulur; `localStorage` yedek kopyasının yeniden başlatmalarda korunması için bu adres sabittir. Testler `ROTA_APP_PORT` ile farklı port, `ROTA_WEBVIEW2_DEBUG_PORT` ile WebView2 hata ayıklama portu kullanabilir.
 - Node.js host; dosya seçme, ek dosya içe aktarma/açma/önizleme/kaldırma, Outlook `.msg` / `.eml` okuma, yedekleme/geri yükleme, Excel dışa aktarma ve Jira API işlemlerini sağlar. Jira PAT Windows kimlik bilgisi deposunda tutulur.
 - Outlook sürükle-bırak davranışı kurumun klasik Outlook sürümünde doğrulanmalıdır. Jira kullanımı için Jira base URL'i ve kullanıcı tarafından oluşturulmuş bir PAT gerekir.
 - Örnek başlangıç verisi test amaçlıdır; gerçek müşteri, hesap veya kart bilgisi girmeyin.

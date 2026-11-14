@@ -19,6 +19,19 @@ const clearFilters = async page => {
     if (await field.count() && await field.locator("option").count()) await field.selectOption({ index: 0 }).catch(() => {});
   }
 };
+// İş ayrıntısı satıra değil başlığa tıklanınca açılır.
+const openFirstItem = async page => {
+  const title = page.locator("#backlog-rows .backlog-title-open").first();
+  const id = await title.getAttribute("data-open-item");
+  await title.click();
+  await get(page, ".detail-modal").waitFor({ state: "visible" });
+  return id;
+};
+const openShelf = async (page, kind) => {
+  const button = page.locator(`.workspace-tools [data-workspace-panel="${kind}"]`);
+  if (await button.getAttribute("aria-expanded") !== "true") await button.click();
+  await get(page, "#workspace-shelf").waitFor({ state: "visible" });
+};
 const addFile = async (page, selector, name) => get(page, selector).setInputFiles({ name, mimeType: "text/plain", buffer: Buffer.from(`Rota acceptance fixture ${name}`) });
 
 export function addUncoveredCases(cases) {
@@ -65,8 +78,8 @@ export function addUncoveredCases(cases) {
   });
   for (let n = 0; n < 15; n++) test(`İş ayrıntısından ek eklenince geçmiş ve dosya listesi güncellenir ${n + 1}`, async page => {
     await go(page, "backlog", ".backlog-page"); await clearFilters(page);
-    const id = await page.locator("#backlog-rows tr[data-open-item]").first().getAttribute("data-open-item");
-    await page.locator("#backlog-rows tr[data-open-item]").first().click();
+    const id = await openFirstItem(page);
+    await click(page, '[data-detail-tab="attachments"]');
     const file = `uat-detail-${n + 1}.txt`;
     await addFile(page, "#detail-file-fallback", file);
     const item = (await readState(page)).items.find(row => row.id === id);
@@ -75,8 +88,7 @@ export function addUncoveredCases(cases) {
   });
   for (let n = 0; n < 10; n++) test(`İlerleme notuna ek ve görünürlük bilgisi kaydedilir ${n + 1}`, async page => {
     await go(page, "backlog", ".backlog-page"); await clearFilters(page);
-    const id = await page.locator("#backlog-rows tr[data-open-item]").first().getAttribute("data-open-item");
-    await page.locator("#backlog-rows tr[data-open-item]").first().click();
+    const id = await openFirstItem(page);
     await click(page, '[data-detail-tab="activity"]');
     const file = `uat-progress-${n + 1}.txt`, note = `UAT ilerleme notu ${n + 1}`;
     await addFile(page, "#progress-note-file-fallback", file);
@@ -101,14 +113,16 @@ export function addUncoveredCases(cases) {
   });
 
   // Context-menu entry points outside the backlog table.
+  // Görev ve notlar çalışma alanı rafında listelenir.
   const contextTargets = [
-    ["focus", ".focus-page", ".focus-task-row", "Görev"],
-    ["focus", ".focus-page", ".focus-note", "Not"],
+    ["shelf:tasks", "#workspace-shelf", "#workspace-shelf-list [data-context-task-id]", "Görev"],
+    ["shelf:notes", "#workspace-shelf", "#workspace-shelf-list [data-context-note-id]", "Not"],
     ["assets", ".assets-page", "[data-open-asset]", "Bileşen"],
     ["backlog", ".backlog-page", ".project-item", "Proje"]
   ];
   for (const [view, pageSelector, targetSelector, label] of contextTargets) for (let n = 0; n < (label === "Bileşen" ? 2 : 3); n++) test(`${label} bağlam menüsü açılır, klavyeyle kapatılır (${n + 1})`, async page => {
-    await go(page, view, pageSelector);
+    if (view.startsWith("shelf:")) { await go(page, "overview", ".personal-dashboard"); await openShelf(page, view.slice(6)); }
+    else await go(page, view, pageSelector);
     if (label === "Bileşen") {
       await get(page, "#asset-search").fill(""); await get(page, "#asset-type-filter").selectOption({ index: 0 }); await get(page, "#asset-project-filter").selectOption({ index: 0 });
       if (await page.locator(".asset-card").count() === 0) await click(page, '[data-action="asset-presentation"]');
@@ -126,17 +140,19 @@ export function addUncoveredCases(cases) {
   for (let n = 0; n < 10; n++) test(`Envanter ilişki diyagramı araçları görünür ve çalışır ${n + 1}`, async page => {
     await go(page, "assets", ".assets-page");
     await get(page, "#asset-search").fill(""); await get(page, "#asset-type-filter").selectOption({ index: 0 }); await get(page, "#asset-project-filter").selectOption({ index: 0 });
-    if (await page.locator(".asset-diagram-canvas").count() === 0) await click(page, '[data-action="asset-presentation"]');
+    if (await page.locator(".asset-diagram-canvas").count() === 0) await click(page, '[data-action="asset-presentation"][data-mode="diagram"]');
     await get(page, "#asset-diagram-canvas").waitFor({ state: "visible" });
     await click(page, '[data-action="diagram-layout"]');
     await click(page, '[data-action="diagram-fit"]');
     expect(await page.locator("#asset-diagram-canvas").isVisible(), "Diyagram araçlarından sonra tuval görünmez oldu");
-    await click(page, '[data-action="asset-presentation"]');
+    await click(page, '[data-action="asset-presentation"][data-mode="cards"]');
     expect(await page.locator(".asset-card").first().isVisible(), "Kart görünümüne dönüş başarısız");
   });
   for (let n = 0; n < 5; n++) test(`Yedekleme ayarları biçim ve geri yükleme seçeneklerini sunar ${n + 1}`, async page => {
-    await click(page, ".profile");
-    await get(page, ".backup-settings").waitFor({ state: "visible" });
+    if (await page.locator("#modal-root .modal").count()) await page.locator("#modal-root .modal-close").last().click().catch(() => {});
+    await get(page, ".profile").evaluate(button => button.click());
+    await click(page, '[data-settings-tab="data"]');
+    await get(page, ".backup-settings:not(.estimate-settings)").waitFor({ state: "visible" });
     const format = get(page, "#backup-format");
     expect(await format.locator("option").count() === 2, "Rota ve JSON yedek biçimleri eksik");
     await format.selectOption(n % 2 ? "json" : "rota");

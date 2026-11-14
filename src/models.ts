@@ -179,6 +179,26 @@ interface FollowUpNotification {
   notifiedAt?: string;
 }
 
+type FollowUpRecordKind = "task" | "note" | "question";
+/** Kişisel takip: bir kayda bağlı (tarih veya güncelleme koşulu) ya da kayıtsız hızlı takip. */
+interface PersonalFollowUp {
+  id: string;
+  title: string;
+  owner: string;
+  trigger: "date" | "update";
+  dueAt?: string;
+  recordKind?: FollowUpRecordKind;
+  recordId?: string;
+  linkedItemId?: string;
+  baseline?: string;
+  note?: string;
+  snoozedUntil?: string;
+  notifiedAt?: string;
+  doneAt?: string;
+  createdAt: string;
+  updatedAt?: string;
+}
+
 interface OpenQuestion {
   updatedAt?: string;
   id: string;
@@ -457,6 +477,7 @@ interface WorkspaceState {
   importBatches?: ImportBatch[];
   diagnosticEvents?: DiagnosticEvent[];
   notifications?: FollowUpNotification[];
+  followUps?: PersonalFollowUp[];
   estimateUnit?: "saat" | "puan";
   labelAliases?: Record<string, string>;
   workflowChecks?: Partial<Record<WorkType, { ready: string[]; done: string[] }>>;
@@ -505,7 +526,9 @@ interface PomodoroSession {
   notification: "pending" | "sent" | "failed" | null;
 }
 
+type WorkspaceBoot = { status: "ok"; raw: string } | { status: "missing" } | { status: "error"; message: string };
 interface DesktopBridge {
+  writeWorkspace(raw: string, sequence: number): Promise<boolean>;
   pomodoroGet(): Promise<PomodoroSession | null>;
   pomodoroStart(input: { kind: WorkspaceFocusKind; recordId: string; title: string; minutes: number; breakMinutes: number }): Promise<PomodoroSession>;
   pomodoroPause(id: string): Promise<PomodoroSession>;

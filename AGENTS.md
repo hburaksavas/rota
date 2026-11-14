@@ -6,6 +6,7 @@
 - Güncel uygulama TypeScript arayüzünü Node.js + WebView2 masaüstü penceresinde çalıştırır. Arayüz `src/app.ts`, stiller `src/styles.css`, yerel host `scripts/start-node-webview.mjs` içindedir. Electron ve .NET SDK başlangıç bağımlılığı değildir.
 - Ana branch `main`; GitHub uzak deposu `https://github.com/hburaksavas/rota.git`.
 - Gereksinimler: Node.js 24+ / npm ve Windows'ta WebView2 Runtime. Derleme: `npm run build`; uygulamayı başlatma: `npm start`; kabul testleri: `npm run test:acceptance`.
+- Çalışma alanı `%APPDATA%\rota-po\workspace.json` dosyasında saklanır (`scripts/workspace-file.mjs`, `src/workspace-store.ts`). Açılışta `/workspace-boot.js` veriyi uygulama kodundan önce senkron yükler; `save()` senkron kalır, disk yazması host'ta birleştirilip atomik yapılır. `localStorage` geçiş süresince yedek kopyadır; doğrudan `localStorage.setItem(STORAGE_KEY, …)` yazma, `workspaceStore.persist` kullan. Host yokken (index.html'in tarayıcıda açıldığı testler) yalnızca `localStorage` kullanılır.
 - Kullanıcı Türkçe konuşur; uygulama arayüzü ve kullanıcıya dönük dokümantasyon Türkçe olmalıdır.
 
 ## Ürün kararları ve arayüz tercihleri

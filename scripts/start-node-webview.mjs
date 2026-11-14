@@ -3,6 +3,7 @@ import { fileShortcuts } from "./file-shortcuts.mjs";
 import { Application, Notification } from "@webviewjs/webview";
 import { createPomodoroController } from "./pomodoro.mjs";
 import { installDesktopShutdown } from "./desktop-lifecycle.mjs";
+import { createWorkspaceFile } from "./workspace-file.mjs";
 import { Entry } from "@napi-rs/keyring";
 import koffi from "koffi";
 import { randomUUID, createHash, timingSafeEqual } from "node:crypto";
@@ -21,6 +22,8 @@ if (process.platform === "win32") {
   const appIdResult = setAppUserModelId("HburakSavas.Rota");
   if (appIdResult !== 0) throw new Error(`Rota Windows uygulama kimliği atanamadı (HRESULT 0x${(appIdResult >>> 0).toString(16)}).`);
 }
+// Kabul ve masaüstü testleri WebView2'ye CDP ile bağlanır.
+if (process.env.ROTA_WEBVIEW2_DEBUG_PORT) process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS = [process.env.WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS, `--remote-debugging-port=${Number(process.env.ROTA_WEBVIEW2_DEBUG_PORT)}`].filter(Boolean).join(" ");
 const app = new Application();
 const dataRoot = resolve(process.env.ROTA_USER_DATA_DIR || join(process.env.APPDATA || homedir(), "rota-po"));
 const profilePath = process.env.ROTA_WEBVIEW2_USER_DATA || join(dataRoot, "webview2");
@@ -33,6 +36,7 @@ const mailAttachmentSessions = new Map();
 const restoreSessions = new Map();
 const keyring = new Entry("Rota Jira", "Personal Access Token");
 await mkdir(attachmentRoot, { recursive: true });
+const workspaceFile = createWorkspaceFile(dataRoot);
 await mkdir(profilePath, { recursive: true });
 
 const safeName = (name) => basename(String(name || "dosya")).replace(/[<>:"/\\|?*\x00-\x1f]/g, "_").slice(0, 180) || "dosya";
@@ -244,6 +248,15 @@ const assetServer = createServer(async (request, response) => {
   let pathname;
   try { pathname = decodeURIComponent(new URL(request.url || "/", "http://127.0.0.1").pathname); }
   catch { response.writeHead(400).end("Bad request"); return; }
+  if (pathname === "/workspace-boot.js") {
+    // Uygulama kodundan önce senkron yüklenir; böylece çalışma alanı açılışta dosyadan okunur.
+    let boot;
+    try { const raw = await workspaceFile.read(); boot = raw === null ? { status: "missing" } : { status: "ok", raw }; }
+    catch (error) { boot = { status: "error", message: String(error?.message || error) }; }
+    response.writeHead(200, { "Content-Type": mimeTypes[".js"], "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
+    response.end("window.__ROTA_WORKSPACE__ = " + JSON.stringify(boot) + ";");
+    return;
+  }
   if (!allowedAssets.has(pathname)) { response.writeHead(404).end("Not found"); return; }
   const relative = pathname === "/" ? "index.html" : pathname.slice(1);
   try {
@@ -253,7 +266,7 @@ const assetServer = createServer(async (request, response) => {
   } catch { response.writeHead(404).end("Not found"); }
 });
 // Keep the origin stable so WebView localStorage survives app restarts.
-const appPort = 41739;
+const appPort = Number(process.env.ROTA_APP_PORT) || 41739;
 await new Promise((resolveListen, rejectListen) => { assetServer.once("error", rejectListen); assetServer.listen(appPort, "127.0.0.1", resolveListen); });
 const appOrigin = `http://127.0.0.1:${appPort}`;
 const appIcon = await loadWindowIcon();
@@ -305,6 +318,7 @@ webview.expose("rotaDesktop", {
   openAttachment: async (storedName) => { const path = checkedStoredPath(storedName); try { await execFileAsync("explorer.exe", [path]); return ""; } catch { return "Dosya açılamadı."; } },
   previewAttachment: async (storedName) => { const path = checkedStoredPath(storedName); const bytes = await readFile(path); if (bytes.length > 12 * 1024 * 1024) return null; const mimeType = ({ ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", ".gif": "image/gif", ".webp": "image/webp", ".pdf": "application/pdf" })[extname(path).toLowerCase()]; return mimeType ? { mimeType, dataUrl: `data:${mimeType};base64,${bytes.toString("base64")}` } : null; },
   removeAttachment: async (storedName) => { await rm(checkedStoredPath(storedName), { force: true }); return true; },
+  writeWorkspace: (raw, sequence) => workspaceFile.write(raw, sequence),
   exportWorkspaceBackup: backupExport,
   createAutomaticBackup: automaticBackup,
   getAutomaticBackupDirectory: async () => automaticBackupDirectory,
@@ -348,5 +362,5 @@ webview.expose("rotaDesktop", {
 });
 
 const nativeDropBridge = installNativeFileDrop(appWindow, webview);
-installDesktopShutdown(app, assetServer, appWindow);
+installDesktopShutdown(app, assetServer, appWindow, () => workspaceFile.flushSync());
 app.run();

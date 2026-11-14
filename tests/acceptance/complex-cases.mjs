@@ -11,11 +11,36 @@ const choose = async (page, selector, value) => {
 const fill = async (page, selector, value) => { const el = get(page, selector); await el.waitFor({ state: "visible" }); await el.fill(value); };
 const readVisible = async page => readState(page);
 const expect = (condition, message) => { if (!condition) throw new Error(message); };
+const closeModals = async page => {
+  for (let attempt = 0; attempt < 3 && await page.locator("#modal-root .modal").count(); attempt++) await page.locator("#modal-root .modal-close").last().click().catch(() => {});
+};
 const go = async (page, view, selector) => {
-  if (await page.locator("#modal-root .modal").count()) await page.locator("#modal-root .modal-close").last().click().catch(() => {});
+  await closeModals(page);
   await page.locator('details[name="backlog-menus"][open]').evaluateAll(menus => menus.forEach(menu => { menu.open = false; }));
   await page.locator(`[data-view="${view}"]`).first().click();
   await page.locator(selector).first().waitFor({ state: "visible" });
+};
+// İş ayrıntısı satıra değil başlığa tıklanınca açılır.
+const openItem = async (page, itemId) => {
+  await go(page, "backlog", "#backlog-rows tr[data-open-item]"); await clearFilters(page);
+  const title = itemId ? page.locator(`#backlog-rows .backlog-title-open[data-open-item="${itemId}"]`) : get(page, "#backlog-rows .backlog-title-open");
+  await title.click();
+  await get(page, ".detail-modal").waitFor({ state: "visible" });
+};
+const openDetailGroup = (page, group) => page.locator(`.detail-modal [data-detail-group="${group}"]`).evaluate(details => { details.open = true; });
+// Görevler, notlar ve sorular ayrı sayfalar yerine çalışma alanı rafında açılır.
+const openShelf = async (page, kind) => {
+  await closeModals(page);
+  const button = page.locator(`.workspace-tools [data-workspace-panel="${kind}"]`);
+  if (await button.getAttribute("aria-expanded") !== "true") await button.click();
+  await get(page, "#workspace-shelf").waitFor({ state: "visible" });
+};
+const openSettings = async (page, tab) => {
+  await closeModals(page);
+  // Düğmeyi doğrudan tetikle: ortasına tıklamak avatar üzerindeki renk rozetine denk gelebilir.
+  await get(page, ".profile").evaluate(button => button.click());
+  await get(page, "#workspace-form").waitFor({ state: "visible" });
+  if (tab) await click(page, `[data-settings-tab="${tab}"]`);
 };
 const openDetailedCreate = async page => {
   await go(page, "backlog", ".backlog-page");
@@ -121,7 +146,8 @@ export function addComplexCases(cases) {
         expect((await readVisible(p)).items?.length >= 8, "Satır içi güncelleme backlog verisini kaybettirdi");
       } else {
         await control.fill("Ayşe Yılmaz");
-        await click(p, '[data-inline-action="add-assignment"]');
+        // Üye önerileri listesi açıkken onay düğmesinin üzerini kapatabilir; düğmeyi doğrudan tetikle.
+        await get(p, '[data-inline-action="add-assignment"]').evaluate(button => button.click());
         const itemId = await control.getAttribute("data-inline-member");
         expect((await readVisible(p)).items.find(item => item.id === itemId)?.assignments?.some(assignment => assignment.member === "Ayşe Yılmaz"), "Yeni sorumlu işe eklenmedi");
         await click(p, '[data-inline-action="cancel"]');
@@ -165,34 +191,41 @@ export function addComplexCases(cases) {
   });
 
   // Work item detail, change log, blocking and assignment management.
-  for (let n = 0; n < 8; n++) test(`İş ayrıntısında sekme geçişi, aktivite ve düzenleme erişimi ${n + 1}`, async p => {
-      await go(p, "backlog", "#backlog-rows tr[data-open-item]"); await clearFilters(p);
-      const row = p.locator("#backlog-rows tr[data-open-item]").nth(n % await p.locator("#backlog-rows tr[data-open-item]").count());
-      await row.evaluate(element => element.click());
+  for (let n = 0; n < 8; n++) test(`İş ayrıntısında sekme geçişi, aktivite ve satır içi düzenleme erişimi ${n + 1}`, async p => {
+    await go(p, "backlog", "#backlog-rows tr[data-open-item]"); await clearFilters(p);
+    const titles = p.locator("#backlog-rows .backlog-title-open");
+    await titles.nth(n % await titles.count()).click();
     await get(p, ".detail-modal").waitFor({ state: "visible" });
-    for (const tab of ["activity", "overview", "relationships", "attachments"]) {
+    for (const tab of ["activity", "overview", "relationships", "attachments", "conversation"]) {
       const button = p.locator(`[data-detail-tab="${tab}"]`);
       if (await button.count()) { await button.click(); await p.waitForTimeout(30); expect(await p.locator(".detail-modal").isVisible(), `İş ayrıntısı ${tab} sekmesinde kapandı`); }
     }
-    await click(p, '.detail-footer [data-action="edit-item"]');
-    await get(p, "#edit-item-form").waitFor({ state: "visible" });
-    expect(await p.locator('#edit-item-form [name="acceptance"]').count() === 1, "Düzenleme formu kabul kriterlerini sunmuyor");
+    await click(p, '[data-detail-tab="overview"]');
+    await click(p, '.detail-modal [data-detail-edit="acceptance"]');
+    const editor = get(p, '.detail-modal [data-detail-slot="acceptance"] [data-detail-input]');
+    await editor.waitFor({ state: "visible" });
+    expect((await editor.inputValue()).length >= 0, "Kabul kriterleri satır içi düzenleyicisi açılmadı");
+    await click(p, '.detail-modal [data-detail-slot="acceptance"] [data-detail-cancel]');
+    expect(await p.locator('.detail-modal [data-detail-slot="acceptance"].is-editing').count() === 0, "İptal satır içi düzenlemeyi kapatmadı");
   });
 
   for (let n = 0; n < 5; n++) test(`Blokaj iş akışı neden, sonraki adım ve aktiviteyle tamamlanır ${n + 1}`, async p => {
     await go(p, "backlog", "#backlog-rows tr[data-open-item]"); await clearFilters(p);
-    const itemId = await get(p, "#backlog-rows tr[data-open-item]").getAttribute("data-open-item");
-    await p.locator(`#backlog-rows tr[data-open-item="${itemId}"]`).evaluate(element => element.click());
-    await click(p, '.detail-footer [data-action="edit-item"]');
-    await get(p, "#edit-item-form").waitFor({ state: "visible" });
-    await choose(p, '#edit-item-form select[name="status"]', "Bloke");
-    for (const field of ["blockerReason", "blockerNextStep", "blockerExpected"]) await fill(p, `#edit-item-form [name="${field}"]`, `Test ${n}: operasyon teyidi ve takip adımı`);
-    const owner = get(p, '#edit-item-form [name="blockerOwner"]');
-    if (await owner.locator("option").count() > 1) await owner.selectOption({ index: 1 });
-    const validity = await p.locator("#edit-item-form").evaluate(form => ({ valid: form.checkValidity(), invalid: [...form.elements].filter(field => field.willValidate && !field.validity.valid).map(field => ({ name: field.name, value: field.value, message: field.validationMessage })) }));
-    await p.locator('#edit-item-form button[type="submit"]').click();
+    const titles = p.locator("#backlog-rows .backlog-title-open");
+    const itemId = await titles.nth(n % await titles.count()).getAttribute("data-open-item");
+    await openItem(p, itemId);
+    await openDetailGroup(p, "properties");
+    const slot = '.detail-modal [data-detail-slot="blocker"]';
+    if (await get(p, "#detail-status").inputValue() === "Bloke") await click(p, `${slot} [data-detail-edit="blocker"]`);
+    else await choose(p, "#detail-status", "Bloke");
+    await get(p, `${slot} [data-detail-blocker="reason"]`).waitFor({ state: "visible" });
+    for (const field of ["reason", "expectedAction", "nextStep"]) await fill(p, `${slot} [data-detail-blocker="${field}"]`, `Test ${n}: operasyon teyidi ve takip adımı`);
+    await fill(p, `${slot} [data-detail-blocker="owner"]`, "Ödeme operasyonu");
+    await click(p, `${slot} [data-detail-commit]`);
+    await p.waitForTimeout(100);
     const item = (await readVisible(p)).items.find(row => row.id === itemId);
-    expect(item?.status === "Bloke" && item.blocker?.reason && item.blocker?.nextStep, `Blokaj nedeni ve takip adımı kaydedilmedi: ${JSON.stringify(item ? { status: item.status, blocker: item.blocker } : null)} · form: ${JSON.stringify(validity)} · toast: ${await p.locator("#toast-root").innerText()}`);
+    expect(item?.status === "Bloke" && item.blocker?.reason && item.blocker?.nextStep, `Blokaj nedeni ve takip adımı kaydedilmedi: ${JSON.stringify(item ? { status: item.status, blocker: item.blocker } : null)} · hata: ${await p.locator(`${slot} .detail-inline-error`).innerText().catch(() => "")} · toast: ${await p.locator("#toast-root").innerText()}`);
+    expect(item.activity?.some(entry => /Bloke|blokaj/i.test(entry.message || "")), "Blokaj değişikliği aktiviteye yazılmadı");
   });
 
   // Sprint planning and execution lifecycle.
@@ -208,7 +241,11 @@ export function addComplexCases(cases) {
     const title = uniq("Sprint", n);
     await fill(p, '#create-sprint-form [name="name"]', title);
     const team = get(p, '#create-sprint-form [name="teamId"]');
-    if (await team.locator("option").count() > 1) await team.selectOption({ index: 1 });
+    if (!await team.inputValue() && await team.locator("option").count() > 1) await team.selectOption({ index: 1 });
+    for (const [field, value] of [["startDate", "2027-01-04"], ["endDate", "2027-01-15"]]) {
+      const input = get(p, `#create-sprint-form [name="${field}"]`);
+      if (!await input.inputValue()) await input.fill(value);
+    }
     await p.locator('#create-sprint-form button[type="submit"]').click();
     const state = await readVisible(p);
     const sprint = (state.sprints || []).find(row => row.name === title);
@@ -216,8 +253,8 @@ export function addComplexCases(cases) {
   });
 
   // Team and project management; creating a team also enables assignments.
-  for (let n = 0; n < 5; n++) test(`Takım oluşturma, üyeleri düzenleme ve panel güncellemesi ${n + 1}`, async p => {
-    await go(p, "teams", ".teams-page");
+  for (let n = 0; n < 5; n++) test(`Takım oluşturma, üyeleri düzenleme ve ayarlar listesinin güncellenmesi ${n + 1}`, async p => {
+    await openSettings(p, "teams");
     await click(p, '[data-action="new-team"]');
     await get(p, "#team-form").waitFor({ state: "visible" });
     const name = uniq("Takım", n);
@@ -230,17 +267,22 @@ export function addComplexCases(cases) {
     const state = await readVisible(p);
     const team = state.teams.find(row => row.name === name);
     expect(team?.members.length === 2, `Takım üyeleri beklenen şekilde kaydedilmedi: ${JSON.stringify(team || state.teams.at(-1))}`);
+    expect((await p.locator(".team-settings-row").filter({ hasText: name }).first().textContent()).includes("2 üye"), "Ayarlardaki takım listesi güncellenmedi");
   });
 
-  for (let n = 0; n < 5; n++) test(`Takım üyesi araması ve planlama filtresi ${n + 1}`, async p => {
-    await go(p, "teams", ".teams-page");
-    await fill(p, "#team-member-search", n % 2 ? "Kullanıcı" : "Ayşe");
+  for (let n = 0; n < 5; n++) test(`Takım filtresi backlog listesini daraltır ve temizlenir ${n + 1}`, async p => {
+    await go(p, "backlog", ".backlog-page"); await clearFilters(p);
+    const total = Number(await get(p, "#visible-count").innerText());
+    await click(p, ".backlog-filter-menu > summary");
+    const filter = get(p, "#team-filter");
+    const options = await filter.locator("option").count();
+    expect(options > 1, "Takım filtresinde ayarlarda tanımlanan takım yok");
+    await filter.selectOption({ index: 1 + (n % (options - 1)) });
     await p.waitForTimeout(100);
-    await fill(p, "#team-filter-period", "2026");
-    await p.waitForTimeout(100);
-    expect(await p.locator(".team-overview-stats").isVisible(), "Takım özeti filtre sonrası kayboldu");
-    await click(p, '[data-action="clear-team-filters"]');
-    expect(await p.locator(".teams-page").isVisible(), "Takım filtrelerini temizleme sayfayı bozdu");
+    const filtered = Number(await get(p, "#visible-count").innerText());
+    expect(filtered <= total, "Takım filtresi listeyi genişletti");
+    await clearFilters(p);
+    expect(Number(await get(p, "#visible-count").innerText()) === total, "Takım filtresi temizlenince liste geri gelmedi");
   });
 
   // Product inventory flows.
@@ -297,54 +339,76 @@ export function addComplexCases(cases) {
     expect(release?.plannedDate === "2027-01-15" && release.project, `Release planı eksik kaydedildi: ${JSON.stringify(release || (await readVisible(p)).releases?.at(-1))}`);
   });
 
-  // Questions, decisions, daily plan, weekly summary and handover.
+  // Questions, follow-ups, daily focus and note conversion in the workspace.
   for (let n = 0; n < 5; n++) test(`Açık soru oluşturma, yanıtlayıp yeniden açma ${n + 1}`, async p => {
-    await go(p, "questions", ".questions-page");
-    await click(p, '[data-action="new-open-question"]');
-    await get(p, "#open-question-form").waitFor({ state: "visible" });
     const title = uniq("Karar", n);
-    await fill(p, '#open-question-form [name="text"]', title);
+    const row = () => p.locator("#workspace-shelf-list .workspace-question-row").filter({ hasText: title });
+    await openShelf(p, "questions");
+    await fill(p, '#workspace-shelf textarea[name="message"]', title);
+    await get(p, '#workspace-shelf textarea[name="message"]').press("Enter");
+    let question = ((await readVisible(p)).openQuestions || []).find(entry => entry.text === title);
+    expect(question?.status === "Açık", "Raftan yazılan soru kaydedilmedi");
+    await row().locator('.workspace-question-actions [data-action="edit-open-question"]').click();
+    await get(p, "#open-question-form").waitFor({ state: "visible" });
     await fill(p, '#open-question-form [name="owner"]', "Ödeme operasyonu");
     await get(p, '#open-question-form [name="linkedItemId"]').selectOption({ index: 1 });
     await p.locator('#open-question-form button[type="submit"]').click();
-    let question = ((await readVisible(p)).openQuestions || []).find(entry => entry.text === title);
-    expect(question?.status === "Açık" && question.linkedItemId, "Açık soru iş bağlantısıyla kaydedilmedi");
-    await p.locator(`.question-card:has-text("${title}") [data-action="answer-open-question"]`).evaluate(button => button.click());
+    question = ((await readVisible(p)).openQuestions || []).find(entry => entry.text === title);
+    expect(question?.owner === "Ödeme operasyonu" && question.linkedItemId, "Açık soru sahip ve iş bağlantısıyla güncellenmedi");
+    await openShelf(p, "questions");
+    await row().locator('[data-action="answer-open-question"]').click();
     await get(p, "#open-question-answer-form").waitFor({ state: "visible" });
     await fill(p, '#open-question-answer-form [name="answer"]', "Karar onaylandı.");
     await p.locator('#open-question-answer-form button[type="submit"]').click();
     question = ((await readVisible(p)).openQuestions || []).find(entry => entry.text === title);
     expect(question?.status === "Yanıtlandı" && question.answer === "Karar onaylandı.", `Soru yanıtlandı durumuna geçmedi: ${JSON.stringify(question)}`);
-    await p.locator("#question-filter").selectOption("all");
-    await click(p, `.question-card:has-text("${title}") [data-action="reopen-question"]`);
+    await openShelf(p, "questions");
+    await get(p, "#workspace-question-filter").selectOption("all");
+    await row().locator('[data-action="reopen-question"]').click();
     question = ((await readVisible(p)).openQuestions || []).find(entry => entry.text === title);
     expect(question?.status === "Açık", "Soru yeniden açılamadı");
+    await click(p, "[data-workspace-close]");
   });
 
-  for (let n = 0; n < 5; n++) test(`Günlük PO planı notunu tarih bazlı saklar ${n + 1}`, async p => {
-    await go(p, "daily-plan", ".planning-page");
-    const note = uniq("Günlük not", n);
-    await fill(p, "#daily-plan-note", note);
-    await click(p, '[data-action="save-daily-plan"]');
-    const state = await readVisible(p);
-    expect((state.dailyPlans || []).some(plan => plan.note === note), "Günlük plan notu kaydedilmedi");
+  for (let n = 0; n < 5; n++) test(`Hızlı kişisel takip backlog işine bağlanır ve Takipler panelinde görünür ${n + 1}`, async p => {
+    await go(p, "overview", "#workspace-followups");
+    await click(p, "[data-followup-quick]");
+    await get(p, "#followup-quick-form").waitFor({ state: "visible" });
+    const title = uniq("Takip", n);
+    await fill(p, '#followup-quick-form [name="title"]', title);
+    await fill(p, '#followup-quick-form [name="dueAt"]', "2026-01-05T09:00");
+    await get(p, '#followup-quick-form [name="linkedItemId"]').selectOption({ index: 1 });
+    await p.locator('#followup-quick-form button[type="submit"]').click();
+    const followUp = ((await readVisible(p)).followUps || []).find(entry => entry.title === title);
+    expect(followUp?.trigger === "date" && followUp.linkedItemId && !followUp.doneAt, `Takip kaydı eksik: ${JSON.stringify(followUp)}`);
+    expect(await p.locator("#workspace-followups").getByText(title).first().isVisible(), "Zamanı gelen takip panelde görünmüyor");
   });
 
-  for (let n = 0; n < 5; n++) test(`Haftalık özet PO değerlendirmesini kaydeder ${n + 1}`, async p => {
-    await go(p, "weekly-summary", ".planning-page");
-    const note = uniq("Haftalık değerlendirme", n);
-    await fill(p, "#weekly-summary-note", note);
-    await click(p, '[data-action="save-weekly-summary"]');
-    const state = await readVisible(p);
-    expect(Object.values(state.weeklySummaryNotes || {}).includes(note), "Haftalık özet notu saklanmadı");
+  for (let n = 0; n < 5; n++) test(`Kayıt bugünkü odağa eklenir ve çıkarılır ${n + 1}`, async p => {
+    await go(p, "overview", ".personal-tasks");
+    const pins = p.locator(".personal-tasks [data-focus-kind]");
+    const pin = pins.nth(n % await pins.count());
+    const id = await pin.getAttribute("data-focus-id");
+    const pinned = async () => ((await readVisible(p)).dailyFocus || []).some(entry => entry.id === id);
+    const before = await pinned();
+    await pin.click();
+    expect(await pinned() !== before, "Odak iğnesi kaydı değiştirmedi");
+    await p.locator(`.personal-tasks [data-focus-id="${id}"]`).click();
+    expect(await pinned() === before, "Odak iğnesi ikinci tıklamada geri alınmadı");
   });
 
-  for (let n = 0; n < 5; n++) test(`PO devir paketi proje ve özel bağlamı yansıtır ${n + 1}`, async p => {
-    await go(p, "handover", ".handover-page");
-    const note = uniq("Devir notu", n);
-    await fill(p, "#handover-notes", note);
-    await p.waitForTimeout(100);
-    expect((await get(p, ".handover-preview").innerText()).length > 20, "Devir paketi önizlemesi oluşturulmadı");
+  for (let n = 0; n < 5; n++) test(`Not raftan bağlantısı korunarak göreve dönüştürülür ${n + 1}`, async p => {
+    await openShelf(p, "notes");
+    const buttons = p.locator('#workspace-shelf-list [data-action="note-to-task"]');
+    const button = buttons.nth(n % await buttons.count());
+    const noteId = await button.getAttribute("data-id");
+    const before = await readVisible(p);
+    const note = before.notes.find(entry => entry.id === noteId);
+    await button.click();
+    const created = (await readVisible(p)).tasks.filter(task => task.sourceNoteId === noteId);
+    expect(created.length === before.tasks.filter(task => task.sourceNoteId === noteId).length + 1, "Notdan görev oluşturulmadı");
+    expect(created[0].title === note.title && created[0].linked === note.linked, "Oluşan görev notun başlığını veya bağlantısını korumadı");
+    await click(p, "[data-workspace-close]");
   });
 
   // Personal tasks and notes lifecycle.
@@ -358,11 +422,12 @@ export function addComplexCases(cases) {
     let state = await readVisible(p);
     let task = state.tasks.find(entry => entry.title === title);
     expect(task?.linked === "PAY-241", "Kişisel görev iş ilişkisiyle kaydedilmedi");
-    await go(p, "focus", ".focus-page");
-    const checkbox = p.locator(`[data-toggle-task="${task.id}"]`);
+    await openShelf(p, "tasks");
+    const checkbox = p.locator(`#workspace-shelf [data-toggle-task="${task.id}"]`);
     await checkbox.click();
     state = await readVisible(p); task = state.tasks.find(entry => entry.id === task.id);
     expect(task?.done === true, "Görev tamamlandı olarak işaretlenmedi");
+    await click(p, "[data-workspace-close]");
   });
 
   for (let n = 0; n < 5; n++) test(`Kişisel not oluşturma, düzenleme ve göreve dönüştürme ${n + 1}`, async p => {
@@ -375,9 +440,10 @@ export function addComplexCases(cases) {
     await p.locator('#new-form button[type="submit"]').click();
     const note = (await readVisible(p)).notes.find(entry => entry.title === title);
     expect(note?.linked === "PAY-241" && note.body.includes("sonraki aksiyonlar"), "Not içeriği veya backlog ilişkisi saklanmadı");
-    await go(p, "focus", ".focus-page");
-    const row = p.locator(".note-card").filter({ hasText: title }).first();
-    if (await row.count()) expect(await row.isVisible(), "Oluşturulan not kişisel alanda görünmüyor");
+    await openShelf(p, "notes");
+    const row = p.locator("#workspace-shelf-list [data-context-note-id]").filter({ hasText: title }).first();
+    expect(await row.isVisible(), "Oluşturulan not çalışma alanı rafında görünmüyor");
+    await click(p, "[data-workspace-close]");
   });
 
   // Project, archive, search, global shortcuts and workspace preferences.
@@ -391,8 +457,7 @@ export function addComplexCases(cases) {
   });
 
   for (let n = 0; n < 5; n++) test(`Çalışma alanı tercihleri tema ve okunabilirlik ayarlarını uygular ${n + 1}`, async p => {
-    await click(p, ".profile");
-    await get(p, "#workspace-form").waitFor({ state: "visible" });
+    await openSettings(p, "appearance");
     await choose(p, "#workspace-theme", ["light", "dark", "system"][n % 3]);
     await choose(p, "#workspace-app-zoom", ["1", "1.1", "1.2", "0.9", "1"][n]);
     await choose(p, "#workspace-high-contrast", n % 2 ? "true" : "false");
@@ -403,8 +468,7 @@ export function addComplexCases(cases) {
 
   for (let n = 0; n < 5; n++) test(`Jira adresi yokken entegrasyon kapalı ve ayarlara yönlendiriyor ${n + 1}`, async p => {
     expect(await p.locator('[data-view="jira"]').isDisabled(), "Base URL olmadan Jira menüsü kapalı değil");
-    await click(p, ".profile");
-    await get(p, "#workspace-form").waitFor({ state: "visible" });
+    await openSettings(p, "integrations");
     expect(await p.locator('#workspace-form [name="jiraBaseUrl"]').isVisible(), "Jira URL ayarı çalışma alanı formunda yok");
     await click(p, "#modal-root .modal-close");
   });

@@ -14,11 +14,13 @@
 
 - **Windows’ta hızlı yakalama penceresi.** Sistem genelinde çalışan bir klavye kısayolu, başka bir uygulamadayken küçük bir Rota penceresi açar. Kullanıcı metin, bağlantı veya dosyayı kişisel gelen kutusuna kaydeder ve daha sonra bir işe, nota veya soruya dönüştürebilir. İlk kayıtta proje veya kayıt türü seçmek gerekmez.
 
-- **Kişisel takipler.** Görev, soru ve notlardaki zil simgesiyle belirli bir tarih veya kayıt güncellemesi için takip başlatılabilir. Kayıtsız konular **Hızlı takip ekle** ile başlık ve tarih girilerek oluşturulabilir, sonradan bir işe bağlanabilir. Zamanı gelen takipler **Çalışma alanı → Takipler** bölümünde görünme nedeni ve varsa bağlı işiyle listelenir. Kullanıcı kaydı açabilir, takibi erteleyebilir veya bitirebilir. Aynı kaydı birden fazla kişi kendi koşuluyla takip edebilir.
-
 - **Backlog’da düzenleme sonrası işin konumunu göster.** Liste’de durum veya öncelik düzenlemesi ve Board’da öncelik düzenlemesi işi görünür alanda taşıdığında hedef kısa süre vurgulanır. Hedef ekran dışındaysa bildirimde **İşe git** eylemi sunulur.
 
 ## Tamamlanan
+
+- **Çalışma alanının dosyada saklanması** · 14 Kasım 2026. Çalışma alanı WebView2 `localStorage` yerine `%APPDATA%\rota-po\workspace.json` dosyasında tutulur. Yazmalar birleştirilir ve atomik yapılır; kapanışta bekleyen değişiklik kaybolmaz. Oturum başında önceki dosya `workspace.previous.json` olarak saklanır. Mevcut `localStorage` kaydı ilk açılışta dosyaya kopyalanır ve silinmez. Dosya okunamazsa uygulama üzerine yazmaz, kurtarma akışını açar.
+
+- **Kişisel takipler** · 14 Kasım 2026. Çalışma alanındaki görev, not ve soru satırlarında zil simgesiyle belirli bir tarih veya kayıt güncellemesi için takip başlatılır. Takip eden kişi kendi ve takım üyeleri arasından seçilir; her kişi aynı kayıtta kendi koşuluyla tek takip tutar. **Takipler** paneli zamanı gelen ve bekleyen takipleri görünme nedeni, takip eden kişi ve bağlı işiyle listeler. Kayıt açılabilir, takip 1 saat, yarın veya 1 hafta ertelenebilir, güncelleme takipleri sonraki güncellemeye bırakılabilir ve takip bitirilebilir. **Hızlı takip ekle** kayıtsız konu için başlık ve tarihle takip oluşturur; sonradan bir backlog işine bağlanabilir. Zamanı gelen takipler bir kez bildirim olarak gösterilir. Panel, Paneller menüsünden gizlenip geri getirilebilir.
 
 - **Çalışma alanında panel görünürlüğü** · 11 Kasım 2026. Odak, Yanıt bekleyenler, Görevlerim, Notlarım, Sorularım ve Backlog işleri başlıklarından gizlenebilir. Üstteki Paneller menüsünden tek tek geri getirilebilir veya tümü gösterilebilir. Tercihler çalışma alanıyla saklanır; kayıtlar ve panel yerleşimleri korunur.
 

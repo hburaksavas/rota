@@ -16,14 +16,51 @@ const visible = async (page, selector) => {
   return locator;
 };
 const text = async (page, selector) => (await visible(page, selector)).innerText();
-const nav = async (page, view, selector) => {
-  if (await page.locator("#modal-root .modal").count()) {
-    const close = page.locator("#modal-root .modal-close").first();
-    if (await close.count()) await close.click({ timeout: 1000 }).catch(() => {});
+const closeModal = async page => {
+  // Takım düzenleyicisi kapanınca ayarlara dönebilir; birkaç katmanı sırayla kapat.
+  for (let attempt = 0; attempt < 3 && await page.locator("#modal-root .modal").count(); attempt++) {
+    const close = page.locator("#modal-root .modal-close").last();
+    if (!await close.count()) break;
+    await close.click({ timeout: 1000 }).catch(() => {});
   }
+};
+const nav = async (page, view, selector) => {
+  await closeModal(page);
   await page.locator(`[data-view="${view}"]`).first().click();
   await visible(page, selector);
 };
+// Kapalı <details> grubu içindeki alanı görünür yapar (iş ayrıntısındaki özellik grupları gibi).
+const reveal = async (page, selector) => {
+  await page.locator(selector).first().evaluate(element => { for (let group = element.closest("details"); group; group = group.parentElement?.closest("details")) group.open = true; });
+  return visible(page, selector);
+};
+// İş ayrıntısı satıra değil başlığa tıklanınca açılır.
+const openFirstItem = async page => {
+  await nav(page, "backlog", "#backlog-rows tr[data-open-item]");
+  await page.locator("#backlog-rows .backlog-title-open").first().click();
+  await visible(page, ".detail-modal");
+};
+// Takımlar ayrı bir panelde değil, çalışma alanı ayarlarında yönetilir.
+const openTeamSettings = async page => {
+  if (await page.locator(".settings-team-section").isVisible().catch(() => false)) return;
+  await closeModal(page);
+  await page.locator(".profile").evaluate(button => button.click());
+  await page.locator('[data-settings-tab="teams"]').click();
+  await visible(page, ".settings-team-section");
+};
+const openTeamForm = async page => {
+  if (await page.locator("#team-form").count()) return;
+  await openTeamSettings(page);
+  await page.locator('[data-action="new-team"]').click();
+  await visible(page, "#team-form");
+};
+const openShelf = async (page, kind) => {
+  await closeModal(page);
+  const button = page.locator(`.workspace-tools [data-workspace-panel="${kind}"]`);
+  if (await button.getAttribute("aria-expanded") !== "true") await button.click();
+  await visible(page, "#workspace-shelf");
+};
+const readState = page => page.evaluate(() => JSON.parse(localStorage.getItem("rota-po-workspace-v1") || "{}"));
 
 // First run and workspace
 add("UAT-001 İlk açılışta çalışma alanı kurulumu istenir", async p => assert(await p.locator("#setup-form").count() === 1, "İlk kurulum formu açılmadı"));
@@ -37,7 +74,7 @@ add("UAT-008 Kurulum zorunlu alanları doğrulanabilir", async p => assert(await
 
 // Shared workspace and dashboard
 const dashboardChecks = [
-  ["UAT-009 Genel bakış açılır", ".personal-heading h1"], ["UAT-010 Çalışma alanı başlığı gösterilir", ".personal-heading p"],
+  ["UAT-009 Genel bakış açılır", ".personal-dashboard"], ["UAT-010 Çalışma alanı başlığı gösterilir", ".workspace-command-context"],
   ["UAT-011 Yeni iş kısayolu görünür", '.workspace-tools [data-workspace-create="item"]'], ["UAT-012 Bugünkü odak alanı görünür", ".personal-focus"],
   ["UAT-013 Kişisel notlar görünür", ".personal-notes"], ["UAT-014 Kritik backlog işleri görünür", ".personal-critical"],
   ["UAT-015 Kişisel görev özeti görünür", ".personal-tasks"], ["UAT-016 Açık sorular görünür", ".personal-questions"],
@@ -108,37 +145,83 @@ for (const [name, selector] of backlogSelectors) {
 }
 
 // Work item detail and activity
-add("UAT-051 Backlog satırı ayrıntısı açılır", async p => { await nav(p,"backlog","#backlog-rows tr"); await p.locator("#backlog-rows tr[data-open-item]").first().click(); await visible(p,".detail-modal"); });
+add("UAT-051 Backlog başlığına tıklanınca iş ayrıntısı açılır", async p => { await openFirstItem(p); });
 for (const [name, selector] of [
   ["UAT-052 İş başlığı gösterilir",".detail-title-wrap h2"], ["UAT-053 İş açıklaması gösterilir",".detail-main .detail-section"],
   ["UAT-054 İş durumu düzenlenebilir","#detail-status"], ["UAT-055 İş önceliği düzenlenebilir","#detail-priority"],
   ["UAT-056 İş eki alanı sunulur",".detail-files"], ["UAT-057 İş dosyası ekleme eylemi sunulur","[data-add-to-item]"],
-  ["UAT-058 İş bileşen ilişkileri gösterilir",".linked-assets-section"], ["UAT-059 İş devri özeti hazırlanabilir","[data-handover]"],
-  ["UAT-060 İş düzenleme eylemi sunulur",'.detail-footer [data-action="edit-item"]'], ["UAT-061 İş arşivleme eylemi sunulur",'.detail-footer [data-action="archive-item"]'],
+  ["UAT-058 İş bileşen ilişkileri gösterilir",".linked-assets-section"], ["UAT-059 İşe devir diyagramı eklenebilir",'[data-new-diagram="item"]'],
+  ["UAT-060 İş alanları ayrıntıda satır içi düzenlenebilir",'[data-detail-edit="title"]'], ["UAT-061 İş arşivleme eylemi sunulur",'.detail-footer [data-action="archive-item"]'],
   ["UAT-062 İlişkili kişisel görev oluşturma eylemi sunulur",'[data-action="quick-related-task"]'],
 ]) add(name, async p => {
-  if (!await p.locator(".detail-modal").count()) { await nav(p,"backlog","#backlog-rows tr"); await p.locator("#backlog-rows tr[data-open-item]").first().click(); }
+  if (!await p.locator(".detail-modal").count()) await openFirstItem(p);
   const tab = selector === ".detail-files" || selector === "[data-add-to-item]" ? "attachments" : selector === ".linked-assets-section" ? "relationships" : "overview";
   await p.locator(`[data-detail-tab="${tab}"]`).click();
-  await visible(p,selector);
+  await reveal(p,selector);
 });
 add("UAT-063 İş etkinlik kaydı sekmesi açılır", async p => { await p.locator('[data-detail-tab="activity"]').click(); await visible(p,'[data-detail-tab-section="activity"]'); });
 add("UAT-064 İş ayrıntısı sekmelerle kullanılabilir", async p => assert(await p.locator(".detail-modal").count()===1,"İş ayrıntısı kapanmış"));
 add("UAT-065 İş ayrıntısı kapatılabilir", async p => { await p.locator(".detail-modal [data-close-modal]").click(); await p.locator(".detail-modal").waitFor({state:"detached"}); });
 
-// Teams and assignment planning
-const teamSelectors = [
-  ["UAT-066 Takım paneli açılır",".teams-page"], ["UAT-067 Takım ekleme eylemi görünür",'[data-action="new-team"]'],
-  ["UAT-068 Takım paneli üye araması sunar","#team-member-search"], ["UAT-069 Takım istatistikleri görünür",".team-overview-stats"],
-  ["UAT-070 Takım tarih filtresi görünür","#team-filter-start"], ["UAT-071 Takım hedef tarih filtresi görünür","#team-filter-target"],
-  ["UAT-072 Takım dönem filtresi görünür","#team-filter-period"], ["UAT-073 Efor aralığı filtreleri görünür","#team-filter-min-estimate"],
-  ["UAT-074 Takım üye kartları görünür",".team-member-card"], ["UAT-075 Üye bazlı iş takibi sunulur",".team-inline-add"],
-  ["UAT-076 Takım düzenleme eylemi sunulur",'[data-action="edit-team"]'],
-];
-for (const [name, selector] of teamSelectors) add(name, async p => { await nav(p,"teams",".teams-page"); await visible(p,selector); });
-add("UAT-077 Takım oluşturma formu açılır", async p => { await nav(p,"teams",".teams-page"); await p.locator('[data-action="new-team"]').click(); await visible(p,"#team-form"); });
-for (const [name, selector] of [["UAT-078 Takım adı alınır",'#team-form [name="name"]'],["UAT-079 Takıma üye eklenebilir",'#team-form [name="members"]'],["UAT-080 Takım formu kaydetme eylemi sunar",'#team-form button[type="submit"]']]) add(name,async p=>{if(!await p.locator("#team-form").count()){await nav(p,"teams",".teams-page");await p.locator('[data-action="new-team"]').click();}await visible(p,selector);});
-add("UAT-081 Takım oluşturma formu kapatılıp panele dönülür",async p=>{await nav(p,"teams",".teams-page");await visible(p,".teams-page");});
+// Teams and assignment planning: teams and members live in workspace settings (no separate team panel).
+const UAT_TEAM = "UAT Ödeme Ekibi";
+add("UAT-066 Takımlar çalışma alanı ayarlarında açılır", async p => { await openTeamSettings(p); });
+add("UAT-067 Takım ekleme eylemi görünür", async p => { await openTeamSettings(p); await visible(p,'[data-action="new-team"]'); });
+add("UAT-068 Takım listesi ayarlarda görünür", async p => { await openTeamSettings(p); await visible(p,".team-settings-list"); });
+add("UAT-069 Ayrı Takım Paneli menüde yer almaz", async p => assert(await p.locator('[data-view="teams"]').count() === 0, "Kaldırılan Takım Paneli menüde görünüyor"));
+add("UAT-070 Takım oluşturma formu açılır", async p => { await openTeamForm(p); });
+add("UAT-071 Takım adı alınır", async p => { await openTeamForm(p); await visible(p,'#team-form [name="name"]'); });
+add("UAT-072 Takıma üye eklenebilir", async p => { await openTeamForm(p); await visible(p,'#team-form [name="members"]'); });
+add("UAT-073 Takım formunda yeni üye satırı açılır", async p => {
+  await openTeamForm(p);
+  const before = await p.locator('#team-form [name="members"]').count();
+  await p.locator("[data-add-team-member]").click();
+  assert(await p.locator('#team-form [name="members"]').count() === before + 1, "Yeni üye satırı eklenmedi");
+});
+add("UAT-074 Takım üyeleriyle kaydedilir", async p => {
+  await openTeamForm(p);
+  await p.locator('#team-form [name="name"]').fill(UAT_TEAM);
+  const members = p.locator('#team-form [name="members"]');
+  while (await members.count() < 2) await p.locator("[data-add-team-member]").click();
+  await members.nth(0).fill("Ayşe Yılmaz");
+  await members.nth(1).fill("Deniz Arslan");
+  await p.locator('#team-form button[type="submit"]').click();
+  const team = (await readState(p)).teams?.find(row => row.name === UAT_TEAM);
+  assert(team?.members.join("|") === "Ayşe Yılmaz|Deniz Arslan", `Takım üyeleri kaydedilmedi: ${JSON.stringify(team)}`);
+});
+add("UAT-075 Kaydedilen takım üye sayısıyla listelenir", async p => {
+  await openTeamSettings(p);
+  const row = p.locator(".team-settings-row").filter({ hasText: UAT_TEAM });
+  const summary = await row.first().textContent();
+  assert(summary.includes("2 üye"), `Takım satırında üye sayısı görünmüyor: ${summary}`);
+});
+add("UAT-076 Takım düzenleme eylemi sunulur", async p => { await openTeamSettings(p); await visible(p,'.team-settings-row [data-action="edit-team"]'); });
+add("UAT-077 Takım düzenleme formu mevcut üyeleri getirir", async p => {
+  await openTeamSettings(p);
+  await p.locator(".team-settings-row").filter({ hasText: UAT_TEAM }).locator('[data-action="edit-team"]').click();
+  await visible(p,"#team-form");
+  const values = await p.locator('#team-form [name="members"]').evaluateAll(inputs => inputs.map(input => input.value));
+  assert(values.includes("Ayşe Yılmaz") && values.includes("Deniz Arslan"), `Düzenleme formu üyeleri getirmedi: ${values.join(", ")}`);
+});
+add("UAT-078 Takım silme eylemi sunulur", async p => { await openTeamSettings(p); await visible(p,".team-settings-row [data-delete-team]"); });
+add("UAT-079 Backlog takım filtresi ayarlardaki takımı listeler", async p => {
+  await nav(p,"backlog",".backlog-page");
+  await p.locator(".backlog-filter-menu > summary").click();
+  const options = await p.locator("#team-filter option").allInnerTexts();
+  await p.locator(".backlog-filter-menu > summary").click();
+  assert(options.some(option => option.includes(UAT_TEAM)), `Takım filtresinde takım yok: ${options.join(", ")}`);
+});
+add("UAT-080 Satır içi atamada takım üyeleri seçilebilir", async p => {
+  await nav(p,"backlog","#backlog-rows tr[data-open-item]");
+  await p.locator('[data-inline-action="edit-assignment"]').first().click();
+  const member = await visible(p,"[data-inline-member]");
+  assert(await member.isEnabled(), "Takım varken üye alanı kapalı");
+  const listId = await member.getAttribute("list");
+  const options = listId ? await p.locator(`[id="${listId}"] option`).evaluateAll(rows => rows.map(row => row.value)) : [];
+  await p.locator('[data-inline-action="cancel"]').first().click();
+  assert(options.includes("Ayşe Yılmaz"), `Üye önerilerinde takım üyesi yok: ${options.join(", ")}`);
+});
+add("UAT-081 Ayarlar kapatılıp çalışma alanına dönülür", async p => { await closeModal(p); assert(await p.locator("#modal-root .modal").count() === 0, "Ayarlar penceresi kapanmadı"); await visible(p,"#view-root"); });
 
 // Product component inventory
 const assetSelectors = [
@@ -155,11 +238,11 @@ for(const [name,selector] of [["UAT-091 Bileşen adı ve kodu zorunlu alanları 
 const finalChecks = [
  ["UAT-096 Yol haritası initiative ve epic kapsamı sunar",".roadmap-page","roadmap"],
  ["UAT-097 Release planı açılır",".releases-page","releases"],
- ["UAT-098 Kişisel alanda görev ve notlar birlikte izlenir",".focus-page","focus"],
- ["UAT-099 Açık sorular görünümü açılır",".questions-page","questions"],
- ["UAT-100 Günlük ve haftalık çalışma özetleri açılır",".page-content","weekly-summary"],
 ];
 for(const [name,selector,view] of finalChecks) add(name,async p=>{await nav(p,view,selector);assert((await p.locator("#view-root").innerText()).trim().length>15,"Sayfa içeriği boş");});
+add("UAT-098 Çalışma alanı rafında görevler izlenir",async p=>{await openShelf(p,"tasks");await visible(p,"#workspace-shelf-list [data-toggle-task]");await p.locator("[data-workspace-close]").click();});
+add("UAT-099 Açık sorular rafı durum filtresiyle açılır",async p=>{await openShelf(p,"questions");await visible(p,"#workspace-question-filter");await p.locator("[data-workspace-close]").click();});
+add("UAT-100 Genel bakışta kişisel takipler paneli açılır",async p=>{await nav(p,"overview","#workspace-followups");await visible(p,"[data-followup-quick]");});
 
 addComplexCases(cases);
 addUncoveredCases(cases);
@@ -175,9 +258,14 @@ const debugPort = await new Promise((resolve, reject) => {
   server.once("error", reject);
   server.listen(0, "127.0.0.1", () => { const port = server.address().port; server.close(() => resolve(port)); });
 });
+const appPort = await new Promise((resolve, reject) => {
+  const server = createServer();
+  server.once("error", reject);
+  server.listen(0, "127.0.0.1", () => { const port = server.address().port; server.close(() => resolve(port)); });
+});
 const appProcess = spawn(process.platform === "win32" ? "npm.cmd" : "npm", ["start"], {
   cwd: process.cwd(),
-  env: { ...process.env, ROTA_WEBVIEW2_USER_DATA: tempProfile, ROTA_USER_DATA_DIR: path.join(tempProfile, "user-data"), ROTA_WEBVIEW2_DEBUG_PORT: String(debugPort) },
+  env: { ...process.env, ROTA_WEBVIEW2_USER_DATA: tempProfile, ROTA_USER_DATA_DIR: path.join(tempProfile, "user-data"), ROTA_WEBVIEW2_DEBUG_PORT: String(debugPort), ROTA_APP_PORT: String(appPort) },
   stdio: "inherit",
   shell: process.platform === "win32",
   windowsHide: true
@@ -193,7 +281,7 @@ while (!app && Date.now() < connectDeadline) {
 if (!app) throw new Error("WebView2 test penceresine bağlanılamadı.");
 const context = app.contexts()[0];
 while (!page && Date.now() < connectDeadline) {
-  page = context.pages().find(candidate => candidate.url().startsWith("file:"));
+  page = context.pages().find(candidate => new URL(candidate.url()).pathname === "/index.html");
   if (!page) await new Promise(resolve => setTimeout(resolve, 250));
 }
 if (!page) throw new Error("Rota arayüz sekmesi WebView2 içinde bulunamadı.");
@@ -226,7 +314,10 @@ try {
   await app.close().catch(() => {});
   if (appProcess.pid && process.platform === "win32") spawnSync("taskkill", ["/PID", String(appProcess.pid), "/T", "/F"], { stdio: "ignore", windowsHide: true });
   else appProcess.kill("SIGTERM");
-  if (fs.existsSync(tempProfile)) fs.rmSync(tempProfile, { recursive: true, force: true });
+  // WebView2 alt süreçleri profil klasörünü kısa süre kilitli tutabilir; temizlik sonucu raporu engellememeli.
+  await new Promise(resolve => setTimeout(resolve, 800));
+  await fs.promises.rm(tempProfile, { recursive: true, force: true, maxRetries: 8, retryDelay: 400 })
+    .catch(error => console.warn(`Geçici test profili silinemedi: ${tempProfile} (${error?.code || error})`));
 }
 
 for (const row of results) console.log(`${row.result.padEnd(4)} ${row.id} ${row.name}${row.detail ? ` — ${row.detail}` : ""}`);
