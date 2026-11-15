@@ -9,6 +9,8 @@ interface PoToolsApi {
   openItem(id: string): void;
   toast(message: string): void;
   commitItemEdit(): boolean;
+  /** Yanıt kayıtları değişti; full=false yalnızca sayaçları günceller. */
+  responsesChanged(full: boolean): void;
 }
 type ThreadRow = { id: string; text: string; label: string; author: string; at: string; source?: { kind: string; id: string } };
 export function createPoTools(api: PoToolsApi) {
@@ -20,7 +22,6 @@ export function createPoTools(api: PoToolsApi) {
   const now = () => new Date().toISOString();
   const kindLabels: Record<PoRequestKind, string> = { clarification: 'Açıklama', example: 'Örnek', confirmation: 'Teyit', decision: 'Karar' };
   let mineFilter = '';
-  let mineResolved = false;
   let mineQuery = '';
   let splitItem = '';
   let referenceKind: 'note' | 'rule' = 'note';
@@ -32,11 +33,13 @@ export function createPoTools(api: PoToolsApi) {
   const liveItems = () => state().items.filter(item => !item.archived && projects().some(project => project.name === item.project));
   const heading = (title: string, sub: string, glyph: string, action = '') => '<header class="page-title-row inventory-heading"><div class="inventory-identity"><span class="inventory-mark">' + icon(glyph) + '</span><div><h1>' + title + '</h1><p>' + sub + '</p></div></div>' + action + '</header>';
   const empty = (text: string) => '<p class="po-empty">' + text + '</p>';
-  function syncBadge() {
-    const profile = state().profile.userName.trim().toLocaleLowerCase('tr-TR');
-    const count = (state().poRequests || []).filter(request => !request.resolvedAt && liveItems().some(item => item.id === request.itemId)).length + (state().openQuestions || []).filter(question => question.status === 'Açık' && [profile, 'po', profile + ' (po)'].includes(question.owner.trim().toLocaleLowerCase('tr-TR')) && !!question.owner.trim() && (!question.linkedItemId || liveItems().some(item => item.id === question.linkedItemId))).length;
-    document.querySelectorAll('[data-po-mine-count]').forEach(node => { node.textContent = String(count); });
+  function pendingResponses() {
+    return (state().poRequests || []).filter(request => !request.resolvedAt && liveItems().some(item => item.id === request.itemId)).length + (state().openQuestions || []).filter(question => question.status === 'Açık' && isMine(question) && (!question.linkedItemId || liveItems().some(item => item.id === question.linkedItemId))).length;
   }
+  /** Yanıt kayıtları değişince birleşik Takipler panelinin sayaçlarını günceller. */
+  function syncBadge() { api.responsesChanged(false); }
+  /** Yanıt kaydı değişince Takipler panelini yeniden çizer. */
+  function renderResponses() { api.responsesChanged(true); }
   function persist(): boolean { const saved = api.save(); if (saved) syncBadge(); return saved; }
   function createMeetingRecord(kind: PoMeetingKind | "note", text: string, meetingTitle: string, at: string, item?: WorkItem): string {
     const workspace = state();
@@ -89,9 +92,7 @@ export function createPoTools(api: PoToolsApi) {
     const name = state().profile.userName.trim().toLocaleLowerCase('tr-TR');
     return [name, 'po', name + ' (po)'].includes(question.owner.trim().toLocaleLowerCase('tr-TR')) && !!question.owner.trim();
   }
-  function renderResponses() {
-    const panel = root.querySelector<HTMLElement>('#workspace-responses');
-    if (!panel) return;
+  function responseMarkup(mineResolved: boolean) {
     const mine = (state().poRequests || []).filter(request => liveItems().some(item => item.id === request.itemId) && !!request.resolvedAt === mineResolved && (!mineFilter || request.kind === mineFilter));
     const questions = (state().openQuestions || []).filter(question => isMine(question) && (question.status === 'Yanıtlandı') === mineResolved && !mineFilter && (!question.linkedItemId || liveItems().some(item => item.id === question.linkedItemId)));
     const query = mineQuery.toLocaleLowerCase('tr-TR');
@@ -100,8 +101,10 @@ export function createPoTools(api: PoToolsApi) {
       const item = state().items.find(item => item.id === request.itemId)!;
       return '<article class="po-request-card"><header><span class="po-chip">' + kindLabels[request.kind] + '</span><small>' + e(request.requestedBy + ' · ' + dateLabel(request.createdAt)) + '</small></header><p>' + e(request.text) + '</p><button type="button" class="po-item-link" data-po="open-item" data-id="' + e(item.id) + '">' + e(item.id + ' · ' + item.title) + icon('chevronRight') + '</button>' + (request.resolvedAt ? '<div class="po-answer"><strong>Yanıtın</strong><p>' + e(request.answer || '') + '</p><small>' + e(dateLabel(request.resolvedAt)) + '</small></div><button type="button" class="po-text-button" data-po="reopen-request" data-id="' + e(request.id) + '">Yeniden aç</button>' : answerForm('request', request.id)) + '</article>';
     }).join('') + questions.filter(question => [question.text, question.answer, question.linkedItemId].join(' ').toLocaleLowerCase('tr-TR').includes(query)).map(question => '<article class="po-request-card"><header><span class="po-chip">Soru</span><small>' + e(dateLabel(question.createdAt)) + '</small></header><p>' + e(question.text) + '</p>' + (question.linkedItemId ? '<button type="button" class="po-item-link" data-po="open-item" data-id="' + e(question.linkedItemId) + '">' + e(question.linkedItemId) + icon('chevronRight') + '</button>' : '') + (question.status === 'Yanıtlandı' ? '<div class="po-answer"><strong>Yanıtın</strong><p>' + e(question.answer || '') + '</p></div>' : answerForm('question', question.id)) + '</article>').join('');
-    panel.innerHTML = '<header class="personal-panel-heading"><div><h2 id="workspace-responses-title">' + icon('help') + 'Yanıt bekleyenler <span data-po-mine-count>0</span></h2><p>Senden açıklama, örnek, teyit veya karar bekleyen konular.</p></div><button type="button" class="personal-icon" data-dashboard-hide="responses" aria-label="Yanıt bekleyenler panelini gizle" data-tooltip="Paneli gizle">' + icon('close') + '</button></header><div class="po-mine-toolbar"><div class="po-segments"><button type="button" data-po="mine-open" aria-pressed="' + !mineResolved + '">Bekleyen</button><button type="button" data-po="mine-resolved" aria-pressed="' + mineResolved + '">Yanıtlanan</button></div><select id="po-mine-kind" aria-label="Beklenti türü"><option value="">Tüm beklentiler</option>' + Object.entries(kindLabels).map(([key, label]) => '<option value="' + key + '" ' + (mineFilter === key ? 'selected' : '') + '>' + label + '</option>').join('') + '</select><label class="po-search">' + icon('search') + '<input id="po-mine-search" type="search" aria-label="Yanıt bekleyenlerde ara" placeholder="Konu veya iş ara…" value="' + e(mineQuery) + '"></label></div><div class="po-request-list">' + (cards || empty(mineResolved ? 'Bu görünümde yanıtlanmış konu yok.' : 'Bu görünümde senden yanıt bekleyen konu yok.')) + '</div>';
-    syncBadge();
+    return {
+      filters: '<select id="po-mine-kind" aria-label="Beklenti türü"><option value="">Tüm beklentiler</option>' + Object.entries(kindLabels).map(([key, label]) => '<option value="' + key + '" ' + (mineFilter === key ? 'selected' : '') + '>' + label + '</option>').join('') + '</select><label class="po-search">' + icon('search') + '<input id="po-mine-search" type="search" aria-label="Yanıt bekleyenlerde ara" placeholder="Konu veya iş ara…" value="' + e(mineQuery) + '"></label>',
+      list: (cards || empty(mineResolved ? 'Bu görünümde yanıtlanmış konu yok.' : 'Bu görünümde senden yanıt bekleyen konu yok.'))
+    };
   }
   function answerForm(kind: string, id: string) {
     return '<form data-po-form="answer" data-kind="' + kind + '" data-id="' + e(id) + '" class="po-answer-form"><textarea name="answer" rows="2" maxlength="12000" aria-label="Yanıtın" placeholder="Yanıtını yaz…">' + e(drafts.get('answer:' + id) || '') + '</textarea><button type="submit" class="button button-secondary button-small">Yanıtı kaydet</button></form>';
@@ -179,7 +182,6 @@ export function createPoTools(api: PoToolsApi) {
     const button = event.target instanceof Element ? event.target.closest<HTMLElement>('[data-po]') : null; if (!button) return;
     const action = button.dataset.po; const id = button.dataset.id || '';
     if (action === 'meetings' || action === 'mine') { api.navigate(action === 'meetings' ? 'meetings' : 'overview'); return; }
-    if (action === 'mine-open' || action === 'mine-resolved') { mineResolved = action === 'mine-resolved'; renderResponses(); return; }
     if (action === 'open-item') { api.openItem(id); return; }
     if (action === 'reopen-request') { const request = state().poRequests?.find(entry => entry.id === id); if (request) { request.resolvedAt = undefined; if (persist()) renderResponses(); } return; }
     const dialog = modalRoot.querySelector<HTMLElement>('.detail-modal'); const item = state().items.find(item => item.id === dialog?.dataset.openItem); if (!dialog || !item) return;
@@ -244,6 +246,5 @@ export function createPoTools(api: PoToolsApi) {
     if (event.isComposing || event.key !== 'Enter' || event.shiftKey || !(event.target instanceof HTMLTextAreaElement) || !event.target.matches('[data-po-form="conversation"] textarea')) return;
     event.preventDefault(); event.target.closest('form')?.requestSubmit();
   });
-  syncBadge();
-  return { renderResponses, enhanceDetail, syncBadge, saveStageRecord };
+  return { responseMarkup, pendingResponses, enhanceDetail, syncBadge, saveStageRecord };
 }

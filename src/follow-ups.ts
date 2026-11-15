@@ -8,9 +8,12 @@ interface FollowUpsApi {
   openRecord(kind: FollowUpRecordKind, id: string): void;
   openItem(id: string): void;
   closeModal(): void;
+  /** Senden yanıt bekleyen talepler ve sorular; aynı Takipler panelinde listelenir. */
+  responses: { pending(): number; markup(resolved: boolean): { filters: string; list: string } };
 }
 
-type FollowUpView = "due" | "waiting";
+type FollowUpView = "due" | "responses" | "waiting" | "answered";
+const FOLLOW_UP_VIEWS: FollowUpView[] = ["due", "responses", "waiting", "answered"];
 const ALL_OWNERS = "*";
 
 export function createFollowUps(api: FollowUpsApi) {
@@ -88,19 +91,48 @@ export function createFollowUps(api: FollowUpsApi) {
 
   function refresh(): void { renderPanel(); syncBells(); }
 
-  function renderPanel(): void {
-    const panel = root.querySelector<HTMLElement>("#workspace-followups");
-    if (!panel) return;
+  function ownedFollowUps() {
     const owners = people();
     if (ownerFilter === null || (ownerFilter !== ALL_OWNERS && !owners.includes(ownerFilter))) ownerFilter = me();
     const mine = list().filter((entry) => !entry.doneAt && (ownerFilter === ALL_OWNERS || entry.owner === ownerFilter));
     const due = mine.map((entry) => ({ entry, reason: dueReason(entry) })).filter((row): row is { entry: PersonalFollowUp; reason: string } => !!row.reason);
     const waiting = mine.filter((entry) => !dueReason(entry)).map((entry) => ({ entry, reason: waitingReason(entry) }));
+    return { owners, due, waiting };
+  }
+
+  const segmentLabels: Record<FollowUpView, string> = { due: "Zamanı gelen", responses: "Yanıt bekleyen", waiting: "Planlı", answered: "Yanıtlanan" };
+  function segmentCounts(due: number, waiting: number): Partial<Record<FollowUpView, number>> {
+    return { due, responses: api.responses.pending(), waiting };
+  }
+
+  function renderPanel(): void {
+    const panel = root.querySelector<HTMLElement>("#workspace-followups");
+    if (!panel) return;
+    const { owners, due, waiting } = ownedFollowUps();
+    const counts = segmentCounts(due.length, waiting.length);
+    const segments = FOLLOW_UP_VIEWS.map((key) => '<button type="button" data-followup-view="' + key + '" aria-pressed="' + (view === key) + '">' + segmentLabels[key] + (counts[key] === undefined ? "" : ' · <span data-followup-segment-count="' + key + '">' + counts[key] + '</span>') + '</button>').join("");
+    const heading = '<header class="personal-panel-heading"><div><h2 id="workspace-followups-title">' + icon("bell") + 'Takipler <span data-followup-count>' + (due.length + (counts.responses || 0)) + '</span></h2><p>Zamanı gelen takipler ve senden yanıt bekleyen konular tek listede.</p></div><button type="button" class="personal-icon icon-action" data-followup-quick aria-label="Hızlı takip ekle" data-tooltip="Hızlı takip ekle">' + icon("add") + '</button><button type="button" class="personal-icon" data-dashboard-hide="followups" aria-label="Takipler panelini gizle" data-tooltip="Paneli gizle">' + icon("close") + '</button></header>';
+    if (view === "responses" || view === "answered") {
+      const responses = api.responses.markup(view === "answered");
+      panel.innerHTML = heading + '<div class="po-mine-toolbar followup-toolbar"><div class="po-segments">' + segments + '</div>' + responses.filters + '</div><div class="po-request-list">' + responses.list + '</div>';
+      return;
+    }
     const rows = (view === "due" ? due : waiting).sort((a, b) => (Date.parse(a.entry.snoozedUntil || a.entry.dueAt || a.entry.createdAt) || 0) - (Date.parse(b.entry.snoozedUntil || b.entry.dueAt || b.entry.createdAt) || 0));
     const ownerOptions = '<option value="' + ALL_OWNERS + '"' + (ownerFilter === ALL_OWNERS ? " selected" : "") + '>Tüm kişiler</option>' + owners.map((name) => '<option value="' + e(name) + '"' + (name === ownerFilter ? " selected" : "") + '>' + e(name === me() ? name + " (ben)" : name) + '</option>').join("");
-    panel.innerHTML = '<header class="personal-panel-heading"><div><h2 id="workspace-followups-title">' + icon("bell") + 'Takipler <span>' + due.length + '</span></h2><p>Zamanı gelen takipler ve görünme nedenleri.</p></div><button type="button" class="personal-icon icon-action" data-followup-quick aria-label="Hızlı takip ekle" data-tooltip="Hızlı takip ekle">' + icon("add") + '</button><button type="button" class="personal-icon" data-dashboard-hide="followups" aria-label="Takipler panelini gizle" data-tooltip="Paneli gizle">' + icon("close") + '</button></header>' +
-      '<div class="po-mine-toolbar followup-toolbar"><div class="po-segments"><button type="button" data-followup-view="due" aria-pressed="' + (view === "due") + '">Zamanı gelen · ' + due.length + '</button><button type="button" data-followup-view="waiting" aria-pressed="' + (view === "waiting") + '">Bekleyen · ' + waiting.length + '</button></div><select data-followup-owner aria-label="Takip eden kişi">' + ownerOptions + '</select></div>' +
-      '<div class="followup-list">' + (rows.map(({ entry, reason }) => row(entry, reason, view === "due")).join("") || '<p class="po-empty">' + (view === "due" ? "Zamanı gelen takip yok." : "Bekleyen takip yok. Görev, not ve sorulardaki zil simgesiyle takip başlatabilirsin.") + '</p>') + '</div>';
+    panel.innerHTML = heading +
+      '<div class="po-mine-toolbar followup-toolbar"><div class="po-segments">' + segments + '</div><select data-followup-owner aria-label="Takip eden kişi">' + ownerOptions + '</select></div>' +
+      '<div class="followup-list">' + (rows.map(({ entry, reason }) => row(entry, reason, view === "due")).join("") || '<p class="po-empty">' + (view === "due" ? "Zamanı gelen takip yok." : "Planlı takip yok. Görev, not ve sorulardaki zil simgesiyle takip başlatabilirsin.") + '</p>') + '</div>';
+  }
+
+  /** Paneli yeniden çizmeden sayaçları günceller; yazma odağını korur. */
+  function syncCounts(): void {
+    const panel = root.querySelector<HTMLElement>("#workspace-followups");
+    if (!panel) return;
+    const { due, waiting } = ownedFollowUps();
+    const counts = segmentCounts(due.length, waiting.length);
+    panel.querySelectorAll<HTMLElement>("[data-followup-segment-count]").forEach((node) => { node.textContent = String(counts[node.dataset.followupSegmentCount as FollowUpView] ?? 0); });
+    const total = panel.querySelector("[data-followup-count]");
+    if (total) total.textContent = String(due.length + (counts.responses || 0));
   }
 
   function row(entry: PersonalFollowUp, reason: string, due: boolean): string {
@@ -226,7 +258,7 @@ export function createFollowUps(api: FollowUpsApi) {
     const data = button.dataset;
     if (data.followupKind) { event.preventDefault(); event.stopPropagation(); openRecordDialog(data.followupKind as FollowUpRecordKind, data.followupRecord || ""); return; }
     if (data.followupQuick !== undefined) { openQuickDialog(); return; }
-    if (data.followupView) { view = data.followupView === "waiting" ? "waiting" : "due"; snoozing = ""; renderPanel(); return; }
+    if (data.followupView) { view = FOLLOW_UP_VIEWS.includes(data.followupView as FollowUpView) ? data.followupView as FollowUpView : "due"; snoozing = ""; renderPanel(); return; }
     if (data.followupItem) { api.openItem(data.followupItem); return; }
     if (data.followupSnoozeToggle) { snoozing = snoozing === data.followupSnoozeToggle ? "" : data.followupSnoozeToggle; renderPanel(); root.querySelector<HTMLElement>('[data-followup-snooze-toggle="' + CSS.escape(data.followupSnoozeToggle) + '"]')?.focus(); return; }
     if (data.followupSnooze) { snooze(data.followupSnooze, data.until || "hour"); return; }
@@ -263,5 +295,5 @@ export function createFollowUps(api: FollowUpsApi) {
     else if (form.id === "followup-quick-form") { event.preventDefault(); event.stopPropagation(); saveQuickForm(form); }
   }, true);
 
-  return { bell, renderPanel, check, dueReason };
+  return { bell, renderPanel, syncCounts, check, dueReason };
 }

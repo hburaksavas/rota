@@ -19,6 +19,8 @@ try {
   await page.evaluate(key => {
     const workspace = JSON.parse(localStorage.getItem(key));
     workspace.teams = [{ id: "TEAM-TEST", name: "Ödeme", members: ["Deniz Kaya"] }];
+    const item = workspace.items.find(entry => !entry.archived && workspace.projects.some(project => !project.archived && project.name === entry.project));
+    workspace.poRequests = [{ id: "POREQ-TEST", itemId: item.id, text: "Limit aşımı için örnek ekran paylaş", kind: "example", requestedBy: "Deniz Kaya", createdAt: "2026-01-02T09:00:00.000Z" }];
     localStorage.setItem(key, JSON.stringify(workspace));
   }, key);
   await page.reload();
@@ -107,6 +109,32 @@ try {
   await quickRow.locator(`[data-followup-item="${itemId}"]`).waitFor();
   data = await stored();
   assert.equal(data.followUps.find(entry => entry.title === "Hazineden limit onayını sor").linkedItemId, itemId);
+
+  // Yanıt bekleyenler ayrı panel değil, Takipler'in segmentidir.
+  assert.equal(await page.locator("#workspace-responses").count(), 0);
+  assert.equal(await page.locator('[data-dashboard-visible="responses"]').count(), 0);
+  const pending = await panel.locator('[data-followup-segment-count="responses"]').textContent();
+  assert.equal(pending, "1");
+  await panel.locator('[data-followup-view="responses"]').click();
+  const requestCard = panel.locator(".po-request-card").filter({ hasText: "Limit aşımı için örnek ekran paylaş" });
+  await requestCard.waitFor();
+  await panel.locator("#po-mine-kind").selectOption("decision");
+  await requestCard.waitFor({ state: "detached" });
+  await panel.locator("#po-mine-kind").selectOption("");
+  await panel.locator("#po-mine-search").fill("limit");
+  assert.equal(await panel.locator("#po-mine-search").evaluate(input => input === document.activeElement), true, "Arama yazarken odak kaybolmamalı");
+  await requestCard.locator('textarea[name="answer"]').fill("Ekran görüntüsü ekte");
+  await requestCard.locator('button[type="submit"]').click();
+  await panel.getByText("Bu görünümde senden yanıt bekleyen konu yok.").waitFor();
+  assert.equal(await panel.locator('[data-followup-segment-count="responses"]').textContent(), "0");
+  data = await stored();
+  assert.equal(data.poRequests[0].answer, "Ekran görüntüsü ekte");
+  await panel.locator('[data-followup-view="answered"]').click();
+  await requestCard.locator('[data-po="reopen-request"]').click();
+  await requestCard.waitFor({ state: "detached" });
+  await panel.locator('[data-followup-view="responses"]').click();
+  await requestCard.waitFor();
+  await panel.locator("#po-mine-search").fill("");
 
   // Panel can be hidden and restored like other workspace panels.
   await panel.locator('[data-dashboard-hide="followups"]').click();
