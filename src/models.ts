@@ -30,6 +30,7 @@ interface WorkItem {
   priority: Priority;
   project: string;
   projectId?: string;
+  planning?: WorkPlanning;
   area: string;
   updated: string;
   description: string;
@@ -397,6 +398,35 @@ interface Project {
   archived?: boolean;
 }
 
+type PlanningPhase = "analysis" | "development" | "test";
+
+interface WorkPlanningPhase {
+  kind: PlanningPhase;
+  memberId: string;
+  minutes: number;
+  completedOn?: string;
+}
+
+interface WorkPlanning {
+  planId?: string;
+  group?: string;
+  phases: WorkPlanningPhase[];
+}
+
+interface ProjectPlan {
+  id: string;
+  productId: string;
+  name: string;
+  startDate: string;
+  targetDate?: string;
+  memberIds: string[];
+}
+
+interface PlanningCalendar {
+  dailyMinutes?: Record<string, number>;
+  exceptions?: { id: string; name: string; startDate: string; endDate: string; memberId?: string }[];
+}
+
 interface Team {
   id: string;
   name: string;
@@ -455,6 +485,8 @@ interface WorkspaceState {
   tasks: PersonalTask[];
   notes: PersonalNote[];
   projects: Project[];
+  projectPlans?: ProjectPlan[];
+  planningCalendar?: PlanningCalendar;
   profile: WorkspaceProfile;
   teams: Team[];
   assets: ProductAsset[];

@@ -18,6 +18,8 @@
 
 ## Tamamlanan
 
+- **Ürün altında proje planlama** · 21 Kasım 2026. Mevcut Projeler alanı Ürünler olarak sunulur. Ürün altındaki projeler aynı Backlog kayıtlarını iş paketlerinde kullanır. Analiz, yazılım ve test tarihleri ortak kişi kapasitesi, bağımlılıklar, tatil ve izinlerle hesaplanır. İş envanteri, takvim, kapasite ve değişiklik önizlemesi hedef tarihle bitiş tahminini birlikte gösterir.
+
 - **Takipler ve yanıt bekleyenlerin birleşmesi** · 15 Kasım 2026. Ayrı **Yanıt bekleyenler** paneli kaldırıldı; içerik **Takipler** panelinde **Zamanı gelen**, **Yanıt bekleyen**, **Planlı** ve **Yanıtlanan** segmentleriyle tek akışta toplanır. Panel başlığındaki sayı, zamanı gelen takiplerle senden yanıt bekleyen konuların toplamıdır. Yanıt segmentlerinde tür filtresi, arama, yanıt verme ve yeniden açma korunur; takip segmentlerinde takip eden kişi filtresi kullanılır. Eski `responses` panel gizleme tercihi yok sayılır.
 
 - **Çalışma alanının dosyada saklanması** · 14 Kasım 2026. Çalışma alanı WebView2 `localStorage` yerine `%APPDATA%\rota-po\workspace.json` dosyasında tutulur. Yazmalar birleştirilir ve atomik yapılır; kapanışta bekleyen değişiklik kaybolmaz. Oturum başında önceki dosya `workspace.previous.json` olarak saklanır. Mevcut `localStorage` kaydı ilk açılışta dosyaya kopyalanır ve silinmez. Dosya okunamazsa uygulama üzerine yazmaz, kurtarma akışını açar.

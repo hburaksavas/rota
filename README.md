@@ -54,6 +54,16 @@ Dosya en fazla 20 MB, içe aktarım ise en fazla 500 iş olabilir. Başlık en f
 
 Bu akışların testleri `npm run test:po` ile çalıştırılır; testler ayrı tarayıcı profili kullanır ve kullanıcı çalışma alanını değiştirmez.
 
+## Ürün altında proje planlama
+
+Sol menüde **Ürünler** bölümünden ürünü seçip **Projeler → Yeni proje** yolunu kullan. Projenin ekibini, en erken başlangıcını ve varsa hedef bitişini belirle. **İşleri plana al** ile ürünün Backlog’undan mevcut işleri seçebilir ve iş paketi altında gruplayabilirsin. İş detayındaki **Proje planlama** alanı bağımsız bir ürün işini takvimlemek veya işi bir projeye bağlamak için de kullanılabilir.
+
+Her aşama için sorumlu ve saat cinsinden efor gir. Rota analiz, yazılım ve test aşamalarının sırasını, Backlog’daki iş bağımlılıklarını, en erken başlangıcı ve önceliği kullanır. Bir kişinin kapasitesi tüm ürün ve projelerde ortaktır. **Ekip takvimi** üzerinden varsayılan 8 saatlik kapasiteyi değiştirebilir, herkese tatil veya bir kişiye izin ekleyebilirsin. Hafta sonları otomatik atlanır. Tatil ve izin aralıkları tam gün olarak kaydedilir.
+
+**Etkisini göster**, değişen iş tarihlerini ve proje bitiş tahminlerini **Uygula** öncesinde listeler. Planın **Takvim** görünümünde aşamaları, **Kapasite** görünümünde günlük doluluğu inceleyebilirsin. Backlog’da tamamlanan işler proje ilerlemesine yansır.
+
+Doğrulama için `npm run build` ve `node tests/feature/project-planner.mjs` komutlarını çalıştır.
+
 ## Veri ve özellik notları
 
 - Çalışma alanı verileri `%APPDATA%\rota-po\workspace.json` dosyasında, ek dosyalar aynı klasörün `attachments` alt klasöründe saklanır. Dosya her değişiklikten kısa süre sonra geçici dosyaya yazılıp yeniden adlandırılarak atomik biçimde güncellenir; uygulama kapanırken bekleyen değişiklik senkron yazılır. Her oturumun ilk yazmasından önce önceki dosya `workspace.previous.json` olarak saklanır.
