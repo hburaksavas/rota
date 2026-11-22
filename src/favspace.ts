@@ -1,4 +1,4 @@
-import { appConfirm } from "./dialogs";
+import { appConfirmDeletion } from "./dialogs";
 
 const escape = (value: string): string => value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 export function safeResourceUrl(value: string): string | null {
@@ -117,7 +117,7 @@ export function renderFavspace(root: HTMLElement, state: WorkspaceState, save: (
       case "new": edit(); break;
       case "edit": if (current && !current.source && !current.shortcutPath) edit(current); break;
       case "pin": if (current) { if (current.source) { (plugin.sourcePins ??= {})[current.id] = !current.pinned; } else current.pinned = !current.pinned; save(); draw(); } break;
-      case "delete": if (current && !current.source && await appConfirm(`“${current.title}” kaynağı silinsin mi?`)) { plugin.resources = plugin.resources.filter((r) => r.id !== current.id); selected = ""; save(); draw(); } break;
+      case "delete": if (current && !current.source && await appConfirmDeletion(`“${current.title}” kaynağı silinsin mi?`)) { plugin.resources = plugin.resources.filter((r) => r.id !== current.id); selected = ""; save(); draw(); } break;
     }
   });
   host.querySelector<HTMLInputElement>("#fav-search")?.addEventListener("input", (event) => {

@@ -18,7 +18,23 @@
 
 ## Tamamlanan
 
+- **Notlar, Sorular ve Görevler sekmeleri** — 23 Kasım 2026. Zamanı gelen, Yanıt bekleyen, Planlı ve Yanıtlanan sekmeleri ile kişisel takip eylemleri kaldırılır. Notlar, Sorular ve Görevler kendi kayıtlarını gösterir. Üç sekmede aynı alttan sohbet girişi kullanılır; tür sekmeye göre seçilir, Enter ile kayıt ve Shift+Enter ile yeni satır desteklenir. Taslak metin ve iş bağlantısı sekme bazında korunur. Eski takip verileri yedek uyumluluğu için saklanır.
+
+- **Silme onayı tercihi** — 23 Kasım 2026. Silme onayındaki Bir daha sorma seçimi yalnızca işlem onaylanınca bu cihazda saklanır. Ayarlar > Genel > Silme işlemleri bölümündeki Silmeden önce onay iste seçeneğiyle tekrar açılabilir. Tercih silme işlemlerinde ortaktır; diğer onaylar korunur.
+
+- **Çalışma alanında tek yüzey** — 23 Kasım 2026. Bugünkü odağım, Notlar ve Takipler tek panelde gösterilir. Çalışma alanı ve Notlar başlık satırları, tür/durum filtreleri ve Notlar içindeki ekleme/arama kontrolleri kaldırılır. Yeni kayıt sağ üstteki Not düğmesinden açılır; tamamlanan kayıtlar listede kalır ve yeniden açılabilir.
+
+- **Kaydetme hatasının ayrıntısı** — 23 Kasım 2026. Genel depolama uyarısı gerçek hata mesajını gösterir. Masaüstünde uyarı dosya yazımı onaylanınca kapanır; daha eski bir isteğin hatası yeni başarılı kaydı hata olarak göstermez.
+
+- **Notlar listesinde silme** — 23 Kasım 2026. Not, Görev ve Soru satırlarında çöp kutusu simgesiyle mevcut onaylı silme akışı açılır. Not ve görev silme altı saniye içinde geri alınabilir; kayıt saklanamazsa silme uygulanmaz.
+
+- **Tek çalışma alanı ve toplu not alma** — 23 Kasım 2026. Notlar ve Takipler, Çalışma alanı başlığı altında ortak segmentlerde gösterilir. Panel gizleme, büyütme, sürükleme ve boyutlandırma kaldırılır. Sağ üstteki Notlar listesi kaldırılır; Not eylemi mesajların geçici biriktiği pencereyi açar. Tamam ile tüm mesajlar ve gönderilmemiş son metin tek kayıt olarak kaydedilir.
+
+- **Birleşik Notlar** — 22 Kasım 2026. Not, Görev ve Soru tek Notlar panelinde tür ve durum filtreleriyle gösterilir. Toplantı modundaki tür seçici, Enter ile kayıt ve Ctrl+Space ile tür değiştirme akışı kullanılır. Çalışma alanındaki Backlog paneli kaldırılır; eski kayıtlar, ekler, takipler ve odak bağlantıları korunur.
+
 - **Ürün altında proje planlama** · 21 Kasım 2026. Mevcut Projeler alanı Ürünler olarak sunulur. Ürün altındaki projeler aynı Backlog kayıtlarını iş paketlerinde kullanır. Analiz, yazılım ve test tarihleri ortak kişi kapasitesi, bağımlılıklar, tatil ve izinlerle hesaplanır. İş envanteri, takvim, kapasite ve değişiklik önizlemesi hedef tarihle bitiş tahminini birlikte gösterir.
+
+- **Windows release scripti** · 16 Kasım 2026. `npm run release`, Node.js çalışma zamanı, derlenmiş arayüz ve üretim bağımlılıklarını tek taşınabilir EXE'ye gömer; SHA-256 dosyası üretir. EXE çift tıklamayla açılır; installer ve Node.js kurulumu gerekmez, WebView2 Runtime kullanılır. Paketleme için Node.js 25.5+ gerekir. Mevcut çıktının üzerine yazılmaz, kullanıcı çalışma alanı pakete alınmaz.
 
 - **Takipler ve yanıt bekleyenlerin birleşmesi** · 15 Kasım 2026. Ayrı **Yanıt bekleyenler** paneli kaldırıldı; içerik **Takipler** panelinde **Zamanı gelen**, **Yanıt bekleyen**, **Planlı** ve **Yanıtlanan** segmentleriyle tek akışta toplanır. Panel başlığındaki sayı, zamanı gelen takiplerle senden yanıt bekleyen konuların toplamıdır. Yanıt segmentlerinde tür filtresi, arama, yanıt verme ve yeniden açma korunur; takip segmentlerinde takip eden kişi filtresi kullanılır. Eski `responses` panel gizleme tercihi yok sayılır.
 

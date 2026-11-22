@@ -18,7 +18,7 @@ export function createWorkspaceStore(key: string, bridge: DesktopBridge | undefi
 
   function send(raw: string): void {
     const id = ++sequence;
-    bridge!.writeWorkspace(raw, id).then(() => { if (id === sequence) hooks.saved(); }, (error) => hooks.failed(error));
+    bridge!.writeWorkspace(raw, id).then(() => { if (id === sequence) hooks.saved(); }, (error) => { if (id === sequence) hooks.failed(error); });
   }
 
   // İlk masaüstü açılışında mevcut localStorage kaydı değiştirilmeden dosyaya kopyalanır; localStorage silinmez.

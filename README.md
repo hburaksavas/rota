@@ -31,6 +31,23 @@ npm start
 
 `npm install` arayüz ve yerel pencere bağımlılıklarını indirir. `npm start` hazır arayüz derlemesini kullanarak Node.js ile WebView2 penceresini açar. Derleme eksikse veya kaynak kod değişmişse arayüzü önce derler. Electron veya .NET SDK gerekmez. Kurum ağı npm erişimini kısıtlıyorsa `registry.npmjs.org` veya kurum içi npm aynasına erişim gerekir.
 
+## Release paketi oluşturma
+
+Windows üzerinde, **Node.js 25.5+** ve geliştirme bağımlılıkları kurulu halde çalıştırın (EXE üretimi Node'un yerleşik SEA paketleyicisini kullanır):
+
+```powershell
+npm ci
+npm run release
+```
+
+Script önce `npm run build` çalıştırır, kilit dosyasına göre üretim bağımlılıklarını geçici bir klasöre kurar ve Node.js çalışma zamanıyla birlikte tek EXE'ye gömer. `release/Rota-<sürüm>-win-<mimari>.exe` ve `.exe.sha256` dosyaları oluşur. Sürüm `package.json` dosyasından, mimari çalışan Node.js'ten alınır. Aynı adlı çıktı varsa üzerine yazılmaz. Bağımlılık kurulumu için npm deposuna, gömülen Node.js sürümünün lisansı için `raw.githubusercontent.com` adresine erişim gerekir. Script, üretilen EXE üzerinden yerel modülleri ve arayüz dosyalarını doğrular.
+
+EXE'yi doğrudan çift tıklayarak açın; installer veya Node.js/npm kurulumu gerekmez. Hedef Windows bilgisayarda **WebView2 Runtime** bulunmalıdır. İlk açılışta gömülü uygulama dosyaları `%LOCALAPPDATA%\Rota\runtime` altında içerik özetiyle ayrılmış önbelleğe çıkarılır; sonraki açılışlar bu önbelleği kullanır. Konsol penceresi açılmaz. Güncellemede uygulamayı kapatıp yeni EXE'yi çalıştırın; `%APPDATA%\rota-po` içindeki mevcut çalışma alanı korunur. Kullanıcı verileri ve geliştirme bağımlılıkları pakete alınmaz. Başlatma hataları `%LOCALAPPDATA%\Rota\release-error.log` dosyasına yazılır. Çıktı dijital olarak imzalanmaz.
+
+Gerçek EXE'nin açılış ve kapanış testi: `node tests/desktop/release.mjs`. Test ayrı kullanıcı verisi ve önbellek kullanır, PATH'ten Node.js'i çıkarır ve WebView2 penceresine bağlanarak arayüzü doğrular.
+
+Release komutu sürüm artırmaz, commit/tag oluşturmaz ve GitHub'a yükleme yapmaz. Yeni sürüm için önce `npm version patch --no-git-tag-version` (veya `minor` / `major`) ile paket ve kilit dosyasını birlikte güncelleyebilirsiniz.
+
 ## Backlog'u Excel'den içe aktarma
 
 Backlog'un **Liste** görünümünde **Tablo işlemleri → Excel'den içe aktar** yolunu kullanın. Dosya `.xlsx` biçiminde olmalı; yalnızca ilk çalışma sayfası okunur. Önerilen şablon ilk satırda `Başlık` ve isteğe bağlı `Açıklama` sütunlarını içerir:

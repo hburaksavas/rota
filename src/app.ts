@@ -1,10 +1,9 @@
 import { installSearchableSelects } from "./searchable-select";
 import { renderFavspace, installFavspaceDrop } from "./favspace";
-import { appConfirm, appPrompt } from "./dialogs";
+import { appConfirm, appPrompt, appConfirmDeletion, isDeletionConfirmationEnabled, setDeletionConfirmationEnabled } from "./dialogs";
 import type { Graph, Edge, Node } from "@antv/x6";
 import { initPomodoro } from "./pomodoro";
 import { createPoTools } from "./po-tools";
-import { createFollowUps } from "./follow-ups";
 import { createWorkspaceStore } from "./workspace-store";
 import { createProjectPlanner } from "./project-planner";
 import { validItemPlan } from "./planning-schedule";
@@ -54,9 +53,10 @@ const seed: WorkspaceState = {
 };
 
 const STORAGE_KEY = "rota-po-workspace-v1";
+let workspaceSaveErrorDetail = "";
 const workspaceStore = createWorkspaceStore(STORAGE_KEY, window.rotaDesktop, {
-  failed: () => { recordDiagnostic("storage", ""); pendingSaveFailureToast = true; showWorkspaceSaveError(); },
-  saved: () => { document.getElementById("workspace-save-error")?.remove(); pendingSaveFailureToast = false; }
+  failed: (error) => { recordDiagnostic("storage", ""); pendingSaveFailureToast = true; showWorkspaceSaveError(error); },
+  saved: () => { workspaceSaveErrorDetail = ""; document.getElementById("workspace-save-error")?.remove(); pendingSaveFailureToast = false; }
 });
 const AUTO_BACKUP_AT_KEY = "rota-auto-backup-at";
 const BACKLOG_PREVIEW_PREFERENCE_KEY = "rota-backlog-preview-enabled";
@@ -271,7 +271,6 @@ try {
     risks: workspaceRecords<ProductRisk>(saved.risks, []),
     dailyPlans: workspaceRecords<DailyPlan>(saved.dailyPlans, []),
     dailyFocus: normalizeWorkspaceFocus(saved.dailyFocus),
-    dashboardLayout: normalizeDashboardLayout(saved.dashboardLayout),
     weeklySummaryNotes: saved.weeklySummaryNotes || {},
     handoverNotes: saved.handoverNotes || {}
     ,workTemplates: workspaceRecords<WorkTemplate>(saved.workTemplates, [])
@@ -818,24 +817,37 @@ const save = () => {
     }
     workspaceStore.persist(JSON.stringify(state));
     recordWorkDiagramSnapshot();
-    document.getElementById("workspace-save-error")?.remove();
-    pendingSaveFailureToast = false;
+    if (!workspaceStore.fileMode) {
+      workspaceSaveErrorDetail = "";
+      document.getElementById("workspace-save-error")?.remove();
+      pendingSaveFailureToast = false;
+    }
     return true;
-  } catch {
+  } catch (error) {
     recordDiagnostic("storage", "");
     pendingSaveFailureToast = true;
-    showWorkspaceSaveError();
+    showWorkspaceSaveError(error);
     return false;
   }
 };
 
-function showWorkspaceSaveError(): void {
-  if (document.getElementById("workspace-save-error")) return;
+function showWorkspaceSaveError(error?: unknown): void {
+  if (error !== undefined) {
+    workspaceSaveErrorDetail = error instanceof Error ? error.message : String(error);
+    console.error("Rota çalışma alanı kayıt hatası:", error);
+  }
+  const existing = document.getElementById("workspace-save-error");
+  if (existing) {
+    const detail = existing.querySelector("[data-save-error-detail]");
+    if (detail) detail.textContent = workspaceSaveErrorDetail;
+    return;
+  }
   const banner = document.createElement("div");
   banner.id = "workspace-save-error";
   banner.setAttribute("role", "alert");
-  banner.innerHTML = '<strong>Çalışma alanı kaydedilemedi.</strong><p>Yeni değişiklikler uygulama kapanırsa kaybolabilir. Depolama alanını kontrol edin.</p><div><button type="button" class="button button-secondary" data-save-retry>Yeniden dene</button><button type="button" class="button button-secondary" data-save-backup>Yedek oluştur</button></div>';
-  banner.querySelector("[data-save-retry]")?.addEventListener("click", () => { if (save()) toast("Çalışma alanı kaydedildi."); });
+  banner.innerHTML = '<strong>Çalışma alanı kaydedilemedi.</strong><p>Yeni değişiklikler uygulama kapanırsa kaybolabilir.</p><p data-save-error-detail></p><div><button type="button" class="button button-secondary" data-save-retry>Yeniden dene</button><button type="button" class="button button-secondary" data-save-backup>Yedek oluştur</button></div>';
+  banner.querySelector("[data-save-error-detail]")!.textContent = workspaceSaveErrorDetail;
+  banner.querySelector("[data-save-retry]")?.addEventListener("click", () => { if (save()) toast(workspaceStore.fileMode ? "Kaydetme yeniden denendi." : "Çalışma alanı kaydedildi."); });
   banner.querySelector("[data-save-backup]")?.addEventListener("click", () => { void exportWorkspaceBackup(); });
   document.body.append(banner);
 }
@@ -977,7 +989,8 @@ function acceptanceTemplateControls(textareaId: string, category: AcceptanceTemp
 
 function renderOpenQuestions(): void {
   refreshItemBackground();
-  openWorkspaceShelf("questions");
+  if (activeView === "overview") renderOverview();
+  syncWorkspaceToolbar();
 }
 
 function checkFollowUpReminders(): void {
@@ -992,7 +1005,6 @@ function checkFollowUpReminders(): void {
   toast("Takip zamanı geldi: " + [...tasks.map((task) => task.title), ...blockers.map((item) => item.id + " · " + item.title)].slice(0, 3).join("; "));
 }
 
-function checkPersonalFollowUps(): void { followUps.check(); }
 
 function archiveMatches(value: string): boolean { const terms = archiveQuery.trim().toLocaleLowerCase("tr-TR").split(/\s+/).filter(Boolean); const normalized = value.toLocaleLowerCase("tr-TR"); return !terms.length || terms.every((term) => normalized.includes(term)); }
 
@@ -1004,6 +1016,7 @@ function renderArchiveSearch(): void {
 }
 
 function openQuestionForm(questionId?: string): void {
+  if (!questionId) { unifiedNoteKind = "question"; openWorkspaceShelf("notes"); document.querySelector<HTMLTextAreaElement>("#workspace-shelf textarea")?.focus(); return; }
   const question = state.openQuestions?.find((entry) => entry.id === questionId);
   modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true"><header class="modal-header"><div><div class="panel-kicker">ÜRÜN KARARI</div><h2>' + (question ? "Açık soruyu düzenle" : "Açık soru ekle") + '</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="open-question-form" class="settings-form"><label class="field-label">Soru / karar konusu<textarea class="field-input field-textarea" name="text" rows="3" maxlength="1500" required placeholder="Örn. FAST ticari müşteri günlük limiti hangi tutar olacak?">' + esc(question?.text || "") + '</textarea></label><div class="form-two-col"><label class="field-label">Yanıt sahibi<input class="field-input" name="owner" maxlength="100" placeholder="Kişi veya ekip" value="' + esc(question?.owner || "") + '"></label><label class="field-label">Beklenen yanıt tarihi<input class="field-input" name="expectedAt" type="date" value="' + esc(question?.expectedAt || "") + '"></label></div><label class="field-label">İlişkili backlog işi<select class="field-input" name="linkedItemId"><option value="">Bağımsız soru</option>' + state.items.map((item) => '<option value="' + esc(item.id) + '" ' + (item.id === question?.linkedItemId ? "selected" : "") + '>' + esc(item.id + " · " + item.title) + '</option>').join("") + '</select></label><input type="hidden" name="id" value="' + esc(question?.id || "") + '"><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="submit" class="button button-primary">' + (question ? "Değişiklikleri kaydet" : "Soruyu kaydet") + '</button></footer></form></section></div>';
   if (question) addRecordCopyAction("question", question.id);
@@ -1116,6 +1129,7 @@ const icon = (name: string): string => {
   const paths: Record<string, string> = {
     copy: '<rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2"/>',
     clock: '<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+    link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1"/><path d="M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
     calendar: '<rect x="3" y="5" width="18" height="16" rx="2"/><path d="M7 3v4m10-4v4M3 11h18"/>',
     map: '<path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6ZM9 3v15M15 6v15"/>',
     maximize: '<path d="M8 3H3v5m13-5h5v5M3 16v5h5m13-5v5h-5"/>',
@@ -1347,7 +1361,7 @@ function finishMeetingSession(): void {
 
 async function deleteMeetingSession(): Promise<void> {
   const stage = meetingStage;
-  if (!stage || !(await appConfirm('"' + stage.meeting.title + '" toplantısı silinsin mi? Bu toplantıdan oluşturulan kayıtlar kendi listelerinde kalır.'))) return;
+  if (!stage || !(await appConfirmDeletion('"' + stage.meeting.title + '" toplantısı silinsin mi? Bu toplantıdan oluşturulan kayıtlar kendi listelerinde kalır.'))) return;
   const meetings = state.meetings;
   if (!meetings?.some((meeting) => meeting.id === stage.meeting.id)) return;
   state.meetings = meetings.filter((meeting) => meeting.id !== stage.meeting.id);
@@ -1820,7 +1834,7 @@ root.addEventListener("keydown", (event) => {
 
 root.addEventListener("focusin", (event) => {
   const target = event.target;
-  if (!(target instanceof HTMLTextAreaElement) || target.form?.id !== "meeting-stage-record-form" || target.value) return;
+  if (!(target instanceof HTMLTextAreaElement) || !(target.form?.id === "meeting-stage-record-form" || target.form?.matches("[data-message-kind]")) || target.value) return;
   const field = target;
   if (document.body.classList.contains("reduced-motion") || matchMedia("(prefers-reduced-motion: reduce)").matches) return;
 
@@ -2326,12 +2340,120 @@ async function removeJiraPat(): Promise<void> {
   await desktop.jiraRemoveToken(); jiraHasSavedToken = false; jiraBoards = []; jiraProjects = []; jiraSprints = []; jiraIssueTypes = []; jiraIssues = []; renderJira(); toast("Jira bağlantı anahtarı kaldırıldı.");
 }
 
+type UnifiedNoteKind = "note" | "task" | "question";
+let unifiedNoteKind: UnifiedNoteKind = "note";
+let unifiedNoteFilter = "";
+let unifiedNoteStatus = "all";
+let unifiedNoteLinked = "";
+interface UnifiedNoteRecord {
+  kind: UnifiedNoteKind; id: string; title: string; body: string; linked: string;
+  meta: string; timestamp?: string; completed: boolean;
+}
+function unifiedNotes(): UnifiedNoteRecord[] {
+  return [
+    ...state.notes.map((note): UnifiedNoteRecord => ({ kind: "note", id: note.id, title: note.title, body: note.body, linked: note.linked, meta: note.updated, timestamp: note.updatedAt || note.createdAt, completed: false })),
+    ...state.tasks.map((task): UnifiedNoteRecord => ({ kind: "task", id: task.id, title: task.title, body: task.description || "", linked: task.linked, meta: [task.owner, task.due, task.done ? "Tamamlandı" : "Açık"].filter(Boolean).join(" · "), timestamp: task.updatedAt, completed: task.done })),
+    ...(state.openQuestions || []).map((question): UnifiedNoteRecord => ({ kind: "question", id: question.id, title: question.text.split("\n")[0], body: [question.text, question.answer].filter(Boolean).join("\n"), linked: question.linkedItemId || "", meta: [question.owner, question.expectedAt, question.status].filter(Boolean).join(" · "), timestamp: question.updatedAt || question.answeredAt || question.createdAt, completed: question.status === "Yanıtlandı" }))
+  ].filter((record) => (!unifiedNoteFilter || record.kind === unifiedNoteFilter) && (unifiedNoteStatus === "all" || (unifiedNoteStatus === "active" ? !record.completed : record.completed)))
+    .sort((a, b) => (Date.parse(b.timestamp || "") || 0) - (Date.parse(a.timestamp || "") || 0));
+}
+function unifiedNoteFilters(): string {
+  return '<div class="unified-note-filters"><label>Tür<select class="field-input" data-unified-filter="kind" aria-label="Not türüne göre filtrele">' + [["", "Tüm türler"], ["note", "Not"], ["task", "Görev"], ["question", "Soru"]].map(([value, label]) => '<option value="' + value + '" ' + (unifiedNoteFilter === value ? 'selected' : '') + '>' + label + '</option>').join("") + '</select></label><label>Durum<select class="field-input" data-unified-filter="status" aria-label="Not durumuna göre filtrele">' + [["active", "Açık kayıtlar"], ["all", "Tüm kayıtlar"], ["completed", "Tamamlanan / yanıtlanan"]].map(([value, label]) => '<option value="' + value + '" ' + (unifiedNoteStatus === value ? 'selected' : '') + '>' + label + '</option>').join("") + '</select></label></div>';
+}
+function unifiedNoteRow(record: UnifiedNoteRecord, searchText = ""): string {
+  const open = record.kind === "task" ? 'data-open-task="' + esc(record.id) + '"' : record.kind === "note" ? 'data-note="' + esc(record.id) + '"' : 'data-action="edit-open-question" data-id="' + esc(record.id) + '"';
+  const label = meetingStageRecordLabels[record.kind];
+  const action = record.kind === "task" ? '<button type="button" class="personal-icon" data-toggle-task="' + esc(record.id) + '" aria-label="' + (record.completed ? 'Görevi yeniden aç' : 'Görevi tamamla') + '" title="' + (record.completed ? 'Görevi yeniden aç' : 'Görevi tamamla') + '">' + icon(record.completed ? "undo" : "check") + '</button>' : record.kind === "question" ? '<button type="button" class="personal-icon" data-action="' + (record.completed ? 'reopen-question' : 'answer-open-question') + '" data-id="' + esc(record.id) + '" aria-label="' + (record.completed ? 'Soruyu yeniden aç' : 'Soruyu yanıtla') + '">' + icon(record.completed ? "undo" : "check") + '</button>' : '';
+  return '<article class="personal-row unified-note-row' + (record.completed ? ' is-done' : '') + '" data-record-kind="' + record.kind + '" data-record-id="' + esc(record.id) + '" data-panel-search-text="' + esc(searchText) + '"><span class="personal-record-symbol" title="' + label + '">' + icon(meetingStageRecordIcons[record.kind]) + '</span><button type="button" class="personal-record-open" ' + open + '><strong>' + esc(record.title) + '</strong><p>' + esc(record.body.slice(0, 180)) + '</p>' + personalRecordMeta([label, record.meta, record.linked].filter(Boolean).join(" · "), record.timestamp) + '</button>' + action + (record.kind === "note" ? '<button type="button" class="personal-icon" data-action="note-to-task" data-id="' + esc(record.id) + '" aria-label="Notu göreve dönüştür" data-tooltip="Notu göreve dönüştür">' + icon("task") + '</button>' : '') + workspaceFocusPin(record.kind, record.id) + '<button type="button" class="personal-icon unified-note-delete" data-action="' + (record.kind === "question" ? "delete-open-question" : "delete-" + record.kind) + '" data-id="' + esc(record.id) + '" aria-label="' + label + ' kaydını sil" data-tooltip="Sil">' + icon("delete") + '</button></article>';
+}
+document.addEventListener("change", (event) => {
+  const field = event.target;
+  if (!(field instanceof HTMLSelectElement) && !(field instanceof HTMLInputElement)) return;
+  if (field.dataset.unifiedFilter) {
+    if (field.dataset.unifiedFilter === "kind") unifiedNoteFilter = field.value;
+    else unifiedNoteStatus = field.value;
+    if (activeView === "overview") renderOverview(); if (workspaceShelf) renderWorkspaceShelf();
+  }
+  if (field.name === "kind" && field.closest("[data-message-kind]")) {
+    unifiedNoteKind = field.value as UnifiedNoteKind;
+    const form = field.closest<HTMLFormElement>("form")!;
+    form.querySelector<HTMLTextAreaElement>("textarea")!.placeholder = meetingStagePlaceholders[unifiedNoteKind];
+    const send = form.querySelector<HTMLButtonElement>('button[type="submit"]')!;
+    send.innerHTML = icon(meetingStageRecordIcons[unifiedNoteKind]);
+    send.setAttribute("aria-label", meetingStageRecordLabels[unifiedNoteKind] + " gönder");
+  }
+});
+
+let noteCaptureMessages: string[] = [];
+function openNoteCapture(): void {
+  closeWorkspaceShelf();
+  closeActionTooltip();
+  modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal note-capture-modal" role="dialog" aria-modal="true" aria-labelledby="note-capture-title"><header class="modal-header"><div><h2 id="note-capture-title">Not al</h2><p>Mesajlarını ekle; Tamam ile tek kayıt olarak kaydet.</p></div><button type="button" class="modal-close" data-close-modal aria-label="Kapat">×</button></header><div class="note-capture-messages" aria-label="Not mesajları" aria-live="polite"></div>' + workspaceMessageComposer("notes") + '<footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Vazgeç</button><button type="button" class="button button-primary" data-note-capture-complete>Tamam</button></footer></section></div>';
+  renderNoteCaptureMessages();
+  modalRoot.querySelector<HTMLTextAreaElement>("textarea")?.focus();
+}
+function renderNoteCaptureMessages(): void {
+  const list = modalRoot.querySelector<HTMLElement>(".note-capture-messages");
+  if (!list) return;
+  list.innerHTML = noteCaptureMessages.map((text, index) => '<article class="note-capture-message"><span class="meeting-stage-record-kind" aria-hidden="true">' + icon("note") + '</span><span class="note-capture-text">' + esc(text) + '</span><button type="button" class="personal-icon" data-note-capture-remove="' + index + '" aria-label="Mesajı kaldır">' + icon("close") + '</button></article>').join("") || '<p class="personal-empty">Mesajlarını aşağıdan ekleyebilirsin. Tamam diyene kadar kaydedilmez.</p>';
+  list.scrollTop = list.scrollHeight;
+  updateNoteCaptureCompletion();
+}
+function updateNoteCaptureCompletion(): void {
+  const complete = modalRoot.querySelector<HTMLButtonElement>("[data-note-capture-complete]");
+  if (complete) complete.disabled = !noteCaptureMessages.length && !modalRoot.querySelector<HTMLTextAreaElement>("textarea")?.value.trim();
+}
+function appendNoteCaptureMessage(form: HTMLFormElement): void {
+  const field = form.querySelector<HTMLTextAreaElement>("textarea")!;
+  if (!field.value.trim()) return;
+  noteCaptureMessages.push(field.value.trim());
+  field.value = ""; workspaceMessageDrafts.notes = "";
+  form.classList.remove("has-message");
+  form.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled = true;
+  resizeWorkspaceMessage(field); renderNoteCaptureMessages(); field.focus();
+}
+function completeNoteCapture(): void {
+  const form = modalRoot.querySelector<HTMLFormElement>(".note-capture-modal form");
+  const field = form?.querySelector<HTMLTextAreaElement>("textarea");
+  if (!form || !field) return;
+  const draft = field.value;
+  const messages = [...noteCaptureMessages, ...(draft.trim() ? [draft.trim()] : [])];
+  if (!messages.length) return;
+  field.value = messages.join("\n\n");
+  if (!sendWorkspaceMessage(form)) { field.value = draft; return; }
+  noteCaptureMessages = []; closeModal();
+}
+document.addEventListener("click", (event) => {
+  const target = event.target instanceof Element ? event.target : null;
+  const pick = target?.closest<HTMLElement>("[data-link-pick]");
+  if (pick) { const field = pick.closest("form")?.querySelector("textarea"); if (field) pickWorkspaceLink(field, pick.dataset.linkPick!); return; }
+  const clear = target?.closest("[data-link-clear]");
+  if (clear) { const form = clear.closest<HTMLFormElement>("[data-message-kind]"); if (form) { setWorkspaceLink(form, ""); form.querySelector("textarea")?.focus(); } return; }
+  const capture = target?.closest("[data-note-capture]");
+  if (capture) {
+    const source = capture.closest<HTMLFormElement>("[data-message-kind]");
+    const field = source?.querySelector<HTMLTextAreaElement>("textarea");
+    if (source && field) {
+      const sourceKind = source.dataset.messageKind as WorkspaceMessageKind;
+      unifiedNoteKind = (String(new FormData(source).get("kind") || "note") as UnifiedNoteKind);
+      unifiedNoteLinked = String(new FormData(source).get("linked") || "");
+      workspaceMessageDrafts.notes = field.value;
+      if (sourceKind !== "notes") workspaceMessageDrafts[sourceKind] = "";
+      field.value = ""; resizeWorkspaceMessage(field);
+    }
+    openNoteCapture(); return;
+  }
+  if (target?.closest("[data-note-capture-complete]")) { completeNoteCapture(); return; }
+  const remove = target?.closest<HTMLElement>("[data-note-capture-remove]");
+  if (remove) { noteCaptureMessages.splice(Number(remove.dataset.noteCaptureRemove), 1); renderNoteCaptureMessages(); }
+});
+
 type WorkspaceShelf = "tasks" | "notes" | "questions";
 let workspaceShelf: WorkspaceShelf | null = null;
 let workspaceShelfQuery = "";
 let workspaceShowCompleted = false;
 function syncWorkspaceToolbar(): void {
-  const counts = { tasks: state.tasks.filter((task) => !task.done).length, notes: state.notes.length, questions: (state.openQuestions || []).filter((question) => question.status === "Açık").length };
+  const counts = { tasks: state.tasks.filter((task) => !task.done).length, notes: state.notes.length + state.tasks.length + (state.openQuestions || []).length, questions: (state.openQuestions || []).filter((question) => question.status === "Açık").length };
   document.querySelectorAll<HTMLElement>("[data-workspace-count]").forEach((node) => { node.textContent = String(counts[node.dataset.workspaceCount as WorkspaceShelf]); });
   document.querySelectorAll<HTMLButtonElement>(".workspace-tools [data-workspace-panel]").forEach((button) => {
     const selected = workspaceShelf === button.dataset.workspacePanel;
@@ -2343,8 +2465,8 @@ function syncWorkspaceToolbar(): void {
   poTools.syncBadge();
 }
 type WorkspaceMessageKind = WorkspaceShelf | "items";
-let dashboardPriority = "";
 const workspaceMessageDrafts: Record<WorkspaceMessageKind, string> = { tasks: "", notes: "", questions: "", items: "" };
+const workspaceMessageLinks: Record<WorkspaceMessageKind, string> = { tasks: "", notes: "", questions: "", items: "" };
 function resizeWorkspaceMessage(textarea: HTMLTextAreaElement): void {
   textarea.style.height = "0px";
   const style = getComputedStyle(textarea);
@@ -2354,34 +2476,77 @@ function resizeWorkspaceMessage(textarea: HTMLTextAreaElement): void {
   textarea.style.overflowY = textarea.scrollHeight > line * 2 + padding + 1 ? "auto" : "hidden";
 }
 window.addEventListener("resize", () => document.querySelectorAll<HTMLTextAreaElement>(".workspace-message-input textarea").forEach(resizeWorkspaceMessage));
-function workspaceMessageComposer(kind: WorkspaceMessageKind): string {
-  requestAnimationFrame(() => document.querySelectorAll<HTMLTextAreaElement>(".workspace-message-input textarea").forEach(resizeWorkspaceMessage));
-  const label = kind === "tasks" ? "Görevini yaz…" : kind === "notes" ? "Notunu yaz…" : kind === "items" ? "Backlog işini yaz…" : "Sorunu yaz…";
-  return '<form class="workspace-message-composer' + (workspaceMessageDrafts[kind].trim() ? ' has-message' : '') + '" data-message-kind="' + kind + '"><div class="workspace-message-input"><textarea name="message" rows="1" maxlength="12000" aria-label="' + label + '" placeholder="' + label + '">' + esc(workspaceMessageDrafts[kind]) + '</textarea><button type="submit" aria-label="Gönder" title="Gönder" ' + (workspaceMessageDrafts[kind].trim() ? '' : 'disabled') + '>' + icon("arrowUp") + '</button></div></form>';
+function workspaceLinkChip(id: string): string {
+  const item = id ? itemById(id) : undefined;
+  return id ? '<span class="workspace-link-chip">' + icon("link") + '<span>' + esc(id + (item ? " · " + item.title : "")) + '</span><button type="button" data-link-clear aria-label="İlişkili işi kaldır" data-tooltip="Bağlantıyı kaldır">' + icon("close") + '</button></span>' : "";
 }
-function sendWorkspaceMessage(form: HTMLFormElement): void {
-  const kind = form.dataset.messageKind as WorkspaceMessageKind;
-  if (!["tasks", "notes", "questions", "items"].includes(kind)) return;
+function setWorkspaceLink(form: HTMLFormElement, id: string): void {
+  const hidden = form.querySelector<HTMLInputElement>('input[name="linked"]');
+  if (hidden) hidden.value = id;
+  unifiedNoteLinked = id;
+  const draftKind = form.dataset.messageKind as WorkspaceMessageKind;
+  workspaceMessageLinks[draftKind] = id;
+  const row = form.querySelector<HTMLElement>(".workspace-link-chip-row");
+  if (row) { row.innerHTML = workspaceLinkChip(id); row.hidden = !id; }
+}
+const workspaceLinkTrigger = /(^|\s)\/([^\s/]*)$/;
+function updateWorkspaceLinkMenu(textarea: HTMLTextAreaElement): void {
+  const form = textarea.closest<HTMLFormElement>("[data-message-kind]");
+  const menu = form?.querySelector<HTMLElement>(".workspace-link-menu");
+  if (!form || !menu) return;
+  const match = workspaceLinkTrigger.exec(textarea.value.slice(0, textarea.selectionStart ?? textarea.value.length));
+  if (!match) { menu.hidden = true; menu.innerHTML = ""; return; }
+  const query = match[2].toLocaleLowerCase("tr-TR");
+  const items = state.items.filter((item) => !item.archived && (!query || [item.id, item.title].join(" ").toLocaleLowerCase("tr-TR").includes(query))).slice(0, 8);
+  menu.innerHTML = items.length ? items.map((item, index) => '<button type="button" role="option" data-link-pick="' + esc(item.id) + '" aria-selected="' + (index === 0) + '"><strong>' + esc(item.id) + '</strong><span>' + esc(item.title) + '</span></button>').join("") : '<p class="personal-empty">İş bulunamadı.</p>';
+  menu.hidden = false;
+}
+function pickWorkspaceLink(textarea: HTMLTextAreaElement, id: string): void {
+  const form = textarea.closest<HTMLFormElement>("[data-message-kind]");
+  if (!form) return;
+  const caret = textarea.selectionStart ?? textarea.value.length;
+  const before = textarea.value.slice(0, caret).replace(workspaceLinkTrigger, "$1");
+  textarea.value = before + textarea.value.slice(caret);
+  textarea.setSelectionRange(before.length, before.length);
+  workspaceMessageDrafts[form.dataset.messageKind as WorkspaceMessageKind] = textarea.value;
+  setWorkspaceLink(form, id);
+  const menu = form.querySelector<HTMLElement>(".workspace-link-menu");
+  if (menu) { menu.hidden = true; menu.innerHTML = ""; }
+  const ready = !!textarea.value.trim();
+  form.classList.toggle("has-message", ready);
+  form.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled = !ready;
+  resizeWorkspaceMessage(textarea); textarea.focus();
+}
+function workspaceMessageComposer(kind: WorkspaceMessageKind, fixedType?: UnifiedNoteKind): string {
+  requestAnimationFrame(() => document.querySelectorAll<HTMLTextAreaElement>(".workspace-message-input textarea").forEach(resizeWorkspaceMessage));
+  const selectedType = fixedType || unifiedNoteKind;
+  const linkedValue = fixedType ? workspaceMessageLinks[kind] : unifiedNoteLinked;
+  const picker = fixedType ? '<input type="hidden" name="kind" value="' + fixedType + '"><span class="meeting-stage-kinds unified-note-kinds is-fixed" title="' + meetingStageRecordLabels[fixedType] + '"><span class="meeting-stage-kind-indicator" aria-hidden="true"></span><span class="meeting-stage-kind-fixed" aria-hidden="true">' + icon(meetingStageRecordIcons[fixedType]) + '</span></span>' : '<div class="meeting-stage-kinds unified-note-kinds" role="group" aria-label="Not tipi"><span class="meeting-stage-kind-indicator" aria-hidden="true"></span>' + (["note", "task", "question"] as UnifiedNoteKind[]).map((type, index) => '<label title="' + meetingStageRecordLabels[type] + ' (Alt+' + (index + 1) + ')" data-tooltip="' + meetingStageRecordLabels[type] + '"><input type="radio" name="kind" value="' + type + '" aria-label="' + meetingStageRecordLabels[type] + '" ' + (type === unifiedNoteKind ? 'checked' : '') + '><span>' + icon(meetingStageRecordIcons[type]) + '</span></label>').join("") + '</div>';
+  return '<form class="workspace-message-composer meeting-stage-composer' + (workspaceMessageDrafts[kind].trim() ? ' has-message' : '') + '" data-message-kind="' + kind + '"><input type="hidden" name="linked" value="' + esc(linkedValue) + '"><div class="workspace-link-chip-row"' + (linkedValue ? '' : ' hidden') + '>' + workspaceLinkChip(linkedValue) + '</div><div class="workspace-link-menu" role="listbox" aria-label="İlişkili iş seç" hidden></div><div class="workspace-message-input">' + picker + '<textarea name="message" rows="1" maxlength="12000" aria-label="Hızlı kayıt" aria-keyshortcuts="Control+Space" title="Enter: gönder · Shift+Enter: yeni satır · /: iş bağla · Ctrl+Space: tür değiştir" placeholder="' + meetingStagePlaceholders[selectedType] + '">' + esc(workspaceMessageDrafts[kind]) + '</textarea><button type="button" class="workspace-capture-open" data-note-capture aria-label="Çoklu not penceresi" data-tooltip="Çoklu not: birkaç mesajı tek kayıt yap">' + icon("note") + '</button><button type="submit" aria-label="' + meetingStageRecordLabels[selectedType] + ' gönder" ' + (workspaceMessageDrafts[kind].trim() ? '' : 'disabled') + '>' + icon(meetingStageRecordIcons[selectedType]) + '</button></div></form>';
+}
+function sendWorkspaceMessage(form: HTMLFormElement): boolean {
+  const draftKind = form.dataset.messageKind as WorkspaceMessageKind;
+  const type = String(new FormData(form).get("kind") || "note");
+  const kind: WorkspaceMessageKind = type === "task" ? "tasks" : type === "question" ? "questions" : "notes";
+  const linked = String(new FormData(form).get("linked") || "");
   const message = String(new FormData(form).get("message") || "").trim();
-  if (!message) return;
+  if (!message) return false;
   const title = message.split("\n")[0].slice(0, 120);
-  if (kind === "tasks") state.tasks.unshift({ updatedAt: new Date().toISOString(), id: nextId("TASK"), title, description: message, due: "", done: false, linked: "", attachments: [] });
-  else if (kind === "notes") state.notes.unshift({ id: nextId("NOTE"), createdAt: new Date().toISOString(), title, body: message, linked: "", updated: "Az önce", attachments: [] });
-  else if (kind === "items") {
-    const project = state.projects.find((entry) => entry.id === activeProjectId && !entry.archived) || state.projects.find((entry) => !entry.archived);
-    let id = nextId("PAY"); while (state.items.some((entry) => entry.id === id)) id = nextId("PAY");
-    const item: WorkItem = { id, type: "Task", title, description: message, status: "Yeni", priority: (dashboardPriority || "Orta") as WorkItem["priority"], project: project?.name || "Genel", area: "Genel", updated: "Az önce", acceptance: [], attachments: [], labels: [], assignments: [], activity: [] };
-    addWorkActivity(item, "created", "İş oluşturuldu."); state.items.unshift(item); renderProjectNav();
-  }
-  else { state.openQuestions ||= []; state.openQuestions.unshift({ id: nextId("Q"), text: message, owner: "", expectedAt: "", status: "Açık", createdAt: new Date().toISOString() }); }
-  workspaceMessageDrafts[kind] = "";
+  const previous = { tasks: [...state.tasks], notes: [...state.notes], openQuestions: state.openQuestions?.slice() };
+  if (kind === "tasks") state.tasks.unshift({ updatedAt: new Date().toISOString(), id: nextId("TASK"), title, description: message, due: "", done: false, linked, attachments: [] });
+  else if (kind === "notes") state.notes.unshift({ id: nextId("NOTE"), createdAt: new Date().toISOString(), title, body: message, linked, updated: "Az önce", attachments: [] });
+  else { state.openQuestions ||= []; state.openQuestions.unshift({ id: nextId("Q"), text: message, owner: "", expectedAt: "", linkedItemId: linked, status: "Açık", createdAt: new Date().toISOString() }); }
+  if (!save()) { Object.assign(state, previous); return false; }
+  workspaceMessageDrafts[draftKind] = "";
+  dashboardSearches.notes = "";
+  unifiedNoteFilter = ""; unifiedNoteStatus = "all";
   workspaceShelfQuery = "";
   const search = document.getElementById("workspace-shelf-search") as HTMLInputElement | null; if (search) search.value = "";
   if (kind === "questions") questionFilter = "open";
   form.querySelector<HTMLTextAreaElement>("textarea")!.value = "";
-  save(); render();
+  render();
   const scope = form.closest("#workspace-shelf") ? document.getElementById("workspace-shelf") : root;
-  const composer = scope?.querySelector<HTMLFormElement>('[data-message-kind="' + kind + '"]');
+  const composer = scope?.querySelector<HTMLFormElement>('[data-message-kind="' + draftKind + '"]');
   if (composer) {
     composer.classList.remove("has-message"); composer.classList.add("message-sent");
     composer.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled = true;
@@ -2395,6 +2560,7 @@ function sendWorkspaceMessage(form: HTMLFormElement): void {
     const row = list.querySelector(".personal-row") || list.firstElementChild; row?.classList.add("message-record-enter");
     window.setTimeout(() => row?.classList.remove("message-record-enter"), 600);
   }
+  return true;
 }
 
 function renderWorkspaceShelf(): void {
@@ -2407,27 +2573,18 @@ function renderWorkspaceShelf(): void {
     shelf.querySelector(".workspace-shelf-footer")?.insertAdjacentHTML("beforebegin", workspaceMessageComposer(workspaceShelf));
   }
   const term = workspaceShelfQuery.trim().toLocaleLowerCase("tr-TR");
-  const title = document.getElementById("workspace-shelf-title"); if (title) title.textContent = workspaceShelf === "tasks" ? "Görevler" : workspaceShelf === "questions" ? "Açık sorular" : "Notlar";
-  const add = document.querySelector<HTMLButtonElement>(".workspace-shelf-add");
-  if (add) { add.hidden = true; add.dataset.workspaceCreate = workspaceShelf === "tasks" ? "task" : workspaceShelf === "questions" ? "question" : "note"; add.setAttribute("aria-label", workspaceShelf === "tasks" ? "Yeni görev" : workspaceShelf === "questions" ? "Yeni soru" : "Yeni not"); }
-  const completed = document.querySelector<HTMLElement>(".workspace-show-completed"); if (completed) completed.hidden = workspaceShelf !== "tasks";
-  const questionControl = document.querySelector<HTMLElement>(".workspace-question-filter"); if (questionControl) questionControl.hidden = workspaceShelf !== "questions";
-  const questionSelect = document.getElementById("workspace-question-filter") as HTMLSelectElement | null; if (questionSelect) questionSelect.value = questionFilter;
-  const matches = (text: string) => text.toLocaleLowerCase("tr-TR").includes(term);
-  const tasks = state.tasks.filter((task) => (workspaceShowCompleted || !task.done) && matches(task.title + " " + (task.description || "") + " " + task.linked));
-  const notes = state.notes.filter((note) => matches(note.title + " " + note.body + " " + note.linked));
+  document.getElementById("workspace-shelf-title")!.textContent = "Notlar";
+  document.querySelector<HTMLElement>(".workspace-shelf-add")!.hidden = true;
+  document.querySelector<HTMLElement>(".workspace-show-completed")!.hidden = true;
+  document.querySelector<HTMLElement>(".workspace-question-filter")!.hidden = true;
+  const filterHost = shelf.querySelector(".unified-note-filters");
+  if (filterHost) filterHost.outerHTML = unifiedNoteFilters();
+  else shelf.querySelector(".workspace-shelf-filters")?.insertAdjacentHTML("afterend", unifiedNoteFilters());
+  const records = unifiedNotes().filter((record) => [record.title, record.body, record.meta, record.linked].join(" ").toLocaleLowerCase("tr-TR").includes(term));
   const scrollTop = list.scrollTop;
-  list.innerHTML = workspaceShelf === "tasks" ? tasks.map((task) => '<article class="workspace-record-row ' + (task.done ? "is-done" : "") + '" data-context-task-id="' + esc(task.id) + '"><button type="button" class="workspace-task-toggle" data-toggle-task="' + esc(task.id) + '" aria-label="' + esc(task.done ? 'Görevi yeniden aç: ' + task.title : 'Görevi tamamla: ' + task.title) + '" aria-pressed="' + task.done + '">' + (task.done ? icon("check") : '<span></span>') + '</button><button type="button" class="workspace-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong><small>' + esc([task.due || "", task.linked || ""].filter(Boolean).join(" · ")) + '</small></button></article>').join("") : notes.map((note) => '<article class="workspace-record-row" data-context-note-id="' + esc(note.id) + '"><span class="workspace-record-symbol">' + icon("note") + '</span><button type="button" class="workspace-record-open" data-note="' + esc(note.id) + '"><strong>' + esc(note.title) + '</strong><small>' + esc(note.body.slice(0, 160) || note.updated) + '</small></button><button type="button" class="workspace-record-convert" data-action="note-to-task" data-id="' + esc(note.id) + '" aria-label="Notu göreve dönüştür" data-tooltip="Notu göreve dönüştür">' + icon("task") + '</button></article>').join("");
-  const questions = (state.openQuestions || []).filter((question) => (questionFilter === "all" || question.status === (questionFilter === "open" ? "Açık" : "Yanıtlandı")) && matches([question.text, question.owner, question.answer, question.linkedItemId].join(" "))).sort((a, b) => (a.status === "Açık" ? 0 : 1) - (b.status === "Açık" ? 0 : 1) || (a.expectedAt || "9999").localeCompare(b.expectedAt || "9999"));
-  if (workspaceShelf === "questions") list.innerHTML = questions.map((question) => {
-    const overdue = question.status === "Açık" && question.expectedAt && question.expectedAt < new Date().toISOString().slice(0, 10);
-    const action = (name: string, label: string, glyph: string) => '<button type="button" class="workspace-question-action" data-action="' + name + '" data-id="' + esc(question.id) + '" aria-label="' + label + '" data-tooltip="' + label + '">' + icon(glyph) + '</button>';
-    return '<article class="workspace-question-row' + (overdue ? ' is-overdue' : '') + '"><div class="workspace-question-heading"><span class="question-status ' + (question.status === "Açık" ? 'open' : 'answered') + '">' + esc(question.status) + (overdue ? ' · Gecikti' : '') + '</span><div class="workspace-question-actions">' + action('edit-open-question', 'Soruyu düzenle', 'edit') + (question.status === "Açık" ? action('answer-open-question', 'Soruyu yanıtla', 'check') : action('reopen-question', 'Soruyu yeniden aç', 'undo')) + action('delete-open-question', 'Soruyu sil', 'delete') + '</div></div><button type="button" class="workspace-record-open" data-action="edit-open-question" data-id="' + esc(question.id) + '"><strong>' + esc(question.text) + '</strong><small>' + esc(question.owner + ' · ' + (question.expectedAt || 'Tarih yok')) + '</small></button>' + (question.answer ? '<p class="workspace-question-answer">' + esc(question.answer) + '</p>' : '') + (question.linkedItemId && itemById(question.linkedItemId) ? '<button type="button" class="workspace-question-link" data-open-item="' + esc(question.linkedItemId) + '">' + esc(question.linkedItemId + ' · ' + itemById(question.linkedItemId)!.title) + '</button>' : '') + '</article>';
-  }).join("");
-  const count = workspaceShelf === "tasks" ? tasks.length : workspaceShelf === "questions" ? questions.length : notes.length;
-  if (!count) list.innerHTML = '<div class="workspace-shelf-empty">' + icon(workspaceShelf === "tasks" ? "task" : workspaceShelf === "questions" ? "help" : "note") + '<strong>' + (term ? "Eşleşen kayıt yok" : workspaceShelf === "tasks" ? "Bekleyen görev yok" : workspaceShelf === "questions" ? "Bu filtrede soru yok" : "Henüz not yok") + '</strong></div>';
+  list.innerHTML = records.map((record) => unifiedNoteRow(record)).join("") || '<p class="personal-empty">Eşleşen kayıt yok. Aşağıdan Not, Görev veya Soru ekleyebilirsin.</p>';
   list.scrollTop = scrollTop;
-  const footer = document.getElementById("workspace-shelf-count"); if (footer) footer.textContent = count + " " + (workspaceShelf === "tasks" ? "görev" : workspaceShelf === "questions" ? "soru" : "not");
+  document.getElementById("workspace-shelf-count")!.textContent = records.length + " kayıt";
 }
 function closeWorkspaceShelf(restoreFocus = false): void {
   const previous = workspaceShelf; workspaceShelf = null;
@@ -2436,13 +2593,11 @@ function closeWorkspaceShelf(restoreFocus = false): void {
   if (restoreFocus && previous) document.querySelector<HTMLButtonElement>('.workspace-tools [data-workspace-panel="' + previous + '"]')?.focus();
 }
 function openWorkspaceShelf(kind: WorkspaceShelf): void {
-  closeActionTooltip(); workspaceShelf = kind; workspaceShelfQuery = "";
-  const shelf = document.getElementById("workspace-shelf"); if (!shelf) return;
-  shelf.hidden = false;
-  const search = document.getElementById("workspace-shelf-search") as HTMLInputElement | null;
-  if (search) search.value = "";
-  syncWorkspaceToolbar(); search?.focus({ preventScroll: true });
+  workspaceSection = kind;
+  if (activeView !== "overview") setView("overview"); else renderOverview();
+  root.querySelector<HTMLTextAreaElement>(".workspace-message-composer textarea")?.focus();
 }
+
 function initWorkspaceToolbar(): void {
   document.querySelectorAll<HTMLElement>("[data-workspace-icon]").forEach((node) => { node.innerHTML = icon(node.dataset.workspaceIcon === "notes" ? "duplicate" : node.dataset.workspaceIcon!); });
   const tools = document.querySelector<HTMLElement>(".workspace-tools")!;
@@ -2465,6 +2620,7 @@ function initWorkspaceToolbar(): void {
     if (create) {
       const kind = create.dataset.workspaceCreate;
       if (kind === "task" || kind === "note" || kind === "question") {
+        unifiedNoteKind = kind;
         openWorkspaceShelf(kind === "task" ? "tasks" : kind === "note" ? "notes" : "questions");
         document.querySelector<HTMLTextAreaElement>("#workspace-shelf textarea[name=message]")?.focus(); return;
       }
@@ -2601,202 +2757,19 @@ document.addEventListener("click", (event) => {
   toast(pinned ? "Odaktan çıkarıldı. Asıl kayıt korunuyor." : "Bugünkü odağına eklendi.");
 }, true);
 
-// Yanıt bekleyenler, Takipler panelinin bir segmentidir; eski "responses" gizleme tercihi yok sayılır.
-const dashboardPanelLabels: Record<string, string> = { focus: "Bugünkü odağım", followups: "Takipler", tasks: "Görevlerim", notes: "Notlarım", questions: "Sorularım", items: "Backlog işleri" };
-function hiddenDashboardPanels(): string[] {
-  return Array.isArray(state.hiddenDashboardPanels) ? state.hiddenDashboardPanels.filter((id) => Object.hasOwn(dashboardPanelLabels, id)) : [];
+let workspaceSection: WorkspaceShelf = "notes";
+function workspaceRecordKind(section: WorkspaceShelf): UnifiedNoteKind {
+  return section === "tasks" ? "task" : section === "questions" ? "question" : "note";
 }
-function dashboardVisibilityControl(): string {
-  return '<div class="dashboard-visibility-toolbar"><button type="button" class="button button-secondary button-small" popovertarget="dashboard-visibility">' + icon("board") + 'Paneller <span data-hidden-panel-count></span>' + icon("chevronDown") + '</button><div id="dashboard-visibility" class="dashboard-visibility-popover" popover><strong>Görünür paneller</strong>' + Object.entries(dashboardPanelLabels).map(([id, label]) => '<label><input type="checkbox" data-dashboard-visible="' + id + '"><span>' + label + '</span></label>').join("") + '<button type="button" class="button button-quiet button-small" data-dashboard-show-all>Tümünü göster</button></div></div>';
-}
-function applyDashboardVisibility(): void {
-  const hidden = hiddenDashboardPanels();
-  for (const [id, label] of Object.entries(dashboardPanelLabels)) {
-    const selector = id === "focus" ? ".personal-focus" : id === "followups" ? "#workspace-followups" : '[data-dashboard-panel="' + id + '"]';
-    const panel = root.querySelector<HTMLElement>(selector);
-    if (panel) {
-      panel.hidden = hidden.includes(id);
-      const header = panel.querySelector(".personal-panel-heading, .personal-focus-heading");
-      if (header && !header.querySelector("[data-dashboard-hide]")) header.insertAdjacentHTML("beforeend", '<button type="button" class="personal-icon" data-dashboard-hide="' + id + '" aria-label="' + label + ' panelini gizle" data-tooltip="Paneli gizle">' + icon("close") + '</button>');
-    }
-    const checkbox = root.querySelector<HTMLInputElement>('[data-dashboard-visible="' + id + '"]');
-    if (checkbox) checkbox.checked = !hidden.includes(id);
-  }
-  const count = root.querySelector("[data-hidden-panel-count]");
-  if (count) count.textContent = hidden.length ? "· " + hidden.length + " gizli" : "";
-}
-function setDashboardVisibility(id?: string, visible = true): void {
-  const previous = state.hiddenDashboardPanels;
-  const hidden = hiddenDashboardPanels();
-  state.hiddenDashboardPanels = id ? visible ? hidden.filter((entry) => entry !== id) : [...new Set([...hidden, id])] : [];
-  if (!save()) { state.hiddenDashboardPanels = previous; applyDashboardVisibility(); return; }
-  if (id && !visible && maximizedDashboardPanel === id) { maximizedDashboardPanel = null; applyDashboardMaximize(); }
-  applyDashboardVisibility();
+function workspaceSectionsMarkup(): string {
+  return ([['notes', 'Notlar'], ['questions', 'Sorular'], ['tasks', 'Görevler']] as const).map(([section, label]) => '<button type="button" data-workspace-section="' + section + '" aria-pressed="' + (workspaceSection === section) + '">' + label + '</button>').join("");
 }
 document.addEventListener("click", (event) => {
-  const target = event.target instanceof Element ? event.target : null;
-  const hide = target?.closest<HTMLElement>("[data-dashboard-hide]");
-  if (hide) { setDashboardVisibility(hide.dataset.dashboardHide, false); root.querySelector<HTMLButtonElement>('[popovertarget="dashboard-visibility"]')?.focus(); }
-  if (target?.closest("[data-dashboard-show-all]")) setDashboardVisibility();
-});
-document.addEventListener("change", (event) => {
-  const input = event.target;
-  if (input instanceof HTMLInputElement && input.dataset.dashboardVisible) setDashboardVisibility(input.dataset.dashboardVisible, input.checked);
-});
-
-function normalizeDashboardLayout(value: unknown): DashboardPanelLayout[] {
-  const ids: DashboardPanelId[] = ["tasks", "notes", "questions", "items"];
-  const result: DashboardPanelLayout[] = [];
-  if (Array.isArray(value)) value.forEach((entry) => {
-    if (!entry || !ids.includes(entry.id) || result.some((panel) => panel.id === entry.id)) return;
-    result.push({ id: entry.id, width: Number.isFinite(entry.width) ? Math.max(.32, Math.min(1, entry.width)) : .5, height: Number.isFinite(entry.height) ? Math.max(220, Math.min(1000, entry.height)) : 300 });
-  });
-  ids.forEach((id) => { if (!result.some((panel) => panel.id === id)) result.push({ id, width: .5, height: 300 }); });
-  return result;
-}
-let maximizedDashboardPanel: DashboardSearchKind | null = null;
-function applyDashboardMaximize(): void {
-  root.querySelectorAll<HTMLElement>(".personal-panel, .personal-focus").forEach((panel) => {
-    const kind = (panel.dataset.dashboardPanel || "focus") as DashboardSearchKind;
-    const maximized = maximizedDashboardPanel === kind;
-    panel.classList.toggle("is-panel-maximized", maximized);
-    let button = panel.querySelector<HTMLButtonElement>(".dashboard-panel-maximize");
-    if (!button) {
-      const header = panel.querySelector(".personal-panel-heading, .personal-focus-heading");
-      header?.insertAdjacentHTML("beforeend", '<button type="button" class="personal-icon dashboard-panel-maximize" data-dashboard-maximize="' + kind + '"></button>');
-      button = panel.querySelector<HTMLButtonElement>(".dashboard-panel-maximize");
-    }
-    if (button) {
-      const label = maximized ? "Paneli küçült" : "Paneli büyüt";
-      button.innerHTML = icon(maximized ? "minimize" : "maximize"); button.setAttribute("aria-label", label); button.title = label; button.setAttribute("aria-pressed", String(maximized));
-    }
-  });
-  root.querySelector(".personal-dashboard")?.classList.toggle("has-maximized-panel", !!maximizedDashboardPanel);
-  requestAnimationFrame(() => root.querySelectorAll<HTMLTextAreaElement>(".workspace-message-input textarea").forEach(resizeWorkspaceMessage));
-}
-document.addEventListener("click", (event) => {
-  const button = event.target instanceof Element ? event.target.closest<HTMLButtonElement>("[data-dashboard-maximize]") : null; if (!button) return;
-  const kind = button.dataset.dashboardMaximize as DashboardSearchKind;
-  maximizedDashboardPanel = maximizedDashboardPanel === kind ? null : kind; applyDashboardMaximize(); button.focus();
-});
-document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape" || !maximizedDashboardPanel || activeView !== "overview" || modalRoot.children.length || root.querySelector(":popover-open")) return;
-  const kind = maximizedDashboardPanel; maximizedDashboardPanel = null; applyDashboardMaximize();
-  root.querySelector<HTMLButtonElement>('[data-dashboard-maximize="' + kind + '"]')?.focus();
-});
-function applyDashboardLayout(): void {
-  const grid = root.querySelector<HTMLElement>(".personal-grid"); if (!grid) return;
-  const layout = normalizeDashboardLayout(state.dashboardLayout);
-  const defaults = normalizeDashboardLayout(null);
-  const toolbar = root.querySelector<HTMLElement>(".dashboard-layout-toolbar");
-  if (toolbar) toolbar.hidden = layout.every((entry, index) => entry.id === defaults[index].id && Math.abs(entry.width - defaults[index].width) < .001 && Math.abs(entry.height - defaults[index].height) < 1);
-  layout.forEach((entry) => {
-    const panel = grid.querySelector<HTMLElement>('[data-dashboard-panel="' + entry.id + '"]'); if (!panel) return;
-    panel.style.setProperty("--panel-width", String(entry.width));
-    if (entry.height === 300) panel.style.removeProperty("--panel-height");
-    else panel.style.setProperty("--panel-height", entry.height + "px");
-    grid.append(panel);
-    if (!panel.querySelector(".dashboard-panel-grip")) {
-      panel.querySelector(".personal-panel-heading")?.insertAdjacentHTML("afterbegin", '<button type="button" class="personal-icon dashboard-panel-grip" aria-label="Paneli taşı" title="Sürükleyerek taşı · Ok tuşlarıyla sırala"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5h.01M16 5h.01M8 12h.01M16 12h.01M8 19h.01M16 19h.01" stroke-width="4"/></svg></button>');
-      panel.insertAdjacentHTML("beforeend", '<button type="button" class="dashboard-panel-resize" aria-label="Paneli boyutlandır" title="Sürükleyerek boyutlandır · Ok tuşlarıyla ayarla"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="m5 13 8-8m-3 8 3-3"/></svg></button>');
-    }
-  });
-}
-function moveDashboardPanel(from: DashboardPanelId, to: DashboardPanelId): void {
-  const layout = normalizeDashboardLayout(state.dashboardLayout);
-  const source = layout.findIndex((entry) => entry.id === from); const target = layout.findIndex((entry) => entry.id === to);
-  if (source < 0 || target < 0 || source === target) return;
-  const [entry] = layout.splice(source, 1); layout.splice(target, 0, entry);
-  state.dashboardLayout = layout; save(); applyDashboardLayout();
-}
-// Use pointer capture so the native WebView2 file-drop target does not own panel moves.
-document.addEventListener("pointerdown", (event) => {
-  if (!event.isPrimary || event.button !== 0 || !(event.target instanceof Element)) return;
-  const grip = event.target.closest<HTMLButtonElement>(".dashboard-panel-grip");
-  const panel = grip?.closest<HTMLElement>("[data-dashboard-panel]");
-  const grid = panel?.parentElement;
-  if (!grip || !panel || !grid) return;
-
-  const { pointerId, clientX, clientY } = event;
-  let target: HTMLElement | null = null;
-  let moving = false;
-  grip.setPointerCapture(pointerId);
-
-  const move = (pointer: PointerEvent) => {
-    if (pointer.pointerId !== pointerId) return;
-    if (!moving && Math.hypot(pointer.clientX - clientX, pointer.clientY - clientY) < 6) return;
-    moving = true;
-    panel.classList.add("is-panel-dragging");
-    const hovered = document.elementFromPoint(pointer.clientX, pointer.clientY)?.closest<HTMLElement>("[data-dashboard-panel]");
-    const next = hovered && hovered !== panel && hovered.parentElement === grid ? hovered : null;
-    if (next === target) return;
-    target?.classList.remove("is-panel-drop-target");
-    target = next;
-    target?.classList.add("is-panel-drop-target");
-  };
-
-  const finish = (pointer: PointerEvent) => {
-    if (pointer.pointerId !== pointerId) return;
-    grip.removeEventListener("pointermove", move);
-    grip.removeEventListener("pointerup", finish);
-    grip.removeEventListener("pointercancel", finish);
-    grip.removeEventListener("lostpointercapture", finish);
-    panel.classList.remove("is-panel-dragging");
-    target?.classList.remove("is-panel-drop-target");
-    if (pointer.type !== "pointerup" || !target) return;
-    moveDashboardPanel(panel.dataset.dashboardPanel as DashboardPanelId, target.dataset.dashboardPanel as DashboardPanelId);
-    grip.focus({ preventScroll: true });
-  };
-
-  grip.addEventListener("pointermove", move);
-  grip.addEventListener("pointerup", finish);
-  grip.addEventListener("pointercancel", finish);
-  grip.addEventListener("lostpointercapture", finish);
-});
-document.addEventListener("pointerdown", (event) => {
-  const handle = event.target instanceof Element ? event.target.closest<HTMLButtonElement>(".dashboard-panel-resize") : null;
-  const panel = handle?.closest<HTMLElement>("[data-dashboard-panel]"); const grid = panel?.parentElement;
-  if (!handle || !panel || !grid || event.button !== 0) return;
-  event.preventDefault(); handle.setPointerCapture(event.pointerId);
-  const layout = normalizeDashboardLayout(state.dashboardLayout); const entry = layout.find((entry) => entry.id === panel.dataset.dashboardPanel)!;
-  const original = { ...entry }; const startX = event.clientX; const startY = event.clientY;
-  const width = panel.getBoundingClientRect().width; const height = panel.getBoundingClientRect().height;
-  const gap = parseFloat(getComputedStyle(grid).gap) || 18; const gridWidth = grid.getBoundingClientRect().width;
-  panel.classList.add("is-panel-resizing");
-  const move = (moveEvent: PointerEvent) => {
-    entry.width = Math.max(.32, Math.min(1, (width + moveEvent.clientX - startX + gap) / (gridWidth + gap)));
-    entry.height = Math.max(220, Math.min(1000, height + moveEvent.clientY - startY));
-    panel.style.setProperty("--panel-width", String(entry.width)); panel.style.setProperty("--panel-height", entry.height + "px");
-    panel.querySelectorAll<HTMLTextAreaElement>(".workspace-message-input textarea").forEach(resizeWorkspaceMessage);
-  };
-  const finish = (finishEvent: PointerEvent) => {
-    if (finishEvent.type === "pointercancel") Object.assign(entry, original);
-    state.dashboardLayout = layout; save(); panel.classList.remove("is-panel-resizing");
-    handle.removeEventListener("pointermove", move); handle.removeEventListener("pointerup", finish); handle.removeEventListener("pointercancel", finish);
-    if (handle.hasPointerCapture(event.pointerId)) handle.releasePointerCapture(event.pointerId);
-    applyDashboardLayout();
-  };
-  handle.addEventListener("pointermove", move); handle.addEventListener("pointerup", finish); handle.addEventListener("pointercancel", finish);
-});
-document.addEventListener("keydown", (event) => {
-  if (!(event.target instanceof HTMLElement) || !event.key.startsWith("Arrow")) return;
-  const handle = event.target.closest(".dashboard-panel-grip, .dashboard-panel-resize"); const panel = handle?.closest<HTMLElement>("[data-dashboard-panel]"); if (!panel) return;
-  event.preventDefault(); const layout = normalizeDashboardLayout(state.dashboardLayout); const index = layout.findIndex((entry) => entry.id === panel.dataset.dashboardPanel);
-  const direction = event.key === "ArrowLeft" || event.key === "ArrowUp" ? -1 : 1;
-  if (handle?.classList.contains("dashboard-panel-grip")) {
-    const target = layout[index + direction]; if (target) moveDashboardPanel(layout[index].id, target.id);
-  } else {
-    const entry = layout[index];
-    if (event.key === "ArrowLeft" || event.key === "ArrowRight") entry.width = Math.max(.32, Math.min(1, entry.width + direction * .05));
-    else entry.height = Math.max(220, Math.min(1000, panel.offsetHeight + direction * 20));
-    state.dashboardLayout = layout; save(); applyDashboardLayout();
-  }
-  (handle as HTMLElement)?.focus();
-});
-document.addEventListener("click", (event) => {
-  if (event.target instanceof Element && event.target.closest("[data-dashboard-reset]")) {
-    state.dashboardLayout = normalizeDashboardLayout(null); save(); applyDashboardLayout();
-  }
+  const target = event.target instanceof Element ? event.target.closest<HTMLElement>("[data-workspace-section]") : null;
+  if (!target || !["notes", "questions", "tasks"].includes(target.dataset.workspaceSection || "")) return;
+  workspaceSection = target.dataset.workspaceSection as WorkspaceShelf;
+  renderOverview();
+  root.querySelector<HTMLButtonElement>('[data-workspace-section="' + workspaceSection + '"]')?.focus();
 });
 
 type DashboardSearchKind = WorkspaceMessageKind | "focus";
@@ -2937,6 +2910,7 @@ function mountDashboardList<T>(kind: DashboardPanelId, records: T[], emptyText: 
     cancelAnimationFrame(frame);
     dashboardListSearch.delete(list);
   });
+  dashboardListSearch.get(list)?.("");
 }
 
 function applyDashboardSearch(kind: DashboardSearchKind): void {
@@ -2982,27 +2956,10 @@ function renderOverview(): void {
     const record = workspaceFocusRecord(entry.kind, entry.id);
     return record ? [{ entry, record }] : [];
   });
-  const tasks = state.tasks.filter((task) => !task.done).sort((a, b) => Number(b.due === "Bugün") - Number(a.due === "Bugün"));
-  const questions = (state.openQuestions || []).filter((question) => question.status === "Açık").sort((a, b) => (a.expectedAt || "9999").localeCompare(b.expectedAt || "9999"));
-  const critical = state.items.filter((item) => !item.archived && item.status !== "Tamamlandı" && isItemInActiveProject(item) && (!dashboardPriority || item.priority === dashboardPriority))
-    .sort((a, b) => Number(b.status === "Bloke") - Number(a.status === "Bloke") || overdueDays(b) - overdueDays(a));
-  const priorityFilter = '<button type="button" class="personal-priority-trigger" popovertarget="dashboard-priority-popover" aria-label="Öncelik filtresi" title="Öncelik filtresi">' + icon("filter") + '<span>' + esc(dashboardPriority || "Öncelik") + '</span>' + icon("chevronDown") + '</button><div id="dashboard-priority-popover" class="personal-priority-popover" popover><strong>Öncelik</strong><input type="search" class="select-search-input" data-option-filter aria-label="Önceliklerde ara" placeholder="Önceliklerde ara…">' + ["", "Kritik", "Yüksek", "Orta", "Düşük"].map((priority) => '<label data-filter-option><input type="radio" name="dashboard-priority" value="' + priority + '" ' + (dashboardPriority === priority ? 'checked' : '') + '><span>' + esc(priority || "Tüm öncelikler") + '</span></label>').join("") + '</div>';
-
   const empty = (text: string) => '<p class="personal-empty">' + text + '</p>';
-  const heading = (title: string, count: number, glyph: string, action: string, label: string, kind: DashboardSearchKind) => '<header class="personal-panel-heading"><h2>' + icon(glyph) + title + '<span>' + count + '</span></h2><button type="button" class="personal-icon icon-action" ' + action + ' aria-label="' + label + '" data-tooltip="' + label + '">' + icon("add") + '</button>' + dashboardSearchControl(kind) + '</header>';
-  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><div class="personal-dashboard-body">' + dashboardVisibilityControl() + '<section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span>' + dashboardSearchControl("focus") + '</header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry" data-focus-entry-kind="' + entry.kind + '" data-focus-entry-id="' + esc(entry.id) + '" data-panel-search-text="' + esc([record.title, record.label, record.meta].join(" ")) + '"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section><section id="workspace-followups" class="workspace-followups workspace-responses po-page" aria-labelledby="workspace-followups-title"></section>' + '<div class="dashboard-layout-toolbar"><button type="button" class="personal-icon" data-dashboard-reset aria-label="Düzeni sıfırla" title="Düzeni sıfırla">' + icon("undo") + '</button></div><div class="personal-grid"><section class="personal-panel personal-tasks" data-dashboard-panel="tasks" aria-label="Görevlerim">' + heading("Görevlerim", tasks.length, "task", 'data-message-focus="tasks"', "Kişisel görev yaz", "tasks") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("tasks") + '</section><section class="personal-panel personal-notes" data-dashboard-panel="notes" aria-label="Notlarım">' + heading("Notlarım", state.notes.length, "note", 'data-message-focus="notes"', "Not yaz", "notes") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("notes") + '</section><section class="personal-panel personal-questions" data-dashboard-panel="questions" aria-label="Sorularım">' + heading("Sorularım", questions.length, "help", 'data-message-focus="questions"', "Soru yaz", "questions") + '<div class="personal-record-list"></div>' + workspaceMessageComposer("questions") + '</section><section class="personal-panel personal-critical" data-dashboard-panel="items" aria-label="Backlog işleri"><header class="personal-panel-heading"><h2>' + icon("bug") + 'Backlog işleri<span>' + critical.length + '</span></h2>' + priorityFilter + dashboardSearchControl("items") + '</header><div class="personal-record-list"></div>' + workspaceMessageComposer("items") + '</section></div></div></div>';
-  followUps.renderPanel();
-  mountDashboardList("tasks", tasks, "İlk görevini aşağıya mesaj olarak yaz.", (task) => [task.title, task.description, task.due, task.linked],
-    (task, searchText) => '<article class="personal-row' + (task.due === "Bugün" ? " personal-row-due" : "") + '" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-task-check" data-toggle-task="' + esc(task.id) + '" aria-label="Görevi tamamla: ' + esc(task.title) + '">' + icon("check") + '</button><button type="button" class="personal-record-open" data-open-task="' + esc(task.id) + '"><strong>' + esc(task.title) + '</strong>' + personalRecordMeta([task.due === "Bugün" ? "" : task.due, task.linked].filter(Boolean).join(" · "), task.updatedAt, task.due === "Bugün") + '</button>' + followUps.bell("task", task.id) + workspaceFocusPin("task", task.id) + '</article>');
-  mountDashboardList("notes", state.notes, "Düşüncelerini aşağıya mesaj olarak yaz.", (note) => [note.title, note.body, note.linked],
-    (note, searchText) => '<article class="personal-row" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-record-open" data-note="' + esc(note.id) + '"><strong>' + esc(note.title) + '</strong><p>' + esc(note.body.slice(0, 180)) + '</p>' + personalRecordMeta(note.linked, note.updatedAt || note.createdAt) + '</button>' + followUps.bell("note", note.id) + workspaceFocusPin("note", note.id) + '</article>');
-  mountDashboardList("questions", questions, "Takip edeceğin soruyu aşağıya yaz.", (question) => [question.text, question.owner, question.linkedItemId],
-    (question, searchText) => '<article class="personal-row" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-record-open" data-action="edit-open-question" data-id="' + esc(question.id) + '"><strong>' + esc(question.text) + '</strong>' + personalRecordMeta([question.owner, question.expectedAt ? "Beklenen: " + question.expectedAt : "Yanıt bekleniyor", question.linkedItemId].filter(Boolean).join(" · "), question.updatedAt || question.answeredAt || question.createdAt) + '</button><button type="button" class="personal-icon" data-action="answer-open-question" data-id="' + esc(question.id) + '" aria-label="Soruyu yanıtla" data-tooltip="Yanıtı kaydet">' + icon("check") + '</button>' + followUps.bell("question", question.id) + workspaceFocusPin("question", question.id) + '</article>');
-  mountDashboardList("items", critical, "Bu öncelikte açık backlog işi yok.", (item) => [item.id, item.title, item.description, item.project, item.priority, item.status],
-    (item, searchText) => '<article class="personal-row' + (item.status === "Bloke" || overdueDays(item) > 0 ? " personal-row-attention" : "") + '" data-panel-search-text="' + esc(searchText) + '"><button type="button" class="personal-record-open" data-open-item="' + esc(item.id) + '"><strong>' + esc(item.title) + '</strong><small>' + esc(item.id + " · " + item.project) + '</small><span class="personal-critical-reason">' + esc([item.status === "Bloke" ? "Bloke" : "", overdueDays(item) ? overdueDays(item) + " gün gecikti" : "", item.priority + " öncelik"].filter(Boolean).join(" · ")) + '</span></button>' + workspaceFocusPin("item", item.id) + '</article>');
-  applyDashboardLayout();
-  applyDashboardMaximize();
-  applyDashboardVisibility();
+
+  root.innerHTML = '<div class="page-content personal-dashboard" data-scroll-layout="ready"><div class="personal-dashboard-body"><section class="personal-panel workspace-panel" aria-label="Çalışma alanı"><section class="personal-focus" aria-labelledby="personal-focus-title"><header class="personal-focus-heading"><div><h2 id="personal-focus-title">' + icon("focus") + 'Bugünkü odağım <span>' + focus.length + ' kayıt</span></h2><p>Bugün ilgilenmek istediğin görevler, notlar, sorular ve işler.</p></div><span class="personal-focus-hint">Senin seçtiklerin</span>' + dashboardSearchControl("focus") + '</header><div class="personal-focus-list">' + (focus.map(({ entry, record }) => '<article class="personal-focus-entry" data-focus-entry-kind="' + entry.kind + '" data-focus-entry-id="' + esc(entry.id) + '" data-panel-search-text="' + esc([record.title, record.label, record.meta].join(" ")) + '"><span class="personal-record-symbol">' + icon(record.icon) + '</span><button type="button" class="personal-record-open" ' + record.open + '><strong>' + esc(record.title) + '</strong><small>' + esc(record.label + " · " + record.meta) + '</small></button><button type="button" class="personal-icon" data-pomodoro-kind="' + entry.kind + '" data-pomodoro-record="' + esc(entry.id) + '" aria-label="Odaklan: ' + esc(record.title) + '" data-tooltip="Odaklan">' + icon("play") + '</button><button type="button" class="personal-icon" data-focus-kind="' + entry.kind + '" data-focus-id="' + esc(entry.id) + '" aria-label="Odaktan çıkar: ' + esc(record.title) + '" data-tooltip="Odaktan çıkar">' + icon("close") + '</button></article>').join("") || empty("Bugünkü odağını sen belirle. Aşağıdaki kayıtlarda iğne ikonuna basarak buraya ekleyebilirsin.")) + '</div></section><nav class="po-segments workspace-sections" aria-label="Çalışma alanı görünümleri">' + workspaceSectionsMarkup() + '</nav><div class="personal-grid workspace-notes-content"><section class="personal-panel personal-notes" data-dashboard-panel="' + workspaceSection + '" aria-label="' + (workspaceSection === "notes" ? "Notlar" : workspaceSection === "questions" ? "Sorular" : "Görevler") + '"><div class="personal-record-list"></div>' + workspaceMessageComposer(workspaceSection, workspaceRecordKind(workspaceSection)) + '</section></div></section></div></div>';
+  mountDashboardList(workspaceSection, unifiedNotes().filter((record) => record.kind === workspaceRecordKind(workspaceSection)), "İlk kaydını aşağıya mesaj olarak yazıp Enter ile gönderebilirsin.", (record) => [record.title, record.body, record.meta, record.linked, meetingStageRecordLabels[record.kind]], unifiedNoteRow);
   (Object.keys(dashboardSearches) as DashboardSearchKind[]).forEach(applyDashboardSearch);
 }
 
@@ -4184,6 +4141,12 @@ function renderNewAssetOptions(search = ""): void {
 }
 
 function openQuickCreateModal(defaultType?: string, linkedItemId = ""): void {
+  if (defaultType === "Not" || defaultType === "Kişisel görev") {
+    unifiedNoteKind = defaultType === "Not" ? "note" : "task";
+    unifiedNoteLinked = linkedItemId;
+    closeModal(); openWorkspaceShelf("notes");
+    document.querySelector<HTMLTextAreaElement>("#workspace-shelf textarea")?.focus(); return;
+  }
   const defaultKind = defaultType === "Kişisel görev" ? "Kişisel görev" : defaultType === "Not" ? "Not" : "Backlog işi";
   const activeProject = state.projects.find((project) => project.id === activeProjectId && !project.archived) || state.projects.find((project) => !project.archived);
   const projects = state.projects.filter((project) => !project.archived);
@@ -4892,7 +4855,7 @@ function saveReleaseScope(id: string): void {
 
 async function deleteRelease(id: string): Promise<void> {
   const release = state.releases.find((entry) => entry.id === id);
-  if (!release || !(await appConfirm('"' + release.name + '" release kaydını silmek istiyor musun? Backlog işleri korunur, release bağlantıları kaldırılır.'))) return;
+  if (!release || !(await appConfirmDeletion('"' + release.name + '" release kaydını silmek istiyor musun? Backlog işleri korunur, release bağlantıları kaldırılır.'))) return;
   state.items.forEach((item) => { if (item.releaseId === id) { item.releaseId = undefined; addWorkActivity(item, "release", "Silinen release bağlantısı kaldırıldı: " + release.name); } });
   state.releases = state.releases.filter((entry) => entry.id !== id);
   save(); render(); toast("Release silindi.");
@@ -4941,7 +4904,7 @@ function saveRoadmapNode(event: SubmitEvent): void {
 
 async function deleteRoadmapNode(id: string): Promise<void> {
   const node = state.roadmap.find((entry) => entry.id === id);
-  if (!node || !(await appConfirm('"' + node.title + '" hedefini silmek istiyor musun? Bağlı backlog işleri korunur ve hedef bağlantıları kaldırılır.'))) return;
+  if (!node || !(await appConfirmDeletion('"' + node.title + '" hedefini silmek istiyor musun? Bağlı backlog işleri korunur ve hedef bağlantıları kaldırılır.'))) return;
   const removed = new Set([id, ...state.roadmap.filter((entry) => entry.parentId === id).map((entry) => entry.id)]);
   state.roadmap = state.roadmap.filter((entry) => !removed.has(entry.id));
   state.items.forEach((item) => { if (item.roadmapNodeId && removed.has(item.roadmapNodeId)) { item.roadmapNodeId = undefined; addWorkActivity(item, "change", "Silinen ürün hedefi bağlantısı kaldırıldı."); } });
@@ -5087,6 +5050,11 @@ function openWorkspaceSettings(panel?: string): void {
   const previousScroll = modalRoot.querySelector<HTMLElement>(".settings-panels")?.scrollTop || 0;
   modalRoot.innerHTML = '<div class="modal-backdrop" data-close-modal><section class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settings-title"><header class="modal-header"><div><div class="panel-kicker">' + esc(state.profile.workspace || "ÇALIŞMA ALANI") + '</div><h2 id="settings-title">Ayarlar</h2></div><button class="modal-close" data-close-modal>×</button></header><form id="workspace-form" class="settings-form"><p class="settings-intro">Takip edeceğin projeleri ve çalışma alanında görünecek kullanıcı bilgilerini düzenle. Ayarlar bu cihazda saklanır.</p><div class="form-two-col"><label class="field-label">Kurum / ekip<input class="field-input" name="organization" maxlength="60" required value="' + esc(state.profile.organization) + '"></label><label class="field-label">Çalışma alanı adı<input class="field-input" name="workspace" maxlength="60" required value="' + esc(state.profile.workspace) + '"></label><label class="field-label">Adın<input class="field-input" name="userName" maxlength="60" required value="' + esc(state.profile.userName) + '"></label><label class="field-label">Rolün<input class="field-input" name="userRole" maxlength="60" required value="' + esc(state.profile.userRole) + '"></label></div><section class="jira-settings-block"><h3>Jira Server / Data Center</h3><p>Base URL girilmezse Jira menüsü devre dışı kalır. PAT’i Jira panelinde kendi hesabından oluşturup ekleyebilirsin.</p><label class="field-label">Jira Base URL<input class="field-input" name="jiraBaseUrl" type="url" placeholder="https://jira.kurum.local" value="' + esc(state.profile.jiraBaseUrl || "") + '"></label></section><div class="settings-note">Bu bilgiler yalnızca masaüstündeki yerel görünümü kişiselleştirir. Henüz kullanıcı hesabı veya kurum bağlantısı oluşturmaz.</div><footer class="modal-footer"><button type="button" class="button button-quiet" data-close-modal>Kapat</button><button type="submit" class="button button-primary">Kaydet</button></footer></form></section></div>';
   modalRoot.querySelector(".jira-settings-block")?.insertAdjacentHTML("afterend", '<div class="settings-actions"><button type="button" class="button button-secondary" data-action="open-setup">Ürünleri ve kurulum bilgilerini düzenle</button></div>' + renderTeamSettingsSection() + renderFieldDictionarySettings() + '<section class="backup-settings"><h3>Veri yedekleme</h3><p>Yedekleme dosya türünü ve kaydedileceği konumu seç. Ekler de yedeğe eklenir; dosyayı güvenli bir yerde sakla.</p><div class="backup-actions"><label class="field-label">Dosya biçimi<select id="backup-format" class="field-input"><option value="rota">Rota sıkıştırılmış yedek (.rota)</option><option value="json">JSON (.json)</option></select></label><button type="button" class="button button-secondary" data-action="backup-export">Yedek oluştur</button><button type="button" class="button button-secondary" data-action="backup-restore">Yedekten geri yükle</button></div></section>');
+  modalRoot.querySelector(".settings-intro")?.insertAdjacentHTML("afterend", '<section class="deletion-settings"><h3>Silme işlemleri</h3><label class="deletion-confirmation-choice"><input type="checkbox" id="workspace-confirm-deletion" ' + (isDeletionConfirmationEnabled() ? 'checked' : '') + '>Silmeden önce onay iste</label><p>Tercih bu cihazda anında kaydedilir. Kapalıyken silme onayları tekrar gösterilmez.</p></section>');
+  modalRoot.querySelector<HTMLInputElement>("#workspace-confirm-deletion")?.addEventListener("change", (event) => {
+    const field = event.target as HTMLInputElement;
+    if (!setDeletionConfirmationEnabled(field.checked)) { field.checked = isDeletionConfirmationEnabled(); toast("Silme onayı tercihi kaydedilemedi."); }
+  });
   const linkIssues = workspaceLinkIssues();
   document.querySelector(".backup-settings")?.insertAdjacentHTML("beforebegin", '<section class="workspace-link-report"><h3>Veri bağlantıları · ' + linkIssues.length + ' sorun</h3>' + (linkIssues.length ? '<ul>' + linkIssues.slice(0, 100).map((issue) => '<li>' + esc(issue) + '</li>').join('') + '</ul>' + (linkIssues.length > 100 ? '<p>İlk 100 sorun gösteriliyor.</p>' : '') : '<p>Eksik proje, iş, bileşen, release veya sprint bağlantısı bulunmadı.</p>') + '</section>');
   document.querySelector(".backup-settings")?.insertAdjacentHTML("beforebegin", '<section class="appearance-settings"><h3>Görünüm ve erişilebilirlik</h3><div class="form-two-col"><label class="field-label">Tema<select id="workspace-theme" class="field-input"><option value="system">Sistem</option><option value="light">Açık</option><option value="dark">Koyu</option></select></label><label class="field-label">Yakınlaştırma<select id="workspace-app-zoom" class="field-input">' + appZoomOptionsHtml() + '</select></label><label class="field-label">Yüksek kontrast<select id="workspace-high-contrast" class="field-input"><option value="false">Kapalı</option><option value="true">Açık</option></select></label><label class="field-label">Animasyonları azalt<select id="workspace-reduced-motion" class="field-input"><option value="false">Kapalı</option><option value="true">Açık</option></select></label></div><div class="accent-settings-field"><div><strong>Vurgu rengi</strong><small>Butonlar, avatarlar ve seçili öğelerde kullanılır. Seçim anında uygulanır ve bu cihazda saklanır.</small></div>' + accentPickerFields() + '<button type="button" class="button button-quiet button-small" data-accent-reset>Varsayılana dön</button></div><button type="button" class="button button-secondary button-small" data-action="reset-backlog-preferences">Backlog görünüm ve kolon tercihlerini sıfırla</button></section>');
@@ -5108,7 +5076,7 @@ function openWorkspaceSettings(panel?: string): void {
 type SettingsPanelId = "general" | "appearance" | "teams" | "work" | "integrations" | "data";
 let settingsActivePanel: SettingsPanelId = "general";
 const SETTINGS_PANELS: { id: SettingsPanelId; label: string; description: string; icon: string; selectors: string[] }[] = [
-  { id: "general", label: "Genel", description: "Kurum, çalışma alanı ve profil bilgilerin.", icon: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>', selectors: [".settings-intro", "#workspace-form > .form-two-col", ".settings-note", ".settings-actions"] },
+  { id: "general", label: "Genel", description: "Kurum, çalışma alanı ve profil bilgilerin.", icon: '<circle cx="12" cy="8" r="3.5"/><path d="M5 20a7 7 0 0 1 14 0"/>', selectors: [".settings-intro", "#workspace-form > .form-two-col", ".deletion-settings", ".settings-note", ".settings-actions"] },
   { id: "appearance", label: "Görünüm", description: "Tema, vurgu rengi, yakınlaştırma ve erişilebilirlik.", icon: '<path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.9 1.2-1.8-.5-1-.1-2.2 1.1-2.2H17a4 4 0 0 0 4-4c0-5-4-10-9-10z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15" cy="8" r="1"/>', selectors: [".appearance-settings"] },
   { id: "teams", label: "Takımlar", description: "Atamalarda kullanılan ekipler ve üyeler.", icon: '<circle cx="9" cy="8" r="3.2"/><path d="M3 19a6 6 0 0 1 12 0"/><path d="M16 5.2a3 3 0 0 1 0 5.8M18.5 19a5.5 5.5 0 0 0-3-4.9"/>', selectors: [".settings-team-section"] },
   { id: "work", label: "Tahmin ve sözlük", description: "Efor birimi, etiketler ve ürün alanları.", icon: '<path d="M3 12V4h8l9.5 9.5a2 2 0 0 1 0 2.8l-5.2 5.2a2 2 0 0 1-2.8 0z"/><circle cx="7.5" cy="8.5" r="1.3"/>', selectors: [".estimate-settings", ".dictionary-settings"] },
@@ -5396,7 +5364,7 @@ async function deleteProject(projectId: string): Promise<void> {
   const projectReleases = state.releases.filter((release) => release.project === project.name);
   const planCount = state.projectPlans?.filter((plan) => plan.productId === projectId).length || 0;
   const prompt = '"' + project.name + '" ürününü kalıcı olarak silmek istiyor musun? ' + projectItems.length + ' backlog işi, ' + projectAssets.length + ' ürün bileşeni, ' + projectReleases.length + ' release ve ' + planCount + ' proje planı silinecek. Bağlı kişisel görev ve notlar korunup bağımsız hale gelecek.';
-  if (!(await appConfirm(prompt))) return;
+  if (!(await appConfirmDeletion(prompt))) return;
   const removedItemIds = new Set(projectItems.map((item) => item.id));
   const removedAssetIds = new Set(projectAssets.map((asset) => asset.id));
   await Promise.all(projectItems.flatMap((item) => (item.attachments || []).flatMap((file) => file.storedName && desktop ? [desktop.removeAttachment(file.storedName).catch(() => false)] : [])));
@@ -5856,7 +5824,7 @@ function openWorkDiagramEditor(ownerType: WorkDiagram["ownerType"], ownerId: str
 
 async function deleteWorkDiagram(id: string): Promise<void> {
   const diagram = state.diagrams.find((entry) => entry.id === id);
-  if (!diagram || !(await appConfirm('"' + diagram.title + '" diyagramını silmek istiyor musun?'))) return;
+  if (!diagram || !(await appConfirmDeletion('"' + diagram.title + '" diyagramını silmek istiyor musun?'))) return;
   state.diagrams = state.diagrams.filter((entry) => entry.id !== id);
   const { ownerType, ownerId } = diagram;
   save(); closeModal();
@@ -6582,7 +6550,7 @@ function openRecordEditor(kind: "item" | "task" | "note", id: string): void {
 async function deleteBacklogItems(ids: string[], confirmation?: string): Promise<void> {
   const idsToDelete = new Set(ids);
   const itemsToDelete = state.items.filter((item) => idsToDelete.has(item.id));
-  if (!itemsToDelete.length || (confirmation && !(await appConfirm(confirmation)))) return;
+  if (!itemsToDelete.length || (confirmation && !(await appConfirmDeletion(confirmation)))) return;
   const undoSnapshot = structuredClone(state);
   const deletedAttachments = itemsToDelete.flatMap((item) => item.attachments || []);
   const removedIds = new Set(itemsToDelete.map((item) => item.id));
@@ -6624,14 +6592,15 @@ async function deleteRecord(kind: "item" | "task" | "note", id: string): Promise
     return;
   }
   const label = kind === "task" ? "kişisel görevi" : "notu";
-  if (!(await appConfirm('"' + record.title + '" ' + label + ' silinsin mi? Silme işlemini 6 saniye içinde geri alabilirsin.'))) return;
+  if (!(await appConfirmDeletion('"' + record.title + '" ' + label + ' silinsin mi? Silme işlemini 6 saniye içinde geri alabilirsin.'))) return;
   const undoSnapshot = structuredClone(state);
   if (kind === "task") state.tasks = state.tasks.filter((entry) => entry.id !== id);
   else {
     state.notes = state.notes.filter((entry) => entry.id !== id);
     state.diagrams = state.diagrams.filter((diagram) => diagram.ownerType !== "note" || diagram.ownerId !== id);
   }
-  save(); closeModal(); render(); toastUndoDeletion("Kayıt silindi.", undoSnapshot, record.attachments || []);
+  if (!save()) { Object.assign(state, undoSnapshot); return; }
+  closeModal(); render(); toastUndoDeletion("Kayıt silindi.", undoSnapshot, record.attachments || []);
 }
 
 function duplicateBacklogItem(id: string): void {
@@ -7608,7 +7577,7 @@ document.addEventListener("click", async (event) => {
     else if (action.dataset.action === "edit-open-question" && action.dataset.id) openQuestionForm(action.dataset.id);
     else if (action.dataset.action === "answer-open-question" && action.dataset.id) openQuestionAnswerForm(action.dataset.id);
     else if (action.dataset.action === "reopen-question" && action.dataset.id) { const question = state.openQuestions?.find((entry) => entry.id === action.dataset.id); if (question) { question.status = "Açık"; question.answeredAt = undefined; question.updatedAt = new Date().toISOString(); questionFilter = "open"; save(); renderOpenQuestions(); toast("Soru yeniden açıldı."); } }
-    else if (action.dataset.action === "delete-open-question" && action.dataset.id) { if ((await appConfirm("Bu soruyu silmek istiyor musun?"))) { state.openQuestions = (state.openQuestions || []).filter((entry) => entry.id !== action.dataset.id); save(); renderOpenQuestions(); } }
+    else if (action.dataset.action === "delete-open-question" && action.dataset.id) { if ((await appConfirmDeletion("Bu soruyu silmek istiyor musun?"))) { state.openQuestions = (state.openQuestions || []).filter((entry) => entry.id !== action.dataset.id); save(); renderOpenQuestions(); } }
     else if (action.dataset.action === "toggle-ready-pool") { readyWorkPool = !readyWorkPool; renderBacklog(); }
     else if (action.dataset.action === "apply-acceptance-template" && action.dataset.target) {
       const select = modalRoot.querySelector<HTMLSelectElement>('[data-acceptance-template-target="' + action.dataset.target + '"]');
@@ -7756,7 +7725,7 @@ document.addEventListener("click", async (event) => {
     }
     else if (action.dataset.action === "delete-backlog-view" && action.dataset.viewId) {
       const view = savedBacklogViews.find((entry) => entry.id === action.dataset.viewId);
-      if (view && (await appConfirm('"' + view.name + '" görünümünü silmek istiyor musun?'))) {
+      if (view && (await appConfirmDeletion('"' + view.name + '" görünümünü silmek istiyor musun?'))) {
         savedBacklogViews = savedBacklogViews.filter((entry) => entry.id !== view.id);
         if (activeBacklogViewId === view.id) activeBacklogViewId = "";
         persistBacklogViews();
@@ -7933,7 +7902,7 @@ document.addEventListener("click", async (event) => {
   const deleteTeam = target.closest<HTMLElement>("[data-delete-team]");
   if (deleteTeam?.dataset.deleteTeam) {
     const team = state.teams.find((entry) => entry.id === deleteTeam.dataset.deleteTeam);
-    if (!team || !(await appConfirm('"' + team.name + '" takımını silmek istiyor musun? Bu takıma atanmış backlog işleri atamasız kalır.'))) return;
+    if (!team || !(await appConfirmDeletion('"' + team.name + '" takımını silmek istiyor musun? Bu takıma atanmış backlog işleri atamasız kalır.'))) return;
     state.teams = state.teams.filter((entry) => entry.id !== team.id);
     state.items.forEach((item) => { item.assignments = getWorkAssignments(item).filter((assignment) => assignment.teamId !== team.id); syncLegacyAssignmentFields(item); });
     state.projects.forEach((project) => { project.assignments = (project.assignments || []).filter((assignment) => assignment.teamId !== team.id); });
@@ -7957,7 +7926,7 @@ document.addEventListener("click", async (event) => {
   if (removeDashboardMember?.dataset.removeDashboardMember && removeDashboardMember.dataset.teamMember) {
     const team = state.teams.find((entry) => entry.id === removeDashboardMember.dataset.removeDashboardMember);
     const member = removeDashboardMember.dataset.teamMember;
-    if (!team || !(await appConfirm(member + " üyesini takımdan çıkarmak istiyor musun? Üzerindeki işler takımda sorumlusuz kalır."))) return;
+    if (!team || !(await appConfirmDeletion(member + " üyesini takımdan çıkarmak istiyor musun? Üzerindeki işler takımda sorumlusuz kalır."))) return;
     team.members = team.members.filter((name) => name !== member);
     state.items.forEach((item) => { item.assignments = validAssignments(getWorkAssignments(item)); syncLegacyAssignmentFields(item); });
     state.projects.forEach((project) => { project.assignments = validAssignments(project.assignments || []); });
@@ -8367,12 +8336,7 @@ document.addEventListener("input", (event) => {
   dashboardSearches[kind] = event.target.value; applyDashboardSearch(kind);
 });
 
-document.addEventListener("change", (event) => {
-  if (event.target instanceof HTMLInputElement && event.target.name === "dashboard-priority") {
-    dashboardPriority = event.target.value; renderOverview();
-    root.querySelector<HTMLButtonElement>(".personal-priority-trigger")?.focus();
-  }
-});
+
 
 document.addEventListener("input", (event) => {
   if (!(event.target instanceof HTMLTextAreaElement)) return;
@@ -8380,12 +8344,41 @@ document.addEventListener("input", (event) => {
   if (form) {
     workspaceMessageDrafts[form.dataset.messageKind as WorkspaceMessageKind] = event.target.value;
     resizeWorkspaceMessage(event.target);
+    updateNoteCaptureCompletion();
+    updateWorkspaceLinkMenu(event.target);
     const ready = !!event.target.value.trim();
     form.classList.toggle("has-message", ready);
     form.querySelector<HTMLButtonElement>('button[type="submit"]')!.disabled = !ready;
   }
 });
 document.addEventListener("keydown", (event) => {
+  const form = event.target instanceof Element ? event.target.closest<HTMLFormElement>("[data-message-kind]") : null;
+  const composerField = form && event.target instanceof HTMLTextAreaElement ? event.target : null;
+  const linkMenu = form?.querySelector<HTMLElement>(".workspace-link-menu");
+  if (composerField && form && linkMenu && !linkMenu.hidden && !event.isComposing) {
+    const options = [...linkMenu.querySelectorAll<HTMLElement>("[data-link-pick]")];
+    const active = Math.max(0, options.findIndex((option) => option.getAttribute("aria-selected") === "true"));
+    if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+      event.preventDefault();
+      const next = (active + (event.key === "ArrowDown" ? 1 : -1) + options.length) % options.length;
+      options.forEach((option, index) => option.setAttribute("aria-selected", String(index === next)));
+      options[next]?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if ((event.key === "Enter" && !event.shiftKey) || event.key === "Tab") {
+      if (options[active]) { event.preventDefault(); pickWorkspaceLink(composerField, options[active].dataset.linkPick!); return; }
+    }
+    if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); linkMenu.hidden = true; return; }
+  }
+  if (composerField && form && event.key === "Backspace" && composerField.selectionStart === 0 && composerField.selectionEnd === 0 && form.querySelector<HTMLInputElement>('input[name="linked"]')?.value) {
+    event.preventDefault(); setWorkspaceLink(form, ""); return;
+  }
+  if (form && ((event.ctrlKey && event.code === "Space") || (event.altKey && /^Digit[1-3]$/.test(event.code)))) {
+    event.preventDefault(); if (event.repeat) return;
+    const radios = [...form.querySelectorAll<HTMLInputElement>('input[name="kind"]')];
+    const index = event.ctrlKey ? (radios.findIndex((radio) => radio.checked) + 1) % radios.length : Number(event.code.slice(-1)) - 1;
+    radios[index]?.click(); return;
+  }
   if (event.target instanceof HTMLTextAreaElement && event.target.closest("[data-message-kind]") && event.key === "Enter" && !event.shiftKey && !event.isComposing) {
     event.preventDefault(); event.target.closest<HTMLFormElement>("form")?.requestSubmit();
   }
@@ -8397,7 +8390,7 @@ document.addEventListener("click", (event) => {
 
 document.addEventListener("submit", (event) => {
   const form = event.target as HTMLFormElement;
-  if (form.matches("[data-message-kind]")) { event.preventDefault(); sendWorkspaceMessage(form); return; }
+  if (form.matches("[data-message-kind]")) { event.preventDefault(); if (form.closest(".note-capture-modal")) appendNoteCaptureMessage(form); else sendWorkspaceMessage(form); return; }
   const formId = form.getAttribute("id") || "";
   if (formId === "meeting-stage-record-form") { event.preventDefault(); submitMeetingStageRecord(form); return; }
   if (formId === "record-link-form") {
@@ -8957,14 +8950,8 @@ function toggleTheme(): void {
 
 syncThemeToggle();
 
-let followUpsReady = false;
-const poTools = createPoTools({ state: () => state, save, id: nextId, icon, esc, navigate: setView, activeProject: () => activeProjectId, openItem, toast, commitItemEdit: () => !detailEdit || commitDetailEdit(),
-  responsesChanged: (full) => { if (!followUpsReady) return; if (full) followUps.renderPanel(); else followUps.syncCounts(); } });
-const followUps = createFollowUps({ state: () => state, save, id: nextId, icon, esc, toast, openItem, closeModal: () => closeModal(),
-  openRecord: (kind, id) => { if (kind === "task") openTask(id); else if (kind === "note") showNote(id); else openQuestionForm(id); },
-  responses: { pending: poTools.pendingResponses, markup: poTools.responseMarkup } });
+const poTools = createPoTools({ state: () => state, save, id: nextId, icon, esc, navigate: setView, activeProject: () => activeProjectId, openItem, toast, commitItemEdit: () => !detailEdit || commitDetailEdit(), responsesChanged: () => {} });
 const projectPlanner = createProjectPlanner({ root, modal: modalRoot, workspace: () => state, save, render, openItem, close: () => closeModal(), notify: toast, id: (prefix) => prefix + "-" + crypto.randomUUID(), escape: esc });
-followUpsReady = true;
 initSidebarCustomization();
 initWorkspaceToolbar();
 initPomodoro({ desktop, modalRoot, record: workspaceFocusRecord, toast });
@@ -8972,9 +8959,6 @@ initPomodoro({ desktop, modalRoot, record: workspaceFocusRecord, toast });
 syncMemberIds(state);
 render();
 showWorkspaceRecovery();
-checkFollowUpReminders();
-checkPersonalFollowUps();
-window.setInterval(() => { checkFollowUpReminders(); checkPersonalFollowUps(); }, 60_000);
 window.setTimeout(() => { void createAutomaticBackup(); }, 10_000);
 window.setInterval(() => { void createAutomaticBackup(); }, 60 * 60_000);
 if (!hasStoredWorkspace) openSetupWizard(true);

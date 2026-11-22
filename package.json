@@ -10,6 +10,7 @@
   "scripts": {
     "build:renderer": "tsc -p tsconfig.renderer.json && node scripts/build-renderer.mjs",
     "build": "npm run build:renderer",
+    "release": "node scripts/release.mjs",
     "test:features": "node tests/feature/remaining.mjs",
     "test:po": "npm run build && node tests/feature/po-tools.mjs",
     "test:dashboard": "npm run build && node tests/feature/personal-dashboard.mjs",

@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import vm from 'node:vm';
+import { transformSync } from 'esbuild';
+const source=fs.readFileSync(new URL('../../src/workspace-store.ts',import.meta.url),'utf8').replace('export function createWorkspaceStore','function createWorkspaceStore');
+const pending=[], events=[];
+const context=vm.createContext({window:{__ROTA_WORKSPACE__:{status:'ok',raw:'{}'}},localStorage:{getItem(){return null;},setItem(){throw new Error('QuotaExceededError');}},bridge:{writeWorkspace(){return new Promise((resolve,reject)=>pending.push({resolve,reject}));}},hooks:{saved(){events.push('saved');},failed(error){events.push(error.message);}}});
+vm.runInContext(transformSync(source,{loader:'ts'}).code+'\nglobalThis.store=createWorkspaceStore("test",bridge,hooks);',context);
+context.store.persist('{"n":1}'); context.store.persist('{"n":2}');
+pending[1].resolve(true); await Promise.resolve();
+pending[0].reject(new Error('old failure')); await Promise.resolve();
+assert.deepEqual(events,['saved']);
+context.store.persist('{"n":3}'); pending[2].reject(new Error('EACCES workspace.json')); await Promise.resolve();
+assert.deepEqual(events,['saved','EACCES workspace.json']);
+assert.equal(context.store.read(),'{"n":3}');
+context.store.persist('{"n":3}'); pending[3].resolve(true); await Promise.resolve();
+assert.equal(events.at(-1),'saved');
+console.log('PASS workspace store: latest failure detail, stale failure ignored, quota fallback, retry');

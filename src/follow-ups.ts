@@ -8,6 +8,7 @@ interface FollowUpsApi {
   openRecord(kind: FollowUpRecordKind, id: string): void;
   openItem(id: string): void;
   closeModal(): void;
+  onSelectView?(): void;
   /** Senden yanıt bekleyen talepler ve sorular; aynı Takipler panelinde listelenir. */
   responses: { pending(): number; markup(resolved: boolean): { filters: string; list: string } };
 }
@@ -110,17 +111,23 @@ export function createFollowUps(api: FollowUpsApi) {
     if (!panel) return;
     const { owners, due, waiting } = ownedFollowUps();
     const counts = segmentCounts(due.length, waiting.length);
-    const segments = FOLLOW_UP_VIEWS.map((key) => '<button type="button" data-followup-view="' + key + '" aria-pressed="' + (view === key) + '">' + segmentLabels[key] + (counts[key] === undefined ? "" : ' · <span data-followup-segment-count="' + key + '">' + counts[key] + '</span>') + '</button>').join("");
-    const heading = '<header class="personal-panel-heading"><div><h2 id="workspace-followups-title">' + icon("bell") + 'Takipler <span data-followup-count>' + (due.length + (counts.responses || 0)) + '</span></h2><p>Zamanı gelen takipler ve senden yanıt bekleyen konular tek listede.</p></div><button type="button" class="personal-icon icon-action" data-followup-quick aria-label="Hızlı takip ekle" data-tooltip="Hızlı takip ekle">' + icon("add") + '</button><button type="button" class="personal-icon" data-dashboard-hide="followups" aria-label="Takipler panelini gizle" data-tooltip="Paneli gizle">' + icon("close") + '</button></header>';
+    const integrated = panel.closest(".workspace-panel");
+    const segments = FOLLOW_UP_VIEWS.map((key) => '<button type="button" data-followup-view="' + key + '" aria-pressed="' + (view === key && (!integrated || !panel.hidden)) + '">' + segmentLabels[key] + (counts[key] === undefined ? "" : ' · <span data-followup-segment-count="' + key + '">' + counts[key] + '</span>') + '</button>').join("");
+    const quick = '<button type="button" class="personal-icon icon-action" data-followup-quick aria-label="Hızlı takip ekle" data-tooltip="Hızlı takip ekle">' + icon("add") + '</button>';
+    const heading = integrated ? '<div class="workspace-followup-actions">' + quick + '</div>' : '<header class="personal-panel-heading"><h2 id="workspace-followups-title">' + icon("bell") + 'Takipler <span data-followup-count>' + (due.length + (counts.responses || 0)) + '</span></h2>' + quick + '</header>';
+    const navigation = integrated?.querySelector("[data-workspace-segments]");
+    if (navigation) navigation.innerHTML = '<button type="button" data-workspace-notes aria-pressed="' + panel.hidden + '">Notlar</button>' + segments;
+    const segmentBar = integrated ? "" : '<div class="po-segments">' + segments + '</div>';
+
     if (view === "responses" || view === "answered") {
       const responses = api.responses.markup(view === "answered");
-      panel.innerHTML = heading + '<div class="po-mine-toolbar followup-toolbar"><div class="po-segments">' + segments + '</div>' + responses.filters + '</div><div class="po-request-list">' + responses.list + '</div>';
+      panel.innerHTML = heading + '<div class="po-mine-toolbar followup-toolbar">' + segmentBar + responses.filters + '</div><div class="po-request-list">' + responses.list + '</div>';
       return;
     }
     const rows = (view === "due" ? due : waiting).sort((a, b) => (Date.parse(a.entry.snoozedUntil || a.entry.dueAt || a.entry.createdAt) || 0) - (Date.parse(b.entry.snoozedUntil || b.entry.dueAt || b.entry.createdAt) || 0));
     const ownerOptions = '<option value="' + ALL_OWNERS + '"' + (ownerFilter === ALL_OWNERS ? " selected" : "") + '>Tüm kişiler</option>' + owners.map((name) => '<option value="' + e(name) + '"' + (name === ownerFilter ? " selected" : "") + '>' + e(name === me() ? name + " (ben)" : name) + '</option>').join("");
     panel.innerHTML = heading +
-      '<div class="po-mine-toolbar followup-toolbar"><div class="po-segments">' + segments + '</div><select data-followup-owner aria-label="Takip eden kişi">' + ownerOptions + '</select></div>' +
+      '<div class="po-mine-toolbar followup-toolbar">' + segmentBar + '<select data-followup-owner aria-label="Takip eden kişi">' + ownerOptions + '</select></div>' +
       '<div class="followup-list">' + (rows.map(({ entry, reason }) => row(entry, reason, view === "due")).join("") || '<p class="po-empty">' + (view === "due" ? "Zamanı gelen takip yok." : "Planlı takip yok. Görev, not ve sorulardaki zil simgesiyle takip başlatabilirsin.") + '</p>') + '</div>';
   }
 
@@ -130,7 +137,7 @@ export function createFollowUps(api: FollowUpsApi) {
     if (!panel) return;
     const { due, waiting } = ownedFollowUps();
     const counts = segmentCounts(due.length, waiting.length);
-    panel.querySelectorAll<HTMLElement>("[data-followup-segment-count]").forEach((node) => { node.textContent = String(counts[node.dataset.followupSegmentCount as FollowUpView] ?? 0); });
+    (panel.closest(".workspace-panel") || panel).querySelectorAll<HTMLElement>("[data-followup-segment-count]").forEach((node) => { node.textContent = String(counts[node.dataset.followupSegmentCount as FollowUpView] ?? 0); });
     const total = panel.querySelector("[data-followup-count]");
     if (total) total.textContent = String(due.length + (counts.responses || 0));
   }
@@ -258,7 +265,7 @@ export function createFollowUps(api: FollowUpsApi) {
     const data = button.dataset;
     if (data.followupKind) { event.preventDefault(); event.stopPropagation(); openRecordDialog(data.followupKind as FollowUpRecordKind, data.followupRecord || ""); return; }
     if (data.followupQuick !== undefined) { openQuickDialog(); return; }
-    if (data.followupView) { view = FOLLOW_UP_VIEWS.includes(data.followupView as FollowUpView) ? data.followupView as FollowUpView : "due"; snoozing = ""; renderPanel(); return; }
+    if (data.followupView) { api.onSelectView?.(); view = FOLLOW_UP_VIEWS.includes(data.followupView as FollowUpView) ? data.followupView as FollowUpView : "due"; snoozing = ""; renderPanel(); root.querySelector<HTMLButtonElement>('[data-followup-view="' + view + '"]')?.focus(); return; }
     if (data.followupItem) { api.openItem(data.followupItem); return; }
     if (data.followupSnoozeToggle) { snoozing = snoozing === data.followupSnoozeToggle ? "" : data.followupSnoozeToggle; renderPanel(); root.querySelector<HTMLElement>('[data-followup-snooze-toggle="' + CSS.escape(data.followupSnoozeToggle) + '"]')?.focus(); return; }
     if (data.followupSnooze) { snooze(data.followupSnooze, data.until || "hour"); return; }

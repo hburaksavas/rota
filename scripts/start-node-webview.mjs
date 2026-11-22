@@ -244,17 +244,40 @@ const automaticBackup = async (workspace) => {
   return { path, attachmentCount };
 };
 const allowedAssets = new Set(["/", "/index.html", "/src/styles.css", "/src/po-tools.css", "/dist/renderer/app.js", "/dist/renderer/diagram.js"]);
+const bridgeToken = randomUUID();
 const assetServer = createServer(async (request, response) => {
   let pathname;
   try { pathname = decodeURIComponent(new URL(request.url || "/", "http://127.0.0.1").pathname); }
   catch { response.writeHead(400).end("Bad request"); return; }
+  if (pathname === "/desktop-api") {
+    if (request.method !== "POST" || request.headers.origin !== appOrigin || request.headers["x-rota-token"] !== bridgeToken) {
+      response.writeHead(403).end("Forbidden"); return;
+    }
+    try {
+      const chunks = []; let size = 0;
+      for await (const chunk of request) {
+        size += chunk.length;
+        if (size > 200 * 1024 * 1024) { response.writeHead(413).end("Payload too large"); return; }
+        chunks.push(chunk);
+      }
+      const { method, args } = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+      if (!Object.hasOwn(desktopMethods, method) || !Array.isArray(args)) throw new Error("Geçersiz masaüstü işlemi.");
+      const result = await desktopMethods[method](...args);
+      response.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+      response.end(JSON.stringify({ result: result ?? null }));
+    } catch (error) {
+      response.writeHead(400, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
+      response.end(JSON.stringify({ error: String(error?.message || error) }));
+    }
+    return;
+  }
   if (pathname === "/workspace-boot.js") {
     // Uygulama kodundan önce senkron yüklenir; böylece çalışma alanı açılışta dosyadan okunur.
     let boot;
     try { const raw = await workspaceFile.read(); boot = raw === null ? { status: "missing" } : { status: "ok", raw }; }
     catch (error) { boot = { status: "error", message: String(error?.message || error) }; }
-    response.writeHead(200, { "Content-Type": mimeTypes[".js"], "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff" });
-    response.end("window.__ROTA_WORKSPACE__ = " + JSON.stringify(boot) + ";");
+    response.writeHead(200, { "Content-Type": mimeTypes[".js"], "Cache-Control": "no-store", "X-Content-Type-Options": "nosniff", "Cross-Origin-Resource-Policy": "same-origin" });
+    response.end("window.__ROTA_WORKSPACE__ = " + JSON.stringify(boot) + ";" + desktopBootScript);
     return;
   }
   if (!allowedAssets.has(pathname)) { response.writeHead(404).end("Not found"); return; }
@@ -273,7 +296,16 @@ const appIcon = await loadWindowIcon();
 const appWindow = app.createBrowserWindow({ title: "Rota", width: 1440, height: 920, minWidth: 1080, minHeight: 720, windowsClassName: "HburakSavasRota", windowsTaskbarIcon: { data: appIcon.pixels, width: appIcon.width, height: appIcon.height } });
 appWindow.setWindowIcon(appIcon.pixels, appIcon.width, appIcon.height);
 appWindow.setTaskbarIcon(appIcon.pixels, appIcon.width, appIcon.height);
-const webview = appWindow.createWebview({ url: `${appOrigin}/index.html`, nativeFileDrop: true, enableDevtools: process.env.ROTA_WEBVIEW_DEVTOOLS === "1", webContext: app.createWebContext({ dataDirectory: profilePath }), navigationHandler: (url) => url.startsWith(`${appOrigin}/`) });
+// WebViewJS 0.6.0'ın senkron navigationHandler callback'i Windows'ta
+// olay döngüsünü kilitleyebiliyor;
+// aynı kaynak sınırı uygulama kodundan önce yüklenen başlangıç betiğiyle korunur.
+const navigationPreload = `(() => {
+  const allowed = value => { try { return new URL(value, location.href).origin === ${JSON.stringify(appOrigin)}; } catch { return false; } };
+  window.navigation?.addEventListener('navigate', event => { if (!allowed(event.destination.url)) event.preventDefault(); });
+  document.addEventListener('click', event => { const link = event.target.closest?.('a[href]'); if (link && !allowed(link.href)) event.preventDefault(); }, true);
+  document.addEventListener('submit', event => { if (!allowed(event.target.action)) event.preventDefault(); }, true);
+})();`;
+const webview = appWindow.createWebview({ url: "about:blank", nativeFileDrop: true, enableDevtools: process.env.ROTA_WEBVIEW_DEVTOOLS === "1", webContext: app.createWebContext({ dataDirectory: profilePath }) });
 const pomodoro = createPomodoroController({
   notify: (session) => new Promise((resolveNotification, rejectNotification) => {
     const notification = new Notification(session.phase === "focus" ? "Rota · Odak süren tamamlandı" : "Rota · Molan tamamlandı", {
@@ -285,7 +317,7 @@ const pomodoro = createPomodoroController({
   })
 });
 appWindow.on("close", () => pomodoro.dispose());
-webview.expose("rotaDesktop", {
+const desktopMethods = {
   resolveDroppedFileShortcuts: async () => { const paths = nativeDropBridge.consumePaths(); return paths.length ? fileShortcuts(paths) : []; },
   createFileShortcuts: fileShortcuts,
   pickFileShortcuts: async () => { const paths = await appWindow.openFileDialog({ multiple: true, title: "Favspace’e dosya kısayolu ekle", filters: [{ name: "Tüm dosyalar", extensions: ["*"] }] }); return paths.length ? fileShortcuts(paths) : []; },
@@ -359,8 +391,18 @@ webview.expose("rotaDesktop", {
   },
   jiraListIssueTypes: async (base, projectKey) => { if (!/^[A-Z][A-Z0-9_]{0,29}$/.test(projectKey)) throw new Error("Jira proje anahtarı geçersiz."); const r = await jiraRequest(base, `/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&expand=projects.issuetypes`); const p = (r.projects || []).find((x) => x.key === projectKey); return (p?.issuetypes || []).map((x) => ({ id: String(x.id), name: x.name, subtask: Boolean(x.subtask) })); },
   jiraCreateIssue: async (base, boardId, projectKey, issueTypeId, summary, description) => { if (!/^[A-Z][A-Z0-9_]{0,29}$/.test(projectKey) || !String(summary).trim() || summary.length > 255 || description.length > 30000) throw new Error("Jira issue alanları geçersiz."); const [projects, types] = await Promise.all([jiraProjects(base, boardId), jiraRequest(base, `/rest/api/2/issue/createmeta?projectKeys=${encodeURIComponent(projectKey)}&expand=projects.issuetypes`)]); if (!projects.some((x) => x.key === projectKey)) throw new Error("Seçilen Jira projesi bu board kapsamı içinde değil."); const project = (types.projects || []).find((x) => x.key === projectKey); if (!(project?.issuetypes || []).some((x) => String(x.id) === String(issueTypeId) && !x.subtask)) throw new Error("Issue türü bu Jira projesinde oluşturulabilir değil."); return jiraRequest(base, "/rest/api/2/issue", "POST", { fields: { project: { key: projectKey }, issuetype: { id: String(issueTypeId) }, summary: summary.trim(), description: description.trim() } }); },
-});
+};
+
+// Köprü, arayüzden önce yüklenir. Senkron native callback'ler yerine mevcut
+// yerel HTTP sunucusu kullanılır; her çağrı kaynak ve oturum anahtarıyla doğrulanır.
+const desktopBootScript = navigationPreload + `window.rotaDesktop = Object.fromEntries(${JSON.stringify(Object.keys(desktopMethods))}.map(method => [method, async (...args) => {
+  const response = await fetch('/desktop-api', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Rota-Token': ${JSON.stringify(bridgeToken)} }, body: JSON.stringify({method, args}) });
+  const result = await response.json();
+  if (!response.ok || result.error) throw new Error(result.error || 'Masaüstü işlemi başarısız.');
+  return result.result;
+}]));`;
 
 const nativeDropBridge = installNativeFileDrop(appWindow, webview);
 installDesktopShutdown(app, assetServer, appWindow, () => workspaceFile.flushSync());
+webview.loadUrl(`${appOrigin}/index.html`);
 app.run();
